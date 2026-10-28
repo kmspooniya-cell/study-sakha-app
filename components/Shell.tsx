@@ -19,7 +19,8 @@ export type NavKey =
   | 'Notifications'
   | 'Profile'
   | 'Settings'
-  | 'Admin';
+  | 'Admin'
+  | 'Statistics';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
 
@@ -28,6 +29,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: 'Study',
     items: [
       { key: 'Dashboard', label: 'Dashboard', icon: 'home-outline' },
+      { key: 'Statistics', label: 'Statistics', icon: 'analytics-outline' },
       { key: 'Library', label: 'Library', icon: 'library-outline' },
       { key: 'PYQ', label: 'PYQ Bank', icon: 'albums-outline' },
       { key: 'Tests', label: 'Test Series', icon: 'timer-outline' },

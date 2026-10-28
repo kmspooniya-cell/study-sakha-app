@@ -25,6 +25,7 @@ import SearchScreen from './screens/SearchScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
+import StatisticsScreen from './screens/StatisticsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
@@ -49,6 +50,7 @@ const linking = {
       CurrentAffairs: 'current-affairs',
       Search: 'search',
       Notifications: 'notifications',
+      Statistics: 'statistics',
       Profile: 'profile',
       Settings: 'settings',
       Admin: 'admin',
@@ -108,6 +110,7 @@ function Navigation() {
             <Stack.Screen name="CurrentAffairs" component={CurrentAffairsScreen} />
             <Stack.Screen name="Search" component={SearchScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="Statistics" component={StatisticsScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Admin" component={AdminScreen} />
