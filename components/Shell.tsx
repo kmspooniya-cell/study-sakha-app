@@ -387,14 +387,25 @@ export function Shell({
           {scroll ? (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
               <View style={{ marginBottom: 14 }}>
-                <Txt size={21} weight="800" display>
-                  {title}
-                </Txt>
-                {subtitle ? (
-                  <Txt size={12.5} color={colors.textMuted}>
-                    {subtitle}
-                  </Txt>
-                ) : null}
+              {(title?.trim() || subtitle?.trim()) ? (
+  <View style={{ marginBottom: 16 }}>
+    {!!title?.trim() && (
+      <Txt size={24} weight="800" display>
+        {title}
+      </Txt>
+    )}
+
+    {!!subtitle?.trim() && (
+      <Txt
+        size={13}
+        color={colors.textMuted}
+        style={{ marginTop: 4 }}
+      >
+        {subtitle}
+      </Txt>
+    )}
+  </View>
+) : null}
               </View>
               {children}
             </ScrollView>
