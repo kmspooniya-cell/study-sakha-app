@@ -311,7 +311,8 @@ export function FocusTimerButton() {
         }}
       >
         <Ionicons name="timer-outline" size={18} color="#FFFFFF" />
-        <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Focus Timer</Text>
+        <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Start focus session
+        </Text>
       </Pressable>
 
       <Modal

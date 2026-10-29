@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { createDrawerNavigator, DrawerContentScrollView } from '@react-navigation/drawer';
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Platform, View, Text, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
@@ -31,6 +33,7 @@ import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
 
 const Stack = createNativeStackNavigator();
+const Drawer = createDrawerNavigator();
 
 const linking = {
   prefixes: [],
@@ -38,7 +41,12 @@ const linking = {
     screens: {
       SignIn: 'sign-in',
       SignUp: 'sign-up',
-      Dashboard: '',
+      Dashboard: {
+        path: '',
+        screens: {
+          DashboardRoot: '',
+        },
+      },
       Library: 'library',
       PYQ: 'pyq-bank',
       Tests: 'tests',
@@ -68,6 +76,73 @@ function Splash() {
   );
 }
 
+// ----------------------------------------------------
+// 1. CUSTOM LEFT DRAWER COMPONENT
+// ----------------------------------------------------
+function CustomDrawerContent(props: any) {
+  const { state } = useStore();
+  const { colors, scheme } = useTheme();
+  const first = (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 0 }}>
+        {/* Profile Header (Top) */}
+        <LinearGradient 
+          colors={scheme === 'dark' ? ['#2A1519', '#1F1013'] : ['#E11D48', '#BE123C']} 
+          style={{ padding: 20, paddingTop: 60, paddingBottom: 30, flexDirection: 'row', alignItems: 'center' }}
+        >
+          <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
+            <Text style={{ color: '#E11D48', fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
+          </View>
+          <View>
+            <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{state.user?.name || 'Aspirant'}</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
+          </View>
+        </LinearGradient>
+
+        {/* 4 Menu Options */}
+        <View style={{ padding: 15, gap: 5 }}>
+          {[
+            { label: 'Offline downloads', icon: 'cloud-download-outline' },
+            { label: 'Students testimonials', icon: 'chatbubbles-outline' },
+            { label: 'How to use the app', icon: 'help-circle-outline' },
+            { label: 'Privacy policy', icon: 'shield-checkmark-outline' },
+          ].map((item, i) => (
+            <Pressable key={i} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderRadius: 8, opacity: pressed ? 0.7 : 1 })}>
+              <Ionicons name={item.icon as any} size={22} color={colors.text} />
+              <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text, marginLeft: 15 }}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </DrawerContentScrollView>
+
+      {/* Share Bottom Bar */}
+      <Pressable style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', padding: 20, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 })}>
+        <Ionicons name="share-social-outline" size={24} color={colors.blue} />
+        <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.blue, marginLeft: 15 }}>Share with friends</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ----------------------------------------------------
+// 2. MAIN DRAWER NAVIGATOR (Wraps Dashboard)
+// ----------------------------------------------------
+function MainDrawerNavigator() {
+  return (
+    <Drawer.Navigator 
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+      screenOptions={{ headerShown: false, drawerStyle: { width: 290 } }}
+    >
+      <Drawer.Screen name="DashboardRoot" component={DashboardScreen} />
+    </Drawer.Navigator>
+  );
+}
+
+// ----------------------------------------------------
+// 3. ROOT STACK NAVIGATOR
+// ----------------------------------------------------
 function Navigation() {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
@@ -98,7 +173,9 @@ function Navigation() {
       >
         {state.user ? (
           <>
-            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            {/* Dashboard replaced with MainDrawerNavigator */}
+            <Stack.Screen name="Dashboard" component={MainDrawerNavigator} />
+            
             <Stack.Screen name="Library" component={LibraryScreen} />
             <Stack.Screen name="PYQ" component={PYQScreen} />
             <Stack.Screen name="Tests" component={TestsScreen} />

@@ -2,20 +2,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 
 import { BarChart } from '../components/Charts';
-import { Shell, useLayout } from '../components/Shell';
-import {
-  Button,
-  Card,
-  Chip,
-  ProgressBar,
-  ProgressRing,
-  SectionHeader,
-  Tag,
-  Txt,
-} from '../components/ui';
+import { useLayout } from '../components/Shell';
+import { ProgressBar, Tag } from '../components/ui';
 import {
   CURRENT_AFFAIRS,
   EXAMS,
@@ -24,7 +16,7 @@ import {
   TODAY_PLAN,
 } from '../lib/data';
 import { dayKey, useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
+import { useTheme } from '../lib/theme';
 import {
   FocusTimerButton,
   CustomStudyPlan,
@@ -32,7 +24,6 @@ import {
 
 const greeting = () => {
   const hour = new Date().getHours();
-
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
@@ -47,49 +38,34 @@ export default function DashboardScreen() {
   const { state, streak, todayMinutes, todayDone, dispatch } = useStore();
   const { isMobile, isDesktop } = useLayout();
 
-  // Prevent division by zero if a saved setting is invalid.
   const goal = Math.max(1, Number(state.settings.dailyGoalMin) || 1);
-
   const safeTodayMinutes = Math.max(0, Number(todayMinutes) || 0);
   const target = clamp(safeTodayMinutes / goal, 0, 1);
-
   const [anim, setAnim] = useState(0);
-
-  // Avoid repeated study-minute increments from rapid taps on one plan item.
-  const planTapLocks = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     let frame = 0;
-
     const id = setInterval(() => {
       frame += 1;
       setAnim(Math.min(1, frame / 28));
-
       if (frame >= 28) clearInterval(id);
     }, 16);
-
     return () => clearInterval(id);
   }, [target]);
 
-  const exam =
-    EXAMS.find((item) => item.id === (state.user?.exam ?? 'upsc')) ?? EXAMS[0];
-
-  const first =
-    (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
+  const exam = EXAMS.find((item) => item.id === (state.user?.exam ?? 'upsc')) ?? EXAMS[0];
+  const first = (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
 
   const week = useMemo(() => {
     const out: { label: string; value: number }[] = [];
-
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-
       out.push({
         label: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()],
         value: Math.max(0, Number(state.studyLog[dayKey(date)]) || 0),
       });
     }
-
     return out;
   }, [state.studyLog]);
 
@@ -109,48 +85,38 @@ export default function DashboardScreen() {
     .filter((item) => item.res);
 
   const liveTests = TESTS.filter((test) => Boolean(test.liveAt));
-
   const recent = exam
-    ? RESOURCES.filter((resource) => resource.exam === exam.id).slice(
-        0,
-        isDesktop ? 4 : 3
-      )
+    ? RESOURCES.filter((resource) => resource.exam === exam.id).slice(0, isDesktop ? 4 : 3)
     : [];
 
-  const planPct =
-    TODAY_PLAN.length > 0
-      ? Math.round((todayDone.length / TODAY_PLAN.length) * 100)
-      : 0;
-
-  const quickActions: {
-    label: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    color: string;
-    onPress: () => void;
-  }[] = [
+  const quickActions = [
     {
-      label: 'Ask Sakha AI',
-      icon: 'sparkles',
-      color: colors.teal,
-      onPress: () => nav.navigate('SakhaAI'),
+      label: 'Notes',
+      icon: 'document-text' as const,
+      background: '#DBEAFE', // blue-100
+      iconColor: '#2563EB', // blue-600
+      onPress: () => nav.navigate('NoteEditor', {}),
     },
     {
-      label: 'Daily Quiz',
-      icon: 'flash',
-      color: colors.amber,
+      label: 'Quiz',
+      icon: 'help-circle' as const,
+      background: '#FEF3C7', // amber-100
+      iconColor: '#D97706', // amber-600
       onPress: () => nav.navigate('TestPlayer', { testId: 't4' }),
     },
     {
-      label: 'PYQ Bank',
-      icon: 'albums',
-      color: colors.blue,
-      onPress: () => nav.navigate('PYQ'),
+      label: 'Revision',
+      icon: 'refresh-circle' as const,
+      background: '#D1FAE5', // emerald-100
+      iconColor: '#059669', // emerald-600
+      onPress: () => nav.navigate('Library'),
     },
     {
-      label: 'New Note',
-      icon: 'create',
-      color: colors.violet,
-      onPress: () => nav.navigate('NoteEditor', {}),
+      label: 'Sakha AI',
+      icon: 'sparkles' as const,
+      background: '#F3E8FF', // purple-100
+      iconColor: '#9333EA', // purple-600
+      onPress: () => nav.navigate('SakhaAI'),
     },
   ];
 
@@ -166,623 +132,766 @@ export default function DashboardScreen() {
     }
   };
 
-  const renderEmptyState = (
-    icon: keyof typeof Ionicons.glyphMap,
-    title: string,
-    description: string,
-    actionLabel?: string,
-    onAction?: () => void
-  ) => (
-    <View
-      style={{
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 18,
-        paddingVertical: 22,
-        borderRadius: radii.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderStyle: 'dashed',
-        backgroundColor: colors.surfaceAlt,
-        gap: 8,
-      }}
-    >
-      <View
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 14,
-          backgroundColor: colors.tint,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Ionicons name={icon} size={21} color={colors.blue} />
-      </View>
+  const openResource = (resource: (typeof RESOURCES)[number]) => {
+    if (resource.type === 'book') {
+      nav.navigate('BookReader', { resourceId: resource.id });
+    } else {
+      nav.navigate('NoteEditor', { resourceId: resource.id });
+    }
+  };
 
-      <Txt size={13.5} weight="800" style={{ textAlign: 'center' }}>
-        {title}
-      </Txt>
-
-      <Txt
-        size={12}
-        color={colors.textMuted}
-        style={{ textAlign: 'center', lineHeight: 18 }}
-      >
-        {description}
-      </Txt>
-
-      {actionLabel && onAction ? (
-        <Button
-          label={actionLabel}
-          icon="arrow-forward"
-          size="sm"
-          variant="soft"
-          onPress={onAction}
-          style={{ marginTop: 3 }}
-        />
-      ) : null}
-    </View>
-  );
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - target * anim * circumference;
 
   return (
-    <Shell
-      active="Dashboard"
-      title="Dashboard"
-      subtitle={
-        exam
-          ? `${exam.name} · ${exam.aspirants} aspirants preparing`
-          : 'Your personal learning space'
-      }
-    >
-      {/* Hero / daily study goal */}
+    <View style={styles.mainContainer}>
+      {/* Top App Bar (Stitch Design) */}
       <LinearGradient
-        colors={[colors.navy, colors.blue]}
+        colors={['#2A1519', '#1F1013', '#150A0C']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={{
-          borderRadius: radii.xl,
-          padding: isMobile ? 18 : 24,
-          overflow: 'hidden',
-        }}
+        style={styles.header}
       >
-        <View
-          style={{
-            flexDirection: isMobile ? 'column' : 'row',
-            alignItems: isMobile ? 'flex-start' : 'center',
-            gap: isMobile ? 18 : 24,
-          }}
-        >
-          <View style={{ flex: 1, width: '100%' }}>
-            <Txt
-              size={12.5}
-              weight="700"
-              color="rgba(255,255,255,0.72)"
-              style={{ letterSpacing: 1 }}
-            >
-              {greeting().toUpperCase()}
-            </Txt>
-
-            <Txt
-              size={isMobile ? 24 : 30}
-              weight="800"
-              display
-              color="#fff"
-              style={{ marginTop: 4, letterSpacing: -0.8 }}
-            >
-              {first}, let us close today&apos;s ring.
-            </Txt>
-
-            <Txt
-              size={13.5}
-              color="rgba(255,255,255,0.8)"
-              style={{ marginTop: 8, maxWidth: 520, lineHeight: 20 }}
-            >
-              You have studied {safeTodayMinutes} of {goal} minutes today.{' '}
-              {todayDone.length} of {TODAY_PLAN.length} planned tasks are done.
-            </Txt>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                gap: 10,
-                marginTop: 16,
-                flexWrap: 'wrap',
-              }}
-            >
-              <Button
-                label="Continue studying"
-                icon="play"
-                variant="soft"
-                style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}
-                onPress={() => nav.navigate('Library')}
-              />
-
-              <FocusTimerButton />
+        <View style={styles.headerBrand}>
+        <Pressable onPress={() => nav.openDrawer()} style={{ marginRight: 10 }}>
+            <Ionicons name="menu" size={28} color="#FFF" />
+          </Pressable>
+          <LinearGradient
+            colors={['#E11D48', '#F43F5E', '#FBBF24']}
+            style={styles.logoBox}
+          >
+            <Ionicons name="book" size={18} color="#FFF" />
+          </LinearGradient>
+          <Text style={styles.headerTitle}>
+            Study <Text style={{ color: '#2DD4BF' }}>Sakha</Text>
+          </Text>
+        </View>
+        <View style={styles.headerActions}>
+          <Ionicons name="moon-outline" size={20} color="#CBD5E1" />
+          <View>
+            <Ionicons name="notifications-outline" size={20} color="#CBD5E1" />
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>3</Text>
             </View>
           </View>
-
-          <View
-            style={{
-              alignItems: 'center',
-              gap: 12,
-              alignSelf: isMobile ? 'center' : 'auto',
-            }}
-          >
-            <ProgressRing
-              size={isMobile ? 130 : 150}
-              stroke={13}
-              progress={target * anim}
-            >
-              <Txt size={isMobile ? 26 : 30} weight="800" display color="#fff">
-                {Math.round(target * anim * 100)}%
-              </Txt>
-              <Txt size={11.5} color="rgba(255,255,255,0.75)" weight="600">
-                daily goal
-              </Txt>
-            </ProgressRing>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 7,
-                backgroundColor: 'rgba(255,255,255,0.16)',
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: radii.pill,
-              }}
-            >
-              <Ionicons name="flame" size={16} color="#FFB84D" />
-              <Txt size={13} weight="800" color="#fff">
-                {Math.max(0, Number(streak) || 0)}-day streak
-              </Txt>
-            </View>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{first.charAt(0)}</Text>
           </View>
         </View>
       </LinearGradient>
 
-      {/* Quick actions */}
-      <View
-        style={{
-          flexDirection: 'row',
-          gap: 10,
-          marginTop: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        {quickActions.map((action) => (
-          <Pressable
-            key={action.label}
-            accessibilityRole="button"
-            accessibilityLabel={action.label}
-            onPress={action.onPress}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              flexBasis: isMobile ? '45%' : 150,
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: radii.lg,
-              padding: 14,
-              gap: 10,
-              opacity: pressed ? 0.8 : 1,
-            })}
-          >
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 11,
-                backgroundColor: `${action.color}22`,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Ionicons name={action.icon} size={18} color={action.color} />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {/* Personalized Greeting */}
+        <View style={[styles.pastelCard, styles.greetingCard]}>
+          <Text style={styles.greetingTitle}>
+            {greeting()}, {first} 👋
+          </Text>
+          <Text style={styles.greetingSub}>Small steps. Consistent progress.</Text>
+        </View>
+
+        {/* Today Mission Hero */}
+        <LinearGradient
+          colors={['#5B2F3A', '#4A2530', '#3A1C25']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroTopRow}>
+            <View>
+              <View style={styles.missionBadge}>
+                <Text style={styles.missionBadgeText}>TODAY'S MISSION</Text>
+              </View>
+              <Text style={styles.heroTitle}>Make today count.</Text>
+              <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
+            </View>
+            
+            {/* Circular Progress Gauge */}
+            <View style={styles.progressCircleContainer}>
+              <Svg width={50} height={50} viewBox="0 0 44 44">
+                <Circle cx="22" cy="22" r={radius} stroke="rgba(255,255,255,0.15)" strokeWidth="4" fill="none" />
+                <Circle
+                  cx="22" cy="22" r={radius}
+                  stroke="#38BDF8" strokeWidth="4" fill="none"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeDashoffset}
+                  rotation="-90" origin="22, 22"
+                />
+              </Svg>
+              <View style={styles.progressCircleTextWrap}>
+                <Text style={styles.progressCircleText}>{Math.round(target * 100)}%</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Dual Stats */}
+          <View style={styles.heroStatsRow}>
+            <View style={styles.heroStatBox}>
+              <Ionicons name="time" size={16} color="#38BDF8" />
+              <Text style={styles.heroStatValue}>{safeTodayMinutes} min</Text>
+              <Text style={styles.heroStatLabel}>Studied today</Text>
+            </View>
+            <View style={styles.heroStatBox}>
+              <Ionicons name="flame" size={16} color="#FBBF24" />
+              <Text style={styles.heroStatValue}>{streak} day</Text>
+              <Text style={styles.heroStatLabel}>Study streak</Text>
+            </View>
+          </View>
+
+          {/* Linear Progress Bar */}
+          <View style={styles.linearTrack}>
+            <LinearGradient
+              colors={['#2DD4BF', '#38BDF8']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={[styles.linearFill, { width: `${target * 100}%` }]}
+            />
+          </View>
+
+          <View style={styles.heroActions}>
+            <FocusTimerButton />
+            <Pressable style={styles.resumeBtn} onPress={() => nav.navigate('Library')}>
+              <Ionicons name="book-outline" size={16} color="#CBD5E1" />
+              <Text style={styles.resumeBtnText}>Resume learning</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+
+        {/* Quick Actions */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="grid" size={18} color="#2563EB" />
+            <Text style={styles.sectionTitle}>Quick actions</Text>
+          </View>
+          <Text style={styles.sectionLink} onPress={() => nav.navigate('Library')}>Explore tools ›</Text>
+        </View>
+
+        <View style={styles.quickActionsGrid}>
+          {quickActions.map((item) => (
+            <Pressable key={item.label} onPress={item.onPress} style={styles.quickActionCard}>
+              <View style={[styles.quickActionIcon, { backgroundColor: item.background }]}>
+                <Ionicons name={item.icon} size={20} color={item.iconColor} />
+              </View>
+              <Text style={[styles.quickActionText, { color: item.iconColor }]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.layoutFlex}>
+          <View style={styles.layoutCol}>
+            {/* Today's Plan */}
+            <View style={styles.pastelCardWrap}>
+              <CustomStudyPlan plan={TODAY_PLAN} todayDone={todayDone} dispatch={dispatch} onOpenItem={openPlanItem} />
             </View>
 
-            <Txt size={13.5} weight="700">
-              {action.label}
-            </Txt>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Main dashboard columns */}
-      <View
-        style={{
-          flexDirection: isDesktop ? 'row' : 'column',
-          gap: 16,
-          marginTop: 20,
-        }}
-      >
-        <View style={{ flex: 1.15, gap: 20 }}>
-          {/* Today's plan */}
-          <CustomStudyPlan
-            plan={TODAY_PLAN}
-            todayDone={todayDone}
-            dispatch={dispatch}
-            onOpenItem={openPlanItem}
-          />
-
-          {/* Continue learning */}
-          <Card>
-            <SectionHeader
-              title="Continue learning"
-              icon="play-circle-outline"
-              action="Library"
-              onAction={() => nav.navigate('Library')}
-            />
-
-            {continueItems.length > 0 ? (
-              <View style={{ gap: 14 }}>
+            {/* Continue Learning */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="play-circle" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Continue learning</Text>
+                </View>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('Library')}>Library ›</Text>
+              </View>
+              <View style={styles.listContainer}>
                 {continueItems.map((item) => (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    onPress={() =>
-                      item.res!.type === 'book'
-                        ? nav.navigate('BookReader', { resourceId: item.id })
-                        : nav.navigate('NoteEditor', { resourceId: item.id })
-                    }
-                    style={({ pressed }) => ({
-                      flexDirection: 'row',
-                      gap: 12,
-                      opacity: pressed ? 0.75 : 1,
-                    })}
-                  >
-                    <Image
-                      source={{ uri: item.res!.cover }}
-                      style={{
-                        width: 52,
-                        height: 68,
-                        borderRadius: 10,
-                        backgroundColor: colors.surfaceAlt,
-                      }}
-                      resizeMode="cover"
-                    />
-
-                    <View
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        gap: 7,
-                      }}
-                    >
-                      <Txt size={13.5} weight="700" numberOfLines={2}>
-                        {item.res!.title}
-                      </Txt>
-
-                      <Txt size={11.5} color={colors.textMuted}>
-                        {item.res!.subject} ·{' '}
-                        {item.res!.type === 'book' ? 'Book' : 'Note'} ·{' '}
-                        {item.percent}% complete
-                      </Txt>
-
-                      <ProgressBar value={item.percent} height={6} />
+                  <Pressable key={item.id} onPress={() => openResource(item.res!)} style={styles.listItem}>
+                    <Image source={{ uri: item.res!.cover }} style={styles.listImage} />
+                    <View style={styles.listTextContainer}>
+                      <Text style={styles.listTitle} numberOfLines={1}>{item.res!.title}</Text>
+                      <Text style={styles.listSub}>{item.res!.subject} · {item.percent}% complete</Text>
+                      <ProgressBar value={item.percent} height={5} />
                     </View>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={17}
-                      color={colors.textFaint}
-                    />
+                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
                   </Pressable>
                 ))}
               </View>
-            ) : (
-              renderEmptyState(
-                'book-outline',
-                'Ready for your next lesson?',
-                'Resources you open and make progress on will appear here for quick access.',
-                'Explore library',
-                () => nav.navigate('Library')
-              )
-            )}
-          </Card>
-
-          {/* Weekly activity */}
-          <Card>
-            <SectionHeader
-              title="Weekly activity"
-              icon="bar-chart-outline"
-              action="Profile"
-              onAction={() => nav.navigate('Profile')}
-            />
-
-            <View
-              style={{
-                flexDirection: 'row',
-                gap: 24,
-                marginBottom: 14,
-                flexWrap: 'wrap',
-              }}
-            >
-              <View>
-                <Txt size={22} weight="800" display>
-                  {weeklyTotal}m
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  this week
-                </Txt>
-              </View>
-
-              <View>
-                <Txt size={22} weight="800" display color={colors.teal}>
-                  {dailyAverage}m
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  daily average
-                </Txt>
-              </View>
             </View>
 
-            {hasWeeklyActivity ? (
-              <BarChart data={week} goal={goal} />
-            ) : (
-              <View style={{ marginTop: 2 }}>
-                {renderEmptyState(
-                  'analytics-outline',
-                  'Your progress starts here',
-                  'Your weekly activity will appear as you record study time. Start with one focused session today.',
-                  'Start studying',
-                  () => nav.navigate('Library')
-                )}
+            {/* Weekly Activity */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="bar-chart" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Weekly activity</Text>
+                </View>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('Profile')}>Profile ›</Text>
               </View>
-            )}
-          </Card>
-        </View>
+              <View style={styles.statsRow}>
+                <View>
+                  <Text style={styles.statLarge}>{weeklyTotal}m</Text>
+                  <Text style={styles.statSmall}>this week</Text>
+                </View>
+                <View style={{ marginLeft: 20 }}>
+                  <Text style={[styles.statLarge, { color: '#0D9488' }]}>{dailyAverage}m</Text>
+                  <Text style={styles.statSmall}>daily average</Text>
+                </View>
+              </View>
+              <BarChart data={week} goal={goal} />
+            </View>
+          </View>
 
-        <View style={{ flex: 1, gap: 20 }}>
-          {/* Upcoming tests */}
-          <Card>
-            <SectionHeader
-              title="Upcoming live tests"
-              icon="radio-outline"
-              action="All tests"
-              onAction={() => nav.navigate('Tests')}
-            />
-
-            {liveTests.length > 0 ? (
-              <View style={{ gap: 12 }}>
+          <View style={styles.layoutCol}>
+            {/* Upcoming live tests */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="radio" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Upcoming live tests</Text>
+                </View>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('Tests')}>All tests ›</Text>
+              </View>
+              <View style={styles.listContainer}>
                 {liveTests.map((test) => (
-                  <View
-                    key={test.id}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: radii.md,
-                      padding: 13,
-                      gap: 9,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: colors.danger,
-                        }}
-                      />
-
-                      <Txt size={11.5} weight="800" color={colors.danger}>
-                        {test.liveAt}
-                      </Txt>
-
-                      <Tag label={test.kind} color={colors.blue} />
+                  <View key={test.id} style={styles.testCard}>
+                    <View style={styles.testHeader}>
+                      <Text style={styles.testTime}>
+                        <View style={styles.liveDot} /> {test.liveAt}
+                      </Text>
+                      <Tag label={test.kind} color="#2563EB" />
                     </View>
-
-                    <Txt size={14} weight="700" numberOfLines={2}>
-                      {test.title}
-                    </Txt>
-
-                    <Txt size={11.5} color={colors.textMuted}>
-                      {test.questions.length} questions · {test.durationMin} min
-                      {' · '}
-                      {test.attempts.toLocaleString('en-IN')} enrolled
-                    </Txt>
-
-                    <Button
-                      label="Enter test"
-                      icon="arrow-forward"
-                      size="sm"
-                      onPress={() =>
-                        nav.navigate('TestPlayer', { testId: test.id })
-                      }
-                    />
+                    <Text style={styles.testTitle}>{test.title}</Text>
+                    <Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text>
+                    <Pressable style={styles.primaryBtn} onPress={() => nav.navigate('TestPlayer', { testId: test.id })}>
+                      <Text style={styles.primaryBtnText}>Enter test</Text>
+                    </Pressable>
                   </View>
                 ))}
               </View>
-            ) : (
-              renderEmptyState(
-                'clipboard-outline',
-                'No live tests scheduled',
-                'There are no upcoming live tests at the moment. You can still practise with available tests.',
-                'Browse tests',
-                () => nav.navigate('Tests')
-              )
-            )}
-          </Card>
+            </View>
 
-          {/* Fresh library resources */}
-          <Card>
-            <SectionHeader
-              title="Fresh in your library"
-              icon="library-outline"
-              action="See all"
-              onAction={() => nav.navigate('Library')}
-            />
-
-            {recent.length > 0 ? (
-              <View style={{ gap: 14 }}>
-                {recent.map((resource) => (
-                  <Pressable
-                    key={resource.id}
-                    accessibilityRole="button"
-                    onPress={() =>
-                      resource.type === 'book'
-                        ? nav.navigate('BookReader', {
-                            resourceId: resource.id,
-                          })
-                        : nav.navigate('NoteEditor', {
-                            resourceId: resource.id,
-                          })
-                    }
-                    style={({ pressed }) => ({
-                      flexDirection: 'row',
-                      gap: 12,
-                      alignItems: 'center',
-                      opacity: pressed ? 0.75 : 1,
-                    })}
-                  >
-                    <View
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 11,
-                        backgroundColor: colors.tint,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Ionicons
-                        name={
-                          resource.type === 'book'
-                            ? 'book-outline'
-                            : resource.type === 'pyq-set'
-                            ? 'albums-outline'
-                            : 'document-text-outline'
-                        }
-                        size={18}
-                        color={colors.blue}
-                      />
-                    </View>
-
-                    <View style={{ flex: 1, gap: 3 }}>
-                      <Txt size={13} weight="700" numberOfLines={2}>
-                        {resource.title}
-                      </Txt>
-
-                      <Txt size={11.5} color={colors.textMuted}>
-                        {resource.subject} · {resource.minutes} min · ★{' '}
-                        {resource.rating}
-                      </Txt>
-                    </View>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color={colors.textFaint}
-                    />
-                  </Pressable>
-                ))}
+            {/* Current Affairs */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="newspaper" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Current affairs</Text>
+                </View>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('CurrentAffairs')}>Open ›</Text>
               </View>
-            ) : (
-              renderEmptyState(
-                'library-outline',
-                'Your library is ready to explore',
-                'There are no featured resources for this exam yet. Open the library to browse available material.',
-                'Open library',
-                () => nav.navigate('Library', exam ? { exam: exam.id } : {})
-              )
-            )}
-          </Card>
-
-          {/* Current affairs */}
-          <Card>
-            <SectionHeader
-              title="Current affairs"
-              icon="newspaper-outline"
-              action="Open"
-              onAction={() => nav.navigate('CurrentAffairs')}
-            />
-
-            {CURRENT_AFFAIRS.length > 0 ? (
-              <View style={{ gap: 12 }}>
+              <View style={styles.listContainer}>
                 {CURRENT_AFFAIRS.slice(0, 3).map((affair) => (
-                  <Pressable
-                    key={affair.id}
-                    accessibilityRole="button"
-                    onPress={() => nav.navigate('CurrentAffairs')}
-                    style={({ pressed }) => ({
-                      gap: 5,
-                      opacity: pressed ? 0.75 : 1,
-                    })}
-                  >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        gap: 8,
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <Tag label={affair.category} color={colors.teal} />
-
-                      <Txt size={11} color={colors.textFaint}>
-                        {affair.date}
-                      </Txt>
+                  <Pressable key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}>
+                    <View style={styles.caHeader}>
+                      <Tag label={affair.category} color="#0D9488" />
+                      <Text style={styles.caDate}>{affair.date}</Text>
                     </View>
-
-                    <Txt size={13} weight="700" numberOfLines={2}>
-                      {affair.title}
-                    </Txt>
+                    <Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text>
                   </Pressable>
                 ))}
               </View>
-            ) : (
-              renderEmptyState(
-                'newspaper-outline',
-                'No current affairs available',
-                'There are no current affairs items to show right now. Check back later or explore other study material.',
-                'Open section',
-                () => nav.navigate('CurrentAffairs')
-              )
-            )}
-          </Card>
-
-          {/* Switch exam focus */}
-          <Card>
-            <SectionHeader
-              title="Switch focus"
-              icon="swap-horizontal-outline"
-            />
-
-            {EXAMS.length > 0 ? (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                }}
+            </View>
+            {/* Switch focus */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="swap-horizontal" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Switch focus</Text>
+                </View>
+              </View>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
               >
-                {EXAMS.map((item) => (
-                  <Chip
-                    key={item.id}
-                    label={item.short}
-                    tone={item.color}
-                    active={item.id === exam?.id}
-                    onPress={() => nav.navigate('Library', { exam: item.id })}
-                  />
+                {EXAMS.map((item) => {
+                  const isActive = item.id === exam?.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => nav.navigate('Library', { exam: item.id })}
+                      style={[
+                        styles.focusPill,
+                        isActive ? styles.focusPillActive : styles.focusPillInactive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.focusPillText,
+                          isActive ? styles.focusPillTextActive : styles.focusPillTextInactive,
+                        ]}
+                      >
+                        {item.short}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* Fresh in Library */}
+            <View style={styles.pastelCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <Ionicons name="library" size={18} color="#2563EB" />
+                  <Text style={styles.sectionTitle}>Fresh in library</Text>
+                </View>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('Library')}>See all ›</Text>
+              </View>
+              <View style={styles.listContainer}>
+                {recent.map((resource) => (
+                  <Pressable key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}>
+                    <View style={styles.iconBox}>
+                      <Ionicons name="book" size={18} color="#2563EB" />
+                    </View>
+                    <View style={styles.listTextContainer}>
+                      <Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text>
+                      <Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                  </Pressable>
                 ))}
               </View>
-            ) : (
-              <Txt size={12} color={colors.textMuted}>
-                Exam options are not available right now.
-              </Txt>
-            )}
-          </Card>
+            </View>
+          </View>
         </View>
+      </ScrollView>
+            {/* Bottom Navigation */}
+            <View style={styles.bottomNav}>
+        <Pressable style={styles.navItem} onPress={() => nav.navigate('Dashboard')}>
+          <Ionicons name="home" size={20} color="#2563EB" />
+          <Text style={[styles.navText, { color: '#2563EB', fontWeight: 'bold' }]}>Home</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => nav.navigate('Library')}>
+          <Ionicons name="library-outline" size={20} color="#64748B" />
+          <Text style={styles.navText}>Library</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => nav.navigate('Tests')}>
+          <Ionicons name="radio-outline" size={20} color="#64748B" />
+          <Text style={styles.navText}>Tests</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => nav.navigate('SakhaAI')}>
+          <Ionicons name="sparkles-outline" size={20} color="#64748B" />
+          <Text style={styles.navText}>Sakha AI</Text>
+        </Pressable>
+        <Pressable style={styles.navItem} onPress={() => nav.navigate('More')}>
+          <Ionicons name="grid-outline" size={20} color="#64748B" />
+          <Text style={styles.navText}>More</Text>
+        </Pressable>
       </View>
-    </Shell>
+
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  mainContainer: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 45, // Assuming safe area or status bar padding
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(244, 63, 94, 0.2)',
+  },
+  headerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logoBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#DC2626',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#1F1013',
+  },
+  badgeText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E11D48',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  pastelCard: {
+    backgroundColor: '#FFF8F8',
+    borderColor: '#FEE2E2',
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  pastelCardWrap: {
+    marginBottom: 16,
+  },
+  greetingCard: {
+    padding: 16,
+  },
+  greetingTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  greetingSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  heroCard: {
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderColor: 'rgba(244, 114, 134, 0.35)',
+    borderWidth: 1,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  missionBadge: {
+    backgroundColor: 'rgba(76, 29, 36, 0.6)',
+    borderColor: '#9F1239',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  missionBadgeText: {
+    color: '#FDA4AF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    color: '#FFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  heroSub: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  progressCircleContainer: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressCircleTextWrap: {
+    position: 'absolute',
+  },
+  progressCircleText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  heroStatBox: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  heroStatValue: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  heroStatLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+  },
+  linearTrack: {
+    height: 6,
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    borderRadius: 3,
+    marginTop: 16,
+    overflow: 'hidden',
+  },
+  linearFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  heroActions: {
+    marginTop: 16,
+    gap: 10,
+  },
+  resumeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(254, 205, 211, 0.25)',
+  },
+  resumeBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0F172A',
+  },
+  sectionLink: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickActionCard: {
+    flex: 1,
+    backgroundColor: '#FFF8F8',
+    borderColor: '#FEE2E2',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  layoutFlex: {
+    flexDirection: 'column', 
+    gap: 16,
+  },
+  layoutCol: {
+    flex: 1,
+  },
+  listContainer: {
+    gap: 14,
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  listImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listTextContainer: {
+    flex: 1,
+    gap: 4,
+  },
+  listTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  listSub: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  statLarge: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  statSmall: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: -2,
+  },
+  testCard: {
+    backgroundColor: '#FFFBFC',
+    borderColor: '#FEE2E2',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  testHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  testTime: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#DC2626',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#DC2626',
+  },
+  testTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#0F172A',
+  },
+  testSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  primaryBtn: {
+    backgroundColor: '#2563EB',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  primaryBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  caItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingBottom: 12,
+  },
+  caHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  caDate: {
+    fontSize: 10,
+    color: '#94A3B8',
+  },
+  caTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  focusPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  focusPillActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  focusPillInactive: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+  },
+  focusPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  focusPillTextActive: {
+    color: '#FFF',
+  },
+  focusPillTextInactive: {
+    color: '#334155',
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    paddingVertical: 10,
+    paddingBottom: 25, /* Bottom safe area के लिए */
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  navItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navText: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+});
