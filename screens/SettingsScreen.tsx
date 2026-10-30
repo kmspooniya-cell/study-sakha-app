@@ -122,8 +122,16 @@ export default function SettingsScreen() {
           body={`${state.settings.dailyGoalMin} minutes per day`}
           right={
             <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {[90, 120, 180, 240].map((goal) => (
-                <Chip key={goal} label={`${goal}m`} active={state.settings.dailyGoalMin === goal} onPress={() => set({ dailyGoalMin: goal })} />
+              {[60, 90, 120, 180, 240, 360, 480, 720].map((goal) => (
+                <Chip
+                  key={goal}
+                  label={`${goal}m`}
+                  active={state.settings.dailyGoalMin === goal}
+                  onPress={() => {
+                    set({ dailyGoalMin: goal });
+                    dispatch({ type: 'plannerSettings', patch: { dailyTargetHours: goal / 60 } });
+                  }}
+                />
               ))}
             </View>
           }

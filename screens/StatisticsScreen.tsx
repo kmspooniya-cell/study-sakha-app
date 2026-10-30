@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { BarChart, HeatMap, LineChart } from '../components/Charts';
@@ -13,6 +13,7 @@ import {
   Txt,
 } from '../components/ui';
 import { TODAY_PLAN } from '../lib/data';
+import { getPlannerTasksForDate } from '../lib/planner';
 import { useStore, dayKey } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -20,10 +21,28 @@ const HISTORY_KEY = 'study-sakha-focus-history-v1';
 
 type FocusSession = {
   id: string;
-  subject: string;
-  topic: string;
+  subject?: string;
+  topic?: string;
   minutes: number;
   completedAt: string;
+  taskId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  actualSeconds?: number;
+  plannedMinutes?: number;
+};
+
+type TaskStatistic = {
+  taskId: string;
+  title: string;
+  category: string;
+  plannedMinutes: number;
+  actualMinutes: number;
+  completed: boolean;
+  completionDate: string | null;
+  remainingMinutes: number;
+  focusSessionCount: number;
+  historical: boolean;
 };
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -33,10 +52,20 @@ const MONTH_NAMES = [
 ];
 
 function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  if (minutes > 0 && minutes < 1) return '<1m';
+  const totalMinutes = Math.round(minutes);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function getSessionMinutes(session: FocusSession): number {
+  return typeof session.actualSeconds === 'number' &&
+    Number.isFinite(session.actualSeconds) &&
+    session.actualSeconds >= 0
+    ? session.actualSeconds / 60
+    : Math.max(0, session.minutes);
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -93,7 +122,7 @@ export default function StatisticsScreen() {
     [state.results]
   );
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let active = true;
     AsyncStorage.getItem(HISTORY_KEY)
       .then((raw) => {
@@ -107,7 +136,7 @@ export default function StatisticsScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, []));
 
   const [now, setNow] = useState(() => new Date());
 
@@ -127,17 +156,17 @@ useEffect(() => {
       const d = new Date(s.completedAt);
       return isSameDay(d, today);
     });
-    const todayMinutes = todaySessions.reduce((sum, s) => sum + Math.max(0, s.minutes), 0);
+    const todayMinutes = todaySessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
     const todayCount = todaySessions.length;
 
     const weekStart = new Date(startOfToday);
     weekStart.setDate(weekStart.getDate() - 6);
     const weekSessions = sessions.filter((s) => new Date(s.completedAt) >= weekStart);
-    const weekMinutes = weekSessions.reduce((sum, s) => sum + Math.max(0, s.minutes), 0);
+    const weekMinutes = weekSessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
 
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthSessions = sessions.filter((s) => new Date(s.completedAt) >= monthStart);
-    const monthMinutes = monthSessions.reduce((sum, s) => sum + Math.max(0, s.minutes), 0);
+    const monthMinutes = monthSessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
 
     const last7Days: { label: string; value: number }[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -145,7 +174,7 @@ useEffect(() => {
       d.setDate(d.getDate() - i);
       const dayMins = sessions
         .filter((s) => isSameDay(new Date(s.completedAt), d))
-        .reduce((sum, s) => sum + Math.max(0, s.minutes), 0);
+        .reduce((sum, s) => sum + getSessionMinutes(s), 0);
       last7Days.push({ label: DAY_LABELS[d.getDay()], value: dayMins });
     }
 
@@ -161,14 +190,14 @@ useEffect(() => {
           const d = new Date(s.completedAt);
           return d >= wStart && d < wEnd;
         })
-        .reduce((sum, s) => sum + Math.max(0, s.minutes), 0);
+        .reduce((sum, s) => sum + getSessionMinutes(s), 0);
       weeksInMonth.push({ label: `W${w + 1}`, value: wMins });
     }
 
     const subjectMap = new Map<string, number>();
     sessions.forEach((s) => {
       const subj = s.subject || 'General Study';
-      subjectMap.set(subj, (subjectMap.get(subj) ?? 0) + Math.max(0, s.minutes));
+      subjectMap.set(subj, (subjectMap.get(subj) ?? 0) + getSessionMinutes(s));
     });
     const subjects = Array.from(subjectMap.entries())
       .map(([name, mins]) => ({ name, mins }))
@@ -191,20 +220,19 @@ useEffect(() => {
   const plannerStats = useMemo(() => {
     const summarizeDate = (date: string) => {
       const doneIds = new Set(state.planDone[date] ?? []);
-      const completedBuiltIns = TODAY_PLAN.filter((task) => doneIds.has(task.id));
-      const builtInIds = new Set(TODAY_PLAN.map((task) => task.id));
-      const customById = new Map(
-        (state.plannerCompletions[date] ?? [])
-          .filter((completion) => !builtInIds.has(completion.taskId))
-          .map((completion) => [completion.taskId, completion])
+      const completionById = new Map(
+        (state.plannerCompletions[date] ?? []).map((completion) => [completion.taskId, completion])
       );
-      const custom = Array.from(customById.values());
+      const completedBuiltIns = TODAY_PLAN.filter(
+        (task) => doneIds.has(task.id) && !completionById.has(task.id)
+      );
+      const recordedCompletions = Array.from(completionById.values());
 
       return {
-        tasks: completedBuiltIns.length + custom.length,
+        tasks: completedBuiltIns.length + recordedCompletions.length,
         minutes:
           completedBuiltIns.reduce((sum, task) => sum + task.minutes, 0) +
-          custom.reduce((sum, task) => sum + Math.max(0, Number(task.minutes) || 0), 0),
+          recordedCompletions.reduce((sum, completion) => sum + Math.max(0, Number(completion.minutes) || 0), 0),
       };
     };
 
@@ -229,8 +257,78 @@ useEffect(() => {
     };
   }, [now, state.planDone, state.plannerCompletions]);
 
-  const DAILY_GOAL_MINUTES = 120;
-  const WEEKLY_GOAL_MINUTES = 600;
+  const taskStatistics = useMemo<TaskStatistic[]>(() => {
+    const visibleTasks = getPlannerTasksForDate(state, state.plannerSelectedDate);
+    const sessionsByTask = new Map<string, FocusSession[]>();
+
+    sessions.forEach((session) => {
+      if (typeof session.taskId !== 'string' || !session.taskId) return;
+      const taskSessions = sessionsByTask.get(session.taskId) ?? [];
+      taskSessions.push(session);
+      sessionsByTask.set(session.taskId, taskSessions);
+    });
+
+    const summarize = (
+      task: {
+        id: string;
+        label: string;
+        category: string;
+        minutes: number;
+        completed: boolean;
+        completedOn: string | null;
+      },
+      historical = false,
+    ): TaskStatistic => {
+      const taskSessions = sessionsByTask.get(task.id) ?? [];
+      const actualMinutes = taskSessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
+      return {
+        taskId: task.id,
+        title: task.label,
+        category: task.category || 'General Study',
+        plannedMinutes: Math.max(0, Number(task.minutes) || 0),
+        actualMinutes,
+        completed: task.completed,
+        completionDate: task.completedOn,
+        remainingMinutes: Math.max(0, (Number(task.minutes) || 0) - actualMinutes),
+        focusSessionCount: taskSessions.length,
+        historical,
+      };
+    };
+
+    const visibleIds = new Set(visibleTasks.map((task) => task.id));
+    const current = visibleTasks.map((task) => summarize(task));
+    const historical = Array.from(sessionsByTask.entries())
+      .filter(([taskId]) => !visibleIds.has(taskId))
+      .map(([taskId, taskSessions]) => {
+        const firstSession = taskSessions[0];
+        const plannedMinutes = taskSessions.reduce(
+          (sum, session) => sum + (
+            typeof session.plannedMinutes === 'number' && Number.isFinite(session.plannedMinutes)
+              ? Math.max(0, session.plannedMinutes)
+              : 0
+          ),
+          0,
+        );
+        const actualMinutes = taskSessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
+        return {
+          taskId,
+          title: firstSession.topic?.trim() || 'Historical task',
+          category: firstSession.subject?.trim() || 'General Study',
+          plannedMinutes,
+          actualMinutes,
+          completed: false,
+          completionDate: null,
+          remainingMinutes: Math.max(0, plannedMinutes - actualMinutes),
+          focusSessionCount: taskSessions.length,
+          historical: true,
+        } satisfies TaskStatistic;
+      });
+
+    return [...current, ...historical];
+  }, [sessions, state, state.plannerSelectedDate]);
+
+  const DAILY_GOAL_MINUTES = state.plannerSettings.dailyTargetHours * 60;
+  const WEEKLY_GOAL_MINUTES = state.plannerSettings.weeklyTargetHours * 60;
 
   const dailyGoalProgress = Math.min(
     100,
@@ -274,7 +372,7 @@ useEffect(() => {
       message: 'A short focused session today can help build a consistent study habit.',
       icon: 'bulb-outline' as const,
     };
-  }, [sessions.length, stats.todayMinutes]);
+  }, [sessions.length, stats.todayMinutes, DAILY_GOAL_MINUTES]);
   const hasHistory = sessions.length > 0;
   const performanceStats = useMemo(() => {
     const activeDays = stats.last7Days.filter(
@@ -286,7 +384,7 @@ useEffect(() => {
     const averageSession = sessions.length
       ? Math.round(
           sessions.reduce(
-            (sum, session) => sum + Math.max(0, session.minutes),
+            (sum, session) => sum + getSessionMinutes(session),
             0
           ) / sessions.length
         )
@@ -313,7 +411,7 @@ useEffect(() => {
   
       const minutes = sessions
         .filter((session) => isSameDay(new Date(session.completedAt), date))
-        .reduce((sum, session) => sum + Math.max(0, session.minutes), 0);
+        .reduce((sum, session) => sum + getSessionMinutes(session), 0);
   
       days.push({ date, minutes });
     }
@@ -387,6 +485,62 @@ useEffect(() => {
           </View>
           <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 10 }}>
             Planned task durations are shown separately from measured focus-session time.
+          </Txt>
+        </Card>
+
+        <Card>
+          <SectionHeader
+            title="Task progress"
+            icon="list-outline"
+            action={new Date(`${state.plannerSelectedDate}T00:00:00.000Z`).toLocaleDateString('en-IN')}
+          />
+          {taskStatistics.length ? (
+            <View style={{ gap: 12 }}>
+              {taskStatistics.map((task) => {
+                const progress = task.plannedMinutes > 0
+                  ? Math.min(100, Math.round((task.actualMinutes / task.plannedMinutes) * 100))
+                  : 0;
+                return (
+                  <View
+                    key={`${task.historical ? 'historical-' : ''}${task.taskId}`}
+                    style={{
+                      borderRadius: radii.md,
+                      backgroundColor: colors.surfaceAlt,
+                      padding: 12,
+                      gap: 6,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Txt size={13} weight="800" numberOfLines={1}>{task.title}</Txt>
+                        <Txt size={11.5} color={colors.textMuted}>
+                          {task.category}{task.historical ? ' · historical' : ''}
+                        </Txt>
+                      </View>
+                      <Txt size={12} weight="800" color={task.completed ? colors.success : colors.textMuted}>
+                        {task.completed ? 'Completed' : 'Pending'}
+                      </Txt>
+                    </View>
+                    <View style={{ height: 7, borderRadius: 4, backgroundColor: colors.border, overflow: 'hidden' }}>
+                      <View style={{ width: `${progress}%`, height: '100%', backgroundColor: task.completed ? colors.success : colors.blue }} />
+                    </View>
+                    <Txt size={11.5} color={colors.textMuted}>
+                      {formatDuration(task.actualMinutes)} actual / {formatDuration(task.plannedMinutes)} planned · {formatDuration(task.remainingMinutes)} remaining · {task.focusSessionCount} focus session{task.focusSessionCount !== 1 ? 's' : ''}
+                    </Txt>
+                    {task.completed && task.completionDate ? (
+                      <Txt size={10.5} color={colors.textFaint}>Completed on {task.completionDate}</Txt>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Txt size={13} color={colors.textMuted}>
+              No planner tasks or task-linked focus sessions for this date.
+            </Txt>
+          )}
+          <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 10 }}>
+            Actual time comes only from task-linked Focus Mode sessions. Completion is controlled explicitly in the planner.
           </Txt>
         </Card>
 
@@ -955,7 +1109,7 @@ useEffect(() => {
                       </View>
                       <View style={{ flex: 1, gap: 3 }}>
                         <Txt size={13.5} weight="700" numberOfLines={1}>
-                          {session.subject}
+                          {session.subject || 'General Study'}
                           {session.topic ? ` · ${session.topic}` : ''}
                         </Txt>
                         <Txt size={11.5} color={colors.textMuted}>
@@ -971,7 +1125,7 @@ useEffect(() => {
                         }}
                       >
                         <Txt size={12} weight="800" color={colors.teal}>
-                          {formatDuration(session.minutes)}
+                          {formatDuration(getSessionMinutes(session))}
                         </Txt>
                       </View>
                     </View>

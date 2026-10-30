@@ -820,7 +820,7 @@ export const BADGES = [
 export const TODAY_PLAN = [
   { id: 'tp1', label: 'Revise Fundamental Rights (Art. 12–35)', minutes: 30, kind: 'note', refId: 'r1' },
   { id: 'tp2', label: 'Attempt 20 Polity PYQs', minutes: 25, kind: 'pyq', refId: 'Polity' },
-  { id: 'tp3', label: 'Daily current affairs digest', minutes: 15, kind: 'ca', refId: 'ca1' },
+  { id: 'tp3', label: 'Daily Current Affairs Digest', minutes: 15, kind: 'ca', refId: 'ca1' },
   { id: 'tp4', label: 'Live mock: UPSC Prelims #14', minutes: 20, kind: 'test', refId: 't1' },
-  { id: 'tp5', label: 'Flashcard recall — Economy', minutes: 10, kind: 'note', refId: 'r3' },
+  { id: 'tp5', label: 'Flashcard Recall – Economy', minutes: 10, kind: 'note', refId: 'r3' },
 ];

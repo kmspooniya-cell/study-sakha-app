@@ -7,7 +7,6 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme, radii } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { ProgressRing, Txt } from './ui';
-import { FocusTimerButton } from './DashboardStudyTools';
 
 type Props = {
   onFocusTimer?: () => void;
@@ -167,8 +166,6 @@ export function StitchDashboardHero({
             }}
           />
         </View>
-
-        <FocusTimerButton />
 
         <Pressable
           onPress={() => navigation.navigate('Library')}
