@@ -25,7 +25,8 @@ export type NavKey =
   | 'StudentTestimonials'
   | 'Admin'
   | 'Statistics'
-  | 'StudyPlanner';
+  | 'StudyPlanner'
+  | 'FocusCenter';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
 
@@ -38,6 +39,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { key: 'Library', label: 'Library', icon: 'library-outline' },
       { key: 'PYQ', label: 'PYQ Bank', icon: 'albums-outline' },
       { key: 'Tests', label: 'Test Series', icon: 'timer-outline' },
+      { key: 'FocusCenter', label: 'Focus & Wellness', icon: 'stopwatch-outline' },
       { key: 'CurrentAffairs', label: 'Current Affairs', icon: 'newspaper-outline' },
     ],
   },
@@ -87,7 +89,7 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
-  const { mode } = useTheme();
+  const { mode, colors } = useTheme();
   const { state, unread, dispatch } = useStore();
   const parentState = nav.getParent?.()?.getState?.();
   const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
@@ -130,23 +132,23 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
 
   return (
     <LinearGradient
-      colors={['#2A1519', '#1F1013', '#150A0C']}
+      colors={[colors.navy, colors.bg, colors.surfaceBase]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         paddingTop: safeAreaTop ? Math.max(insets.top, 45) : 0,
         paddingBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(244, 63, 94, 0.2)',
+        borderBottomColor: colors.borderStrong,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Pressable onPress={openMenu} style={{ marginRight: 10 }} accessibilityRole="button" accessibilityLabel="Open menu">
-          <Ionicons name="menu" size={28} color="#FFF" />
+        <Pressable onPress={openMenu} style={({ pressed }) => ({ width: 44, height: 44, marginRight: 4, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Open menu">
+          <Ionicons name="menu" size={25} color="#FFF" />
         </Pressable>
         <Pressable
           onPress={!isHome && !isSakhaAI ? goHome : undefined}
@@ -155,7 +157,7 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
           accessibilityLabel={!isHome && !isSakhaAI ? 'Go to Home' : undefined}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
         >
-          <LinearGradient colors={['#E11D48', '#F43F5E', '#FBBF24']} style={{ width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+          <LinearGradient colors={[colors.rose, colors.amber]} style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="book" size={18} color="#FFF" />
           </LinearGradient>
           <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '800' }}>
@@ -167,15 +169,15 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
           </Text>
         </Pressable>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-        <Pressable onPress={cycleTheme} accessibilityRole="button" accessibilityLabel="Toggle theme">
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <Pressable onPress={cycleTheme} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Toggle theme">
           <Ionicons name="moon-outline" size={20} color="#CBD5E1" />
         </Pressable>
-        <Pressable onPress={() => navigate('Notifications')} accessibilityRole="button" accessibilityLabel="Notifications">
+        <Pressable onPress={() => navigate('Notifications')} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Notifications">
           <View>
             <Ionicons name="notifications-outline" size={20} color="#CBD5E1" />
             {unread > 0 ? (
-              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#DC2626', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1F1013' }}>
+              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.bg }}>
                 <Text style={{ color: '#FFF', fontSize: 9, fontWeight: 'bold' }}>{unread > 9 ? '9+' : unread}</Text>
               </View>
             ) : null}
@@ -185,12 +187,67 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
           onPress={() => navigate('Profile')}
           accessibilityRole="button"
           accessibilityLabel="Open profile"
-          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#E11D48', alignItems: 'center', justifyContent: 'center' }}
+          style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.rose, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
         >
           <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '800' }}>{first.charAt(0)}</Text>
         </Pressable>
       </View>
     </LinearGradient>
+  );
+}
+
+export function AppBottomNav({ active }: { active: NavKey }) {
+  const nav = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+
+  const go = (key: NavKey) => {
+    const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
+    let target: any = nav;
+    while (target) {
+      const routeNames = target.getState?.().routeNames ?? [];
+      if (routeNames.includes(routeName)) {
+        target.navigate(routeName);
+        return;
+      }
+      target = target.getParent?.();
+    }
+  };
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        backgroundColor: colors.surfaceRaised,
+        borderTopWidth: 1,
+        borderTopColor: colors.borderSubtle,
+        paddingBottom: Math.max(insets.bottom, 8),
+        paddingTop: 8,
+        ...shadow(colors, 2),
+      }}
+    >
+      {MOBILE_TABS.map((t) => {
+        const on = t.key === active;
+        return (
+          <Pressable key={t.key} onPress={() => go(t.key)} accessibilityRole="button" accessibilityState={{ selected: on }} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', gap: 2, paddingVertical: 2, opacity: pressed ? 0.72 : 1 })}>
+            <View style={{ width: 34, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? colors.selectedSurface : 'transparent' }}>
+              <Ionicons name={on ? t.icon : (`${t.icon}-outline` as any)} size={20} color={on ? colors.selected : colors.textTertiary} />
+            </View>
+            <Txt size={10.5} weight={on ? '800' : '600'} color={on ? colors.brandPrimary : colors.textTertiary}>
+              {t.label}
+            </Txt>
+          </Pressable>
+        );
+      })}
+      <Pressable onPress={() => go('More')} accessibilityRole="button" accessibilityState={{ selected: active === 'More' }} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', gap: 2, paddingVertical: 2, opacity: pressed ? 0.72 : 1 })}>
+        <View style={{ width: 34, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: active === 'More' ? colors.selectedSurface : 'transparent' }}>
+          <Ionicons name="grid-outline" size={20} color={active === 'More' ? colors.selected : colors.textTertiary} />
+        </View>
+        <Txt size={10.5} weight={active === 'More' ? '800' : '600'} color={active === 'More' ? colors.brandPrimary : colors.textTertiary}>
+          More
+        </Txt>
+      </Pressable>
+    </View>
   );
 }
 
@@ -413,38 +470,6 @@ export function Shell({
     </View>
   ) : null;
 
-  const BottomNav = (
-    <View
-      style={{
-        flexDirection: 'row',
-        backgroundColor: colors.surface,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-        paddingBottom: Math.max(insets.bottom, 8),
-        paddingTop: 8,
-        ...shadow(colors, 2),
-      }}
-    >
-      {MOBILE_TABS.map((t) => {
-        const on = t.key === active;
-        return (
-          <Pressable key={t.key} onPress={() => go(t.key)} style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 }}>
-            <Ionicons name={on ? t.icon : (`${t.icon}-outline` as any)} size={21} color={on ? colors.blue : colors.textFaint} />
-            <Txt size={10.5} weight={on ? '800' : '600'} color={on ? colors.blue : colors.textFaint}>
-              {t.label}
-            </Txt>
-          </Pressable>
-        );
-      })}
-      <Pressable onPress={() => go('More')} style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 }}>
-        <Ionicons name="grid-outline" size={21} color={active === 'More' ? colors.blue : colors.textFaint} />
-        <Txt size={10.5} weight={active === 'More' ? '800' : '600'} color={active === 'More' ? colors.blue : colors.textFaint}>
-          More
-        </Txt>
-      </Pressable>
-    </View>
-  );
-
   const body = (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {scroll ? (
@@ -509,7 +534,7 @@ export function Shell({
             </View>
           )}
         </View>
-        {BottomNav}
+        <AppBottomNav active={active} />
       </View>
     );
   }
