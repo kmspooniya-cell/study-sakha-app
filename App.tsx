@@ -25,6 +25,7 @@ import AppGuideScreen from './screens/AppGuideScreen';
 import BookReaderScreen from './screens/BookReaderScreen';
 import CurrentAffairsScreen from './screens/CurrentAffairsScreen';
 import DashboardScreen from './screens/DashboardScreen';
+import FocusCenterScreen from './screens/FocusCenterScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import MoreScreen from './screens/MoreScreen';
 import NoteEditorScreen from './screens/NoteEditorScreen';
@@ -37,6 +38,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
+import StudyPlannerScreen from './screens/StudyPlannerScreen';
 import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
@@ -77,6 +79,7 @@ const linking = {
               Search: 'search',
               Notifications: 'notifications',
               Statistics: 'statistics',
+              StudyPlanner: 'study-planner',
               Profile: 'profile',
               Settings: 'settings',
               AppGuide: 'app-guide',
@@ -214,6 +217,8 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Search" component={SearchScreen} />
       <AppStack.Screen name="Notifications" component={NotificationsScreen} />
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
+      <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
+      <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
       <AppStack.Screen name="Settings" component={SettingsScreen} />
       <AppStack.Screen name="AppGuide" component={AppGuideScreen} />

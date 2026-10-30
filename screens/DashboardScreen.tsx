@@ -18,7 +18,6 @@ import {
 import { dayKey, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 import {
-  FocusTimerButton,
   CustomStudyPlan,
 } from '../components/DashboardStudyTools';
 
@@ -88,51 +87,6 @@ export default function DashboardScreen() {
   const recent = exam
     ? RESOURCES.filter((resource) => resource.exam === exam.id).slice(0, isDesktop ? 4 : 3)
     : [];
-
-  const planSuggestions = useMemo(() => {
-    const suggestions: {
-      id: string;
-      label: string;
-      category: string;
-      minutes: number;
-      taskType: 'Review' | 'Revision' | 'Practice' | 'Reading' | 'Mock Test' | 'Other';
-    }[] = [];
-
-    const mistakeNote = [...state.notes]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .find(
-        (note) =>
-          note.folder.toLowerCase().includes('error') ||
-          note.tags.some((tag) => tag.toLowerCase().includes('mistake'))
-      );
-    if (mistakeNote) {
-      suggestions.push({
-        id: `suggest-mistake-${mistakeNote.id}`,
-        label: `Review mistakes: ${mistakeNote.title}`,
-        category: mistakeNote.subject || 'Other',
-        minutes: 20,
-        taskType: 'Review',
-      });
-    }
-
-    const inProgressResource = RESOURCES.find(
-      (resource) =>
-        resource.exam === exam.id &&
-        state.progress[resource.id] &&
-        state.progress[resource.id].percent < 100
-    );
-    if (inProgressResource) {
-      suggestions.push({
-        id: `suggest-revision-${inProgressResource.id}`,
-        label: `Continue ${inProgressResource.title}`,
-        category: inProgressResource.subject,
-        minutes: inProgressResource.minutes,
-        taskType: 'Revision',
-      });
-    }
-
-    return suggestions.slice(0, 2);
-  }, [exam.id, state.notes, state.progress]);
 
   const quickActions = [
     {
@@ -262,7 +216,6 @@ export default function DashboardScreen() {
           </View>
 
           <View style={styles.heroActions}>
-            <FocusTimerButton />
             <Pressable style={styles.resumeBtn} onPress={() => nav.navigate('Library')}>
               <Ionicons name="book-outline" size={16} color="#CBD5E1" />
               <Text style={styles.resumeBtnText}>Resume learning</Text>
@@ -295,11 +248,18 @@ export default function DashboardScreen() {
             {/* Today's Plan */}
             <View style={styles.pastelCardWrap}>
               <CustomStudyPlan
-                plan={TODAY_PLAN}
+                plan={TODAY_PLAN.filter((task) => task.id !== 'tp4')}
                 planDone={state.planDone}
+                tasks={state.plannerTasks}
+                tasksLoaded={state.plannerTasksLoaded}
+                taskLoadError={state.plannerTaskLoadError}
+                persistenceError={state.plannerPersistenceError}
+                defaultOverrides={state.plannerDefaultOverrides}
+                deletedDefaults={state.plannerDeletedDefaults}
                 dispatch={dispatch}
                 onOpenItem={openPlanItem}
-                suggestions={planSuggestions}
+                onOpenFocus={() => nav.navigate('FocusCenter')}
+                onOpenPlanner={() => nav.navigate('StudyPlanner')}
               />
             </View>
 

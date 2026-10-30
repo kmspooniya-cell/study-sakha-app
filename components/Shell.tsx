@@ -24,7 +24,8 @@ export type NavKey =
   | 'AppGuide'
   | 'StudentTestimonials'
   | 'Admin'
-  | 'Statistics';
+  | 'Statistics'
+  | 'StudyPlanner';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
 
@@ -59,6 +60,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: 'More',
     items: [
+      { key: 'StudyPlanner', label: 'Study Planner', icon: 'calendar-outline' },
       { key: 'StudentTestimonials', label: 'Student Testimonials', icon: 'chatbubbles-outline' },
     ],
   },
