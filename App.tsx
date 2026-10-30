@@ -6,18 +6,27 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Platform, View, Text, Pressable } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Share, View, Text, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
 import { StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
+import {
+  LibraryBooksScreen,
+  LibraryDownloadsScreen,
+  LibraryNotesScreen,
+  LibraryPYQSetsScreen,
+  LibraryStarredScreen,
+} from './screens/LibraryScreen';
 
 import AdminScreen from './screens/AdminScreen';
+import AppGuideScreen from './screens/AppGuideScreen';
 import BookReaderScreen from './screens/BookReaderScreen';
 import CurrentAffairsScreen from './screens/CurrentAffairsScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import LibraryScreen from './screens/LibraryScreen';
+import MoreScreen from './screens/MoreScreen';
 import NoteEditorScreen from './screens/NoteEditorScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import ProfileScreen from './screens/ProfileScreen';
@@ -28,11 +37,13 @@ import SettingsScreen from './screens/SettingsScreen';
 import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
+import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
 
 const Stack = createNativeStackNavigator();
+const AppStack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 
 const linking = {
@@ -44,24 +55,37 @@ const linking = {
       Dashboard: {
         path: '',
         screens: {
-          DashboardRoot: '',
+          MainStack: {
+            path: '',
+            screens: {
+              DashboardRoot: '',
+              Library: 'library',
+              More: 'more',
+              LibraryNotes: 'library/notes',
+              LibraryBooks: 'library/books',
+              LibraryPYQSets: 'library/pyq-sets',
+              LibraryStarred: 'library/starred',
+              LibraryDownloads: 'library/downloads',
+              PYQ: 'pyq-bank',
+              Tests: 'tests',
+              TestPlayer: 'tests/attempt',
+              TestResult: 'tests/result',
+              SakhaAI: 'sakha-ai',
+              NoteEditor: 'notes',
+              BookReader: 'books',
+              CurrentAffairs: 'current-affairs',
+              Search: 'search',
+              Notifications: 'notifications',
+              Statistics: 'statistics',
+              Profile: 'profile',
+              Settings: 'settings',
+              AppGuide: 'app-guide',
+              StudentTestimonials: 'student-testimonials',
+              Admin: 'admin',
+            },
+          },
         },
       },
-      Library: 'library',
-      PYQ: 'pyq-bank',
-      Tests: 'tests',
-      TestPlayer: 'tests/attempt',
-      TestResult: 'tests/result',
-      SakhaAI: 'sakha-ai',
-      NoteEditor: 'notes',
-      BookReader: 'books',
-      CurrentAffairs: 'current-affairs',
-      Search: 'search',
-      Notifications: 'notifications',
-      Statistics: 'statistics',
-      Profile: 'profile',
-      Settings: 'settings',
-      Admin: 'admin',
     },
   },
 };
@@ -92,24 +116,40 @@ function CustomDrawerContent(props: any) {
           colors={scheme === 'dark' ? ['#2A1519', '#1F1013'] : ['#E11D48', '#BE123C']} 
           style={{ padding: 20, paddingTop: 60, paddingBottom: 30, flexDirection: 'row', alignItems: 'center' }}
         >
-          <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
-            <Text style={{ color: '#E11D48', fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
-          </View>
-          <View>
-            <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{state.user?.name || 'Aspirant'}</Text>
-            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
-          </View>
+          <Pressable
+            onPress={() => {
+              props.navigation.closeDrawer();
+              props.navigation.navigate('MainStack', { screen: 'Profile' });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="View profile"
+            style={{ flexDirection: 'row', alignItems: 'center' }}
+          >
+            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
+              <Text style={{ color: '#E11D48', fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
+            </View>
+            <View>
+              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{state.user?.name || 'Aspirant'}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
+            </View>
+          </Pressable>
         </LinearGradient>
 
         {/* 4 Menu Options */}
         <View style={{ padding: 15, gap: 5 }}>
           {[
-            { label: 'Offline downloads', icon: 'cloud-download-outline' },
-            { label: 'Students testimonials', icon: 'chatbubbles-outline' },
-            { label: 'How to use the app', icon: 'help-circle-outline' },
-            { label: 'Privacy policy', icon: 'shield-checkmark-outline' },
-          ].map((item, i) => (
-            <Pressable key={i} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderRadius: 8, opacity: pressed ? 0.7 : 1 })}>
+            { label: 'Offline downloads', icon: 'cloud-download-outline', route: 'LibraryDownloads' },
+            { label: 'How to use the app', icon: 'help-circle-outline', route: 'AppGuide' },
+            { label: 'Privacy policy', icon: 'shield-checkmark-outline', route: 'Settings' },
+          ].map((item) => (
+            <Pressable
+              key={item.label}
+              onPress={() => {
+                props.navigation.closeDrawer();
+                props.navigation.navigate('MainStack', { screen: item.route });
+              }}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderRadius: 8, opacity: pressed ? 0.7 : 1 })}
+            >
               <Ionicons name={item.icon as any} size={22} color={colors.text} />
               <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text, marginLeft: 15 }}>{item.label}</Text>
             </Pressable>
@@ -118,7 +158,25 @@ function CustomDrawerContent(props: any) {
       </DrawerContentScrollView>
 
       {/* Share Bottom Bar */}
-      <Pressable style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', padding: 20, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 })}>
+      <Pressable
+        onPress={async () => {
+          try {
+            await Share.share(
+              { message: "I'm using Study Sakha to prepare for competitive exams. Check out the app!" },
+              { dialogTitle: 'Share Study Sakha' }
+            );
+          } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') return;
+            Alert.alert(
+              'Unable to share',
+              error instanceof Error ? error.message : 'Sharing is not supported on this device.'
+            );
+          }
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Share Study Sakha with friends"
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', padding: 20, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 })}
+      >
         <Ionicons name="share-social-outline" size={24} color={colors.blue} />
         <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.blue, marginLeft: 15 }}>Share with friends</Text>
       </Pressable>
@@ -127,15 +185,51 @@ function CustomDrawerContent(props: any) {
 }
 
 // ----------------------------------------------------
-// 2. MAIN DRAWER NAVIGATOR (Wraps Dashboard)
+// 2. AUTHENTICATED APP NAVIGATORS
 // ----------------------------------------------------
+function AuthenticatedStackNavigator() {
+  return (
+    <AppStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: Platform.OS === 'web' ? 'none' : 'slide_from_right',
+      }}
+    >
+      <AppStack.Screen name="DashboardRoot" component={DashboardScreen} />
+      <AppStack.Screen name="Library" component={LibraryScreen} />
+      <AppStack.Screen name="More" component={MoreScreen} />
+      <AppStack.Screen name="LibraryNotes" component={LibraryNotesScreen} />
+      <AppStack.Screen name="LibraryBooks" component={LibraryBooksScreen} />
+      <AppStack.Screen name="LibraryPYQSets" component={LibraryPYQSetsScreen} />
+      <AppStack.Screen name="LibraryStarred" component={LibraryStarredScreen} />
+      <AppStack.Screen name="LibraryDownloads" component={LibraryDownloadsScreen} />
+      <AppStack.Screen name="PYQ" component={PYQScreen} />
+      <AppStack.Screen name="Tests" component={TestsScreen} />
+      <AppStack.Screen name="TestPlayer" component={TestPlayerScreen} />
+      <AppStack.Screen name="TestResult" component={TestResultScreen} />
+      <AppStack.Screen name="SakhaAI" component={SakhaAIScreen} />
+      <AppStack.Screen name="NoteEditor" component={NoteEditorScreen} />
+      <AppStack.Screen name="BookReader" component={BookReaderScreen} />
+      <AppStack.Screen name="CurrentAffairs" component={CurrentAffairsScreen} />
+      <AppStack.Screen name="Search" component={SearchScreen} />
+      <AppStack.Screen name="Notifications" component={NotificationsScreen} />
+      <AppStack.Screen name="Statistics" component={StatisticsScreen} />
+      <AppStack.Screen name="Profile" component={ProfileScreen} />
+      <AppStack.Screen name="Settings" component={SettingsScreen} />
+      <AppStack.Screen name="AppGuide" component={AppGuideScreen} />
+      <AppStack.Screen name="StudentTestimonials" component={StudentTestimonialsScreen} />
+      <AppStack.Screen name="Admin" component={AdminScreen} />
+    </AppStack.Navigator>
+  );
+}
+
 function MainDrawerNavigator() {
   return (
     <Drawer.Navigator 
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{ headerShown: false, drawerStyle: { width: 290 } }}
     >
-      <Drawer.Screen name="DashboardRoot" component={DashboardScreen} />
+      <Drawer.Screen name="MainStack" component={AuthenticatedStackNavigator} />
     </Drawer.Navigator>
   );
 }
@@ -173,24 +267,7 @@ function Navigation() {
       >
         {state.user ? (
           <>
-            {/* Dashboard replaced with MainDrawerNavigator */}
             <Stack.Screen name="Dashboard" component={MainDrawerNavigator} />
-            
-            <Stack.Screen name="Library" component={LibraryScreen} />
-            <Stack.Screen name="PYQ" component={PYQScreen} />
-            <Stack.Screen name="Tests" component={TestsScreen} />
-            <Stack.Screen name="TestPlayer" component={TestPlayerScreen} />
-            <Stack.Screen name="TestResult" component={TestResultScreen} />
-            <Stack.Screen name="SakhaAI" component={SakhaAIScreen} />
-            <Stack.Screen name="NoteEditor" component={NoteEditorScreen} />
-            <Stack.Screen name="BookReader" component={BookReaderScreen} />
-            <Stack.Screen name="CurrentAffairs" component={CurrentAffairsScreen} />
-            <Stack.Screen name="Search" component={SearchScreen} />
-            <Stack.Screen name="Notifications" component={NotificationsScreen} />
-            <Stack.Screen name="Statistics" component={StatisticsScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-            <Stack.Screen name="Admin" component={AdminScreen} />
           </>
         ) : (
           <>

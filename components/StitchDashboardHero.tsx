@@ -25,7 +25,7 @@ export function StitchDashboardHero({
 }: Props) {
   const navigation = useNavigation<any>();
   const { colors } = useTheme();
-  const state = useStore((s: any) => s);
+  const { state } = useStore();
   const firstName = String(state.user?.name || 'Learner').trim().split(' ')[0];
   const progress =
     dailyGoalMinutes > 0

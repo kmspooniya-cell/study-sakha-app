@@ -37,21 +37,107 @@ type PlanTask = {
   minutes: number;
 };
 
+type TaskType = 'Review' | 'Revision' | 'Practice' | 'Reading' | 'Mock Test' | 'Other';
+
 type CustomTask = {
   id: string;
   label: string;
   minutes: number;
   category: string;
   completed: boolean;
+  completedOn: string | null;
+  targetDate: string;
+  taskType: TaskType;
 };
+
+type PlanSuggestion = Pick<CustomTask, 'id' | 'label' | 'category' | 'minutes' | 'taskType'>;
 
 type Props = {
   plan: PlanTask[];
-  todayDone: string[];
+  planDone: Record<string, string[]>;
   dispatch: (action: any) => void;
   onOpenItem: (item: PlanTask) => void;
+  suggestions: PlanSuggestion[];
 };
 const STORAGE_KEY = 'study-sakha-custom-tasks-v1';
+const TASK_TYPES: TaskType[] = ['Review', 'Revision', 'Practice', 'Reading', 'Mock Test', 'Other'];
+
+function currentDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isDateKey(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function shiftDateKey(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDateKey(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00.000Z`));
+}
+
+function taskTypeForCategory(category: string): TaskType {
+  if (category === 'PYQ') return 'Practice';
+  if (category === 'Current Affairs') return 'Reading';
+  if (category === 'Mock Test') return 'Mock Test';
+  if (category === 'Note') return 'Review';
+  return 'Other';
+}
+
+function migrateCustomTask(value: unknown): CustomTask {
+  if (!value || typeof value !== 'object') {
+    throw new Error('A saved task is not a valid task record.');
+  }
+  const task = value as Record<string, unknown>;
+  if (
+    typeof task.id !== 'string' ||
+    typeof task.label !== 'string' ||
+    typeof task.minutes !== 'number' ||
+    !Number.isInteger(task.minutes) ||
+    task.minutes < 1 ||
+    task.minutes > 600
+  ) {
+    throw new Error('A saved task is missing a valid title, ID, or duration.');
+  }
+
+  const category = typeof task.category === 'string' && task.category.trim()
+    ? task.category
+    : 'Other';
+  const targetDate = isDateKey(task.targetDate) ? task.targetDate : currentDateKey();
+  const completedOn = isDateKey(task.completedOn)
+    ? task.completedOn
+    : task.completed
+      ? targetDate
+      : null;
+  const taskType = TASK_TYPES.includes(task.taskType as TaskType)
+    ? task.taskType as TaskType
+    : taskTypeForCategory(category);
+
+  return {
+    ...task,
+    id: task.id,
+    label: task.label,
+    minutes: task.minutes,
+    category,
+    targetDate,
+    taskType,
+    completedOn,
+    completed: completedOn === targetDate,
+  };
+}
+
 export function FocusTimerButton() {
   const { colors } = useTheme();
 
@@ -851,23 +937,30 @@ export function FocusTimerButton() {
 
 export function CustomStudyPlan({
   plan,
-  todayDone,
+  planDone,
   dispatch,
   onOpenItem,
+  suggestions,
 }: Props) {
   const { colors } = useTheme();
-
+  const [selectedDate, setSelectedDate] = useState(currentDateKey);
   const [tasks, setTasks] = useState<CustomTask[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [modal, setModal] = useState(false);
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [minutes, setMinutes] = useState('25');
-  const [category, setCategory] = useState('Note');
+  const [category, setCategory] = useState('');
+  const [taskType, setTaskType] = useState<TaskType>('Review');
+  const [taskDate, setTaskDate] = useState(currentDateKey);
   const [filter, setFilter] = useState('All');
   const [error, setError] = useState('');
+  const [storageError, setStorageError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const locks = useRef<Record<string, boolean>>({});
+  const saveQueue = useRef(Promise.resolve());
 
   useEffect(() => {
     let active = true;
@@ -877,11 +970,37 @@ export function CustomStudyPlan({
         if (!active || !saved) return;
 
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setTasks(parsed);
+        if (!Array.isArray(parsed)) {
+          throw new Error('Saved tasks are not in the expected format.');
+        }
+        const migratedTasks = parsed.map(migrateCustomTask);
+        setTasks(migratedTasks);
+        migratedTasks
+          .filter((task) => task.completedOn === task.targetDate)
+          .forEach((task) =>
+            dispatch({
+              type: 'plannerCompletion',
+              date: task.targetDate,
+              completion: {
+                taskId: task.id,
+                label: task.label,
+                minutes: task.minutes,
+                category: task.category,
+                taskType: task.taskType,
+              },
+              completed: true,
+            })
+          );
       })
-      .catch(() => {
+      .catch((cause) => {
         if (active) {
-          Alert.alert('Study plan', 'Could not load saved custom tasks.');
+          setLoadFailed(true);
+          setStorageError(
+            cause instanceof Error
+              ? `Could not load saved tasks. They were not changed: ${cause.message}`
+              : 'Could not load saved tasks. They were not changed.'
+          );
+          Alert.alert('Study plan', 'Could not load saved custom tasks. Existing data was not changed.');
         }
       })
       .finally(() => {
@@ -894,25 +1013,35 @@ export function CustomStudyPlan({
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || loadFailed) return;
 
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)).catch(() => {
-      Alert.alert('Save error', 'Could not save your custom tasks.');
-    });
-  }, [tasks, loaded]);
+    saveQueue.current = saveQueue.current
+      .then(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)))
+      .then(() => setStorageError(''))
+      .catch((cause) => {
+        setStorageError(
+          cause instanceof Error ? `Could not save your tasks: ${cause.message}` : 'Could not save your tasks.'
+        );
+        Alert.alert('Save error', 'Could not save your custom tasks.');
+      });
+  }, [tasks, loaded, loadFailed]);
 
-  const defaultDone = plan.filter((item) => todayDone.includes(item.id)).length;
+  const dateDone = planDone[selectedDate] ?? [];
+  const visibleCustomTasks = tasks.filter((task) => task.targetDate === selectedDate);
+  const defaultDone = plan.filter((item) => dateDone.includes(item.id)).length;
 
-  const customDone = tasks.filter((task) => task.completed).length;
-  const total = plan.length + tasks.length;
+  const customDone = visibleCustomTasks.filter((task) => task.completedOn === selectedDate).length;
+  const total = plan.length + visibleCustomTasks.length;
   const doneCount = defaultDone + customDone;
   const percent = total ? Math.round((doneCount / total) * 100) : 0;
 
-  function openAdd() {
+  function openAdd(suggestion?: PlanSuggestion) {
     setEditingId(null);
-    setTitle('');
-    setMinutes('25');
-    setCategory('Note');
+    setTitle(suggestion?.label ?? '');
+    setMinutes(String(suggestion?.minutes ?? 25));
+    setCategory(suggestion?.category ?? '');
+    setTaskType(suggestion?.taskType ?? 'Review');
+    setTaskDate(selectedDate);
     setError('');
     setModal(true);
   }
@@ -922,16 +1051,24 @@ export function CustomStudyPlan({
     setTitle(task.label);
     setMinutes(String(task.minutes));
     setCategory(task.category);
+    setTaskType(task.taskType);
+    setTaskDate(task.targetDate);
     setError('');
     setModal(true);
   }
 
   function saveTask() {
     const cleanTitle = title.trim();
+    const cleanCategory = category.trim();
     const duration = Number(minutes);
 
     if (!cleanTitle) {
       setError('Please enter a task title.');
+      return;
+    }
+
+    if (!cleanCategory) {
+      setError('Please enter a subject or category.');
       return;
     }
 
@@ -940,11 +1077,25 @@ export function CustomStudyPlan({
       return;
     }
 
+    if (!isDateKey(taskDate)) {
+      setError('Choose a valid target date.');
+      return;
+    }
+
     if (editingId) {
       setTasks((old) =>
         old.map((task) =>
           task.id === editingId
-            ? { ...task, label: cleanTitle, minutes: duration, category }
+            ? {
+                ...task,
+                label: cleanTitle,
+                minutes: duration,
+                category: cleanCategory,
+                taskType,
+                targetDate: taskDate,
+                completed: taskDate === task.targetDate && task.completedOn === taskDate,
+                completedOn: taskDate === task.targetDate ? task.completedOn : null,
+              }
             : task
         )
       );
@@ -955,8 +1106,11 @@ export function CustomStudyPlan({
           id: `custom-${Date.now()}`,
           label: cleanTitle,
           minutes: duration,
-          category,
+          category: cleanCategory,
+          taskType,
+          targetDate: taskDate,
           completed: false,
+          completedOn: null,
         },
       ]);
     }
@@ -969,12 +1123,14 @@ export function CustomStudyPlan({
     if (locks.current[item.id]) return;
     locks.current[item.id] = true;
 
-    const wasDone = todayDone.includes(item.id);
-    dispatch({ type: 'togglePlan', id: item.id });
+    const wasDone = dateDone.includes(item.id);
+    dispatch({ type: 'togglePlan', id: item.id, date: selectedDate });
 
-    if (!wasDone) {
+    if (!wasDone && selectedDate === currentDateKey()) {
       dispatch({
-        type: 'study',
+        type: 'creditPlanMinutes',
+        id: item.id,
+        date: selectedDate,
         minutes: Math.max(0, Number(item.minutes) || 0),
       });
     }
@@ -984,8 +1140,35 @@ export function CustomStudyPlan({
     }, 350);
   }
 
+  function toggleCustom(task: CustomTask) {
+    const completed = task.completedOn !== selectedDate;
+    setTasks((old) =>
+      old.map((item) =>
+        item.id === task.id
+          ? {
+              ...item,
+              completed,
+              completedOn: completed ? selectedDate : null,
+            }
+          : item
+      )
+    );
+    dispatch({
+      type: 'plannerCompletion',
+      date: selectedDate,
+      completion: {
+        taskId: task.id,
+        label: task.label,
+        minutes: task.minutes,
+        category: task.category,
+        taskType: task.taskType,
+      },
+      completed,
+    });
+  }
+
   const visiblePlan = plan.filter((item) => {
-    const done = todayDone.includes(item.id);
+    const done = dateDone.includes(item.id);
     return (
       filter === 'All' ||
       (filter === 'Done' && done) ||
@@ -993,12 +1176,15 @@ export function CustomStudyPlan({
     );
   });
 
-  const visibleTasks = tasks.filter(
+  const visibleTasks = visibleCustomTasks.filter(
     (task) =>
       filter === 'All' ||
-      (filter === 'Done' && task.completed) ||
-      (filter === 'Pending' && !task.completed)
+      (filter === 'Done' && task.completedOn === selectedDate) ||
+      (filter === 'Pending' && task.completedOn !== selectedDate)
   );
+
+  const dateLabel = formatDateKey(selectedDate);
+  const deleteTask = tasks.find((task) => task.id === deleteTaskId);
 
   return (
     <View
@@ -1031,7 +1217,8 @@ export function CustomStudyPlan({
         </Text>
 
         <Pressable
-          onPress={openAdd}
+          onPress={() => openAdd()}
+          disabled={!loaded || loadFailed}
           style={{
             backgroundColor: colors.blue,
             borderRadius: 10,
@@ -1040,6 +1227,7 @@ export function CustomStudyPlan({
             flexDirection: 'row',
             alignItems: 'center',
             gap: 5,
+            opacity: !loaded || loadFailed ? 0.55 : 1,
           }}
         >
           <Ionicons name="add" size={17} color="#FFFFFF" />
@@ -1047,9 +1235,45 @@ export function CustomStudyPlan({
         </Pressable>
       </View>
 
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Pressable
+          onPress={() => setSelectedDate((date) => shiftDateKey(date, -1))}
+          accessibilityRole="button"
+          accessibilityLabel="Show previous day"
+          hitSlop={8}
+          style={{ padding: 8 }}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.blue} />
+        </Pressable>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '700' }}>
+            {selectedDate === currentDateKey() ? 'Today · ' : ''}{dateLabel}
+          </Text>
+          {selectedDate !== currentDateKey() ? (
+            <Pressable onPress={() => setSelectedDate(currentDateKey())} accessibilityRole="button">
+              <Text style={{ color: colors.blue, fontSize: 11, marginTop: 2 }}>Go to today</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Pressable
+          onPress={() => setSelectedDate((date) => shiftDateKey(date, 1))}
+          accessibilityRole="button"
+          accessibilityLabel="Show next day"
+          hitSlop={8}
+          style={{ padding: 8 }}
+        >
+          <Ionicons name="chevron-forward" size={18} color={colors.blue} />
+        </Pressable>
+      </View>
+
       <Text style={{ color: colors.textMuted, marginBottom: 10 }}>
         {doneCount}/{total} completed · {percent}%
       </Text>
+      {!loaded ? (
+        <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: 8 }}>
+          Loading saved tasks…
+        </Text>
+      ) : null}
 
       <View
         style={{
@@ -1066,6 +1290,49 @@ export function CustomStudyPlan({
             backgroundColor: colors.teal,
           }}
         />
+      </View>
+
+      <View style={{ marginTop: 14 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginBottom: 8 }}>
+          Suggested for you
+        </Text>
+        {suggestions.length ? (
+          suggestions.map((suggestion) => (
+            <View
+              key={suggestion.id}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingVertical: 8,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }}>
+                  {suggestion.label}
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 10, marginTop: 3 }}>
+                  {suggestion.category} · {suggestion.taskType} · {suggestion.minutes}m
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => openAdd(suggestion)}
+                disabled={!loaded || loadFailed}
+                accessibilityRole="button"
+                accessibilityLabel={`Add suggested task: ${suggestion.label}`}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.tint }}
+              >
+                <Text style={{ color: colors.blue, fontSize: 11, fontWeight: '800' }}>Add</Text>
+              </Pressable>
+            </View>
+          ))
+        ) : (
+          <Text style={{ color: colors.textMuted, fontSize: 11, paddingVertical: 6 }}>
+            Save a revision note or make progress on a resource to get tailored suggestions.
+          </Text>
+        )}
       </View>
 
       <View style={{ flexDirection: 'row', gap: 8, marginVertical: 14 }}>
@@ -1090,13 +1357,19 @@ export function CustomStudyPlan({
         ))}
       </View>
 
+      {storageError ? (
+        <Text accessibilityRole="alert" style={{ color: colors.danger, fontSize: 11, marginBottom: 8 }}>
+          {storageError}
+        </Text>
+      ) : null}
+
       <ScrollView
         style={{ maxHeight: 430 }}
         nestedScrollEnabled
         keyboardShouldPersistTaps="handled"
       >
         {visiblePlan.map((item) => {
-          const done = todayDone.includes(item.id);
+          const done = dateDone.includes(item.id);
 
           return (
             <View
@@ -1156,89 +1429,69 @@ export function CustomStudyPlan({
           );
         })}
 
-        {visibleTasks.map((task) => (
-          <View
-            key={task.id}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              paddingVertical: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: colors.border,
-            }}
-          >
-            <Pressable
-              onPress={() =>
-                setTasks((old) =>
-                  old.map((item) =>
-                    item.id === task.id
-                      ? { ...item, completed: !item.completed }
-                      : item
-                  )
-                )
-              }
+        {visibleTasks.map((task) => {
+          const done = task.completedOn === selectedDate;
+          return (
+            <View
+              key={task.id}
               style={{
-                width: 23,
-                height: 23,
-                borderWidth: 1.5,
-                borderColor: task.completed ? colors.teal : colors.border,
-                backgroundColor: task.completed ? colors.teal : 'transparent',
-                borderRadius: 7,
+                flexDirection: 'row',
                 alignItems: 'center',
-                justifyContent: 'center',
+                gap: 8,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
               }}
             >
-              {task.completed && (
-                <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-              )}
-            </Pressable>
-
-            <View style={{ flex: 1 }}>
-              <Text
+              <Pressable
+                onPress={() => toggleCustom(task)}
                 style={{
-                  color: colors.text,
-                  fontWeight: '600',
-                  textDecorationLine: task.completed ? 'line-through' : 'none',
+                  width: 23,
+                  height: 23,
+                  borderWidth: 1.5,
+                  borderColor: done ? colors.teal : colors.border,
+                  backgroundColor: done ? colors.teal : 'transparent',
+                  borderRadius: 7,
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                {task.label}
+                {done && (
+                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+                )}
+              </Pressable>
+
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: '600',
+                    textDecorationLine: done ? 'line-through' : 'none',
+                  }}
+                >
+                  {task.label}
+                </Text>
+                <Text
+                  style={{ color: colors.textMuted, fontSize: 10, marginTop: 4 }}
+                >
+                  {task.category.toUpperCase()} · {task.taskType.toUpperCase()}
+                </Text>
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                {task.minutes}m
               </Text>
-              <Text
-                style={{ color: colors.textMuted, fontSize: 10, marginTop: 4 }}
-              >
-                {task.category.toUpperCase()} · CUSTOM
-              </Text>
+
+              <Pressable onPress={() => openEdit(task)} hitSlop={8}>
+                <Ionicons name="create-outline" size={19} color={colors.blue} />
+              </Pressable>
+
+              <Pressable onPress={() => setDeleteTaskId(task.id)} hitSlop={8}>
+                <Ionicons name="trash-outline" size={19} color={colors.danger} />
+              </Pressable>
             </View>
-
-            <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-              {task.minutes}m
-            </Text>
-
-            <Pressable onPress={() => openEdit(task)} hitSlop={8}>
-              <Ionicons name="create-outline" size={19} color={colors.blue} />
-            </Pressable>
-
-            <Pressable
-              onPress={() =>
-                Alert.alert('Delete task?', task.label, [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () =>
-                      setTasks((old) =>
-                        old.filter((item) => item.id !== task.id)
-                      ),
-                  },
-                ])
-              }
-              hitSlop={8}
-            >
-              <Ionicons name="trash-outline" size={19} color={colors.danger} />
-            </Pressable>
-          </View>
-        ))}
+          );
+        })}
 
         {visiblePlan.length === 0 && visibleTasks.length === 0 && (
           <Text
@@ -1267,58 +1520,101 @@ export function CustomStudyPlan({
             backgroundColor: 'rgba(0,0,0,0.5)',
           }}
         >
-          <View
-            style={{
-              backgroundColor: colors.surface,
-              borderRadius: 20,
-              padding: 20,
-              gap: 12,
-            }}
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+            keyboardShouldPersistTaps="handled"
           >
-            <Text
-              style={{ color: colors.text, fontSize: 19, fontWeight: '800' }}
-            >
-              {editingId ? 'Edit task' : 'Add study task'}
-            </Text>
-
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Task title"
-              placeholderTextColor={colors.textFaint}
-              maxLength={150}
+            <View
               style={{
-                color: colors.text,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 10,
-                padding: 12,
+                backgroundColor: colors.surface,
+                borderRadius: 20,
+                padding: 20,
+                gap: 12,
+                maxHeight: '92%',
               }}
-            />
+            >
+              <Text
+                style={{ color: colors.text, fontSize: 19, fontWeight: '800' }}
+              >
+                {editingId ? 'Edit task' : 'Add study task'}
+              </Text>
 
-            <Text style={{ color: colors.text, fontWeight: '700' }}>
-              Category
-            </Text>
+              <TextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Task title"
+                accessibilityLabel="Task title"
+                placeholderTextColor={colors.textFaint}
+                maxLength={150}
+                style={{
+                  color: colors.text,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              />
 
+              <Text style={{ color: colors.text, fontWeight: '700' }}>
+                Subject or category
+              </Text>
+
+              <TextInput
+                value={category}
+                onChangeText={setCategory}
+                placeholder="For example, Polity"
+                placeholderTextColor={colors.textFaint}
+                accessibilityLabel="Subject or category"
+                maxLength={60}
+                style={{
+                  color: colors.text,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              />
+
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Task type</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
-              {['Note', 'PYQ', 'Current Affairs', 'Mock Test', 'Other'].map(
-                (value) => (
-                  <Pressable
-                    key={value}
-                    onPress={() => setCategory(value)}
-                    style={{
-                      padding: 9,
-                      borderRadius: 9,
-                      backgroundColor:
-                        category === value ? colors.tint : colors.surfaceAlt,
-                    }}
-                  >
-                    <Text style={{ color: colors.text, fontSize: 12 }}>
-                      {value}
-                    </Text>
-                  </Pressable>
-                )
-              )}
+              {TASK_TYPES.map((value) => (
+                <Pressable
+                  key={value}
+                  onPress={() => setTaskType(value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: taskType === value }}
+                  style={{
+                    padding: 9,
+                    borderRadius: 9,
+                    backgroundColor: taskType === value ? colors.tint : colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 12 }}>{value}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Target date</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Pressable
+                onPress={() => setTaskDate((date) => shiftDateKey(date, -1))}
+                accessibilityRole="button"
+                accessibilityLabel="Previous target date"
+                hitSlop={8}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="chevron-back" size={18} color={colors.blue} />
+              </Pressable>
+              <Text style={{ color: colors.text, fontWeight: '600' }}>{formatDateKey(taskDate)}</Text>
+              <Pressable
+                onPress={() => setTaskDate((date) => shiftDateKey(date, 1))}
+                accessibilityRole="button"
+                accessibilityLabel="Next target date"
+                hitSlop={8}
+                style={{ padding: 8 }}
+              >
+                <Ionicons name="chevron-forward" size={18} color={colors.blue} />
+              </Pressable>
             </View>
 
             <TextInput
@@ -1327,6 +1623,8 @@ export function CustomStudyPlan({
               keyboardType="number-pad"
               placeholder="Duration in minutes"
               placeholderTextColor={colors.textFaint}
+              accessibilityLabel="Duration in minutes"
+              maxLength={3}
               style={{
                 color: colors.text,
                 borderWidth: 1,
@@ -1363,6 +1661,38 @@ export function CustomStudyPlan({
             >
               <Text style={{ color: colors.text }}>Cancel</Text>
             </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={deleteTaskId !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteTaskId(null)}
+      >
+        <View style={{ flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: 18, padding: 20, gap: 12 }}>
+            <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>Delete task?</Text>
+            <Text style={{ color: colors.textMuted }}>{deleteTask?.label}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <Pressable
+                onPress={() => setDeleteTaskId(null)}
+                style={{ borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (deleteTaskId) setTasks((old) => old.filter((task) => task.id !== deleteTaskId));
+                  setDeleteTaskId(null);
+                }}
+                style={{ borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.danger }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Delete</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>

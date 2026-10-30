@@ -1,12 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
-import { Avatar, Divider, IconButton, Txt } from './ui';
+import { Divider, IconButton, Txt } from './ui';
 
 export type NavKey =
   | 'Dashboard'
@@ -19,6 +20,9 @@ export type NavKey =
   | 'Notifications'
   | 'Profile'
   | 'Settings'
+  | 'More'
+  | 'AppGuide'
+  | 'StudentTestimonials'
   | 'Admin'
   | 'Statistics';
 
@@ -52,6 +56,12 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { key: 'Admin', label: 'Admin Portal', icon: 'shield-checkmark-outline', adminOnly: true },
     ],
   },
+  {
+    title: 'More',
+    items: [
+      { key: 'StudentTestimonials', label: 'Student Testimonials', icon: 'chatbubbles-outline' },
+    ],
+  },
 ];
 
 const MOBILE_TABS: NavItem[] = [
@@ -69,6 +79,117 @@ export function useLayout() {
     isTablet: width >= 768 && width < 1180,
     isDesktop: width >= 1180,
   };
+}
+
+export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
+  const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
+  const { mode } = useTheme();
+  const { state, unread, dispatch } = useStore();
+  const parentState = nav.getParent?.()?.getState?.();
+  const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
+  const isSakhaAI =
+    route.name === 'SakhaAI' ||
+    route.params?.headerBrand === 'SakhaAI' ||
+    parentRoute?.params?.headerBrand === 'SakhaAI';
+  const isHome = route.name === 'DashboardRoot' || route.name === 'Dashboard';
+  const first = (state.user?.name ?? 'Guest User').trim().split(/\s+/)[0] || 'Guest';
+
+  const cycleTheme = () => {
+    const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
+    dispatch({ type: 'settings', patch: { themeMode: next } });
+  };
+
+  const navigate = (name: string) => {
+    let target: any = nav;
+    while (target) {
+      const routeNames = target.getState?.().routeNames ?? [];
+      if (routeNames.includes(name)) {
+        target.navigate(name);
+        return;
+      }
+      target = target.getParent?.();
+    }
+  };
+
+  const openMenu = () => {
+    let target: any = nav;
+    while (target) {
+      if (typeof target.openDrawer === 'function') {
+        target.openDrawer();
+        return;
+      }
+      target = target.getParent?.();
+    }
+  };
+
+  const goHome = () => navigate('DashboardRoot');
+
+  return (
+    <LinearGradient
+      colors={['#2A1519', '#1F1013', '#150A0C']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: safeAreaTop ? Math.max(insets.top, 45) : 0,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(244, 63, 94, 0.2)',
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Pressable onPress={openMenu} style={{ marginRight: 10 }} accessibilityRole="button" accessibilityLabel="Open menu">
+          <Ionicons name="menu" size={28} color="#FFF" />
+        </Pressable>
+        <Pressable
+          onPress={!isHome && !isSakhaAI ? goHome : undefined}
+          disabled={isHome || isSakhaAI}
+          accessibilityRole={!isHome && !isSakhaAI ? 'button' : undefined}
+          accessibilityLabel={!isHome && !isSakhaAI ? 'Go to Home' : undefined}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+        >
+          <LinearGradient colors={['#E11D48', '#F43F5E', '#FBBF24']} style={{ width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="book" size={18} color="#FFF" />
+          </LinearGradient>
+          <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '800' }}>
+            {isSakhaAI ? (
+              <>Sakha <Text style={{ color: '#2DD4BF' }}>AI</Text></>
+            ) : (
+              <>Study <Text style={{ color: '#2DD4BF' }}>Sakha</Text></>
+            )}
+          </Text>
+        </Pressable>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <Pressable onPress={cycleTheme} accessibilityRole="button" accessibilityLabel="Toggle theme">
+          <Ionicons name="moon-outline" size={20} color="#CBD5E1" />
+        </Pressable>
+        <Pressable onPress={() => navigate('Notifications')} accessibilityRole="button" accessibilityLabel="Notifications">
+          <View>
+            <Ionicons name="notifications-outline" size={20} color="#CBD5E1" />
+            {unread > 0 ? (
+              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#DC2626', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#1F1013' }}>
+                <Text style={{ color: '#FFF', fontSize: 9, fontWeight: 'bold' }}>{unread > 9 ? '9+' : unread}</Text>
+              </View>
+            ) : null}
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => navigate('Profile')}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+          style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#E11D48', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '800' }}>{first.charAt(0)}</Text>
+        </Pressable>
+      </View>
+    </LinearGradient>
+  );
 }
 
 export function Shell({
@@ -90,26 +211,29 @@ export function Shell({
   headerRight?: React.ReactNode;
   contentPadding?: number;
 }) {
-  const { colors, mode } = useTheme();
+  const { colors } = useTheme();
   const nav = useNavigation<any>();
   const { isMobile, isTablet, isDesktop } = useLayout();
   const insets = useSafeAreaInsets();
-  const { state, unread, dispatch } = useStore();
+  const { state, unread } = useStore();
   const [collapsed, setCollapsed] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const isAdmin = state.user?.role === 'admin';
   const sidebarCollapsed = isTablet ? !collapsed : collapsed;
   const sidebarWidth = sidebarCollapsed ? 76 : 248;
+  const hasPageHeading = Boolean(title.trim() || subtitle?.trim());
 
   const go = (key: NavKey) => {
-    setMoreOpen(false);
-    nav.navigate(key as never);
-  };
-
-  const cycleTheme = () => {
-    const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
-    dispatch({ type: 'settings', patch: { themeMode: next } });
+    const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
+    let target: any = nav;
+    while (target) {
+      const routeNames = target.getState?.().routeNames ?? [];
+      if (routeNames.includes(routeName)) {
+        target.navigate(routeName);
+        return;
+      }
+      target = target.getParent?.();
+    }
   };
 
   const Sidebar = (
@@ -220,7 +344,7 @@ export function Shell({
     </View>
   );
 
-  const TopBar = (
+  const TopBar = hasPageHeading ? (
     <View
       style={{
         height: 66,
@@ -284,47 +408,8 @@ export function Shell({
       )}
 
       {headerRight}
-      <IconButton icon={mode === 'dark' ? 'moon' : mode === 'light' ? 'sunny-outline' : 'contrast-outline'} onPress={cycleTheme} />
-      <IconButton icon="notifications-outline" badge={unread} onPress={() => go('Notifications')} />
-      <Pressable onPress={() => go('Profile')} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1, flexDirection: 'row', alignItems: 'center', gap: 9 })}>
-        <Avatar name={state.user?.name ?? 'Guest User'} size={36} />
-        {isDesktop ? (
-          <View>
-            <Txt size={12.5} weight="800">
-              {state.user?.name.split(' ')[0] ?? 'Guest'}
-            </Txt>
-            <Txt size={11} color={colors.textFaint}>
-              {state.user?.role === 'admin' ? 'Administrator' : 'Aspirant'}
-            </Txt>
-          </View>
-        ) : null}
-      </Pressable>
     </View>
-  );
-
-  const MobileHeader = (
-    <View
-      style={{
-        paddingTop: insets.top + 8,
-        paddingBottom: 10,
-        paddingHorizontal: 16,
-        backgroundColor: colors.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-      }}
-    >
-      <Pressable onPress={() => go('Dashboard')} style={{ flex: 1 }}>
-        <Logo size={26} compact />
-      </Pressable>
-      <IconButton icon={mode === 'dark' ? 'moon' : mode === 'light' ? 'sunny-outline' : 'contrast-outline'} onPress={cycleTheme} size={19} />
-      <IconButton icon="notifications-outline" badge={unread} onPress={() => go('Notifications')} size={19} />
-      <Pressable onPress={() => go('Profile')} style={{ marginLeft: 4 }}>
-        <Avatar name={state.user?.name ?? 'Guest User'} size={32} />
-      </Pressable>
-    </View>
-  );
+  ) : null;
 
   const BottomNav = (
     <View
@@ -349,9 +434,9 @@ export function Shell({
           </Pressable>
         );
       })}
-      <Pressable onPress={() => setMoreOpen(true)} style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 }}>
-        <Ionicons name="grid-outline" size={21} color={moreOpen ? colors.blue : colors.textFaint} />
-        <Txt size={10.5} weight="600" color={moreOpen ? colors.blue : colors.textFaint}>
+      <Pressable onPress={() => go('More')} style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 }}>
+        <Ionicons name="grid-outline" size={21} color={active === 'More' ? colors.blue : colors.textFaint} />
+        <Txt size={10.5} weight={active === 'More' ? '800' : '600'} color={active === 'More' ? colors.blue : colors.textFaint}>
           More
         </Txt>
       </Pressable>
@@ -382,51 +467,47 @@ export function Shell({
   if (isMobile) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        {MobileHeader}
+        <AppHeader />
         <View style={{ flex: 1 }}>
           {scroll ? (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
-              <View style={{ marginBottom: 14 }}>
-              {(title?.trim() || subtitle?.trim()) ? (
-  <View style={{ marginBottom: 16 }}>
-    {!!title?.trim() && (
-      <Txt size={24} weight="800" display>
-        {title}
-      </Txt>
-    )}
-
-    {!!subtitle?.trim() && (
-      <Txt
-        size={13}
-        color={colors.textMuted}
-        style={{ marginTop: 4 }}
-      >
-        {subtitle}
-      </Txt>
-    )}
-  </View>
-) : null}
-              </View>
+              {hasPageHeading ? (
+                <View style={{ marginBottom: 14 }}>
+                  <View style={{ marginBottom: 16 }}>
+                    {!!title.trim() && (
+                      <Txt size={24} weight="800" display>
+                        {title}
+                      </Txt>
+                    )}
+                    {!!subtitle?.trim() && (
+                      <Txt size={13} color={colors.textMuted} style={{ marginTop: 4 }}>
+                        {subtitle}
+                      </Txt>
+                    )}
+                  </View>
+                </View>
+              ) : null}
               {children}
             </ScrollView>
           ) : (
             <View style={{ flex: 1 }}>
-              <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
-                <Txt size={21} weight="800" display>
-                  {title}
-                </Txt>
-                {subtitle ? (
-                  <Txt size={12.5} color={colors.textMuted}>
-                    {subtitle}
+              {hasPageHeading ? (
+                <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
+                  <Txt size={21} weight="800" display>
+                    {title}
                   </Txt>
-                ) : null}
-              </View>
+                  {subtitle ? (
+                    <Txt size={12.5} color={colors.textMuted}>
+                      {subtitle}
+                    </Txt>
+                  ) : null}
+                </View>
+              ) : null}
               {children}
             </View>
           )}
         </View>
         {BottomNav}
-        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onGo={go} active={active} isAdmin={isAdmin} unread={unread} />
       </View>
     );
   }
@@ -435,6 +516,7 @@ export function Shell({
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
       {Sidebar}
       <View style={{ flex: 1 }}>
+        <AppHeader />
         {TopBar}
         {body}
       </View>
@@ -442,96 +524,78 @@ export function Shell({
   );
 }
 
-function MoreSheet({
-  open,
-  onClose,
+export function MoreOptionsGrid({
   onGo,
   active,
   isAdmin,
   unread,
 }: {
-  open: boolean;
-  onClose: () => void;
   onGo: (k: NavKey) => void;
   active: NavKey;
   isAdmin: boolean;
   unread: number;
 }) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: colors.overlay }} onPress={onClose} />
-      <View
-        style={{
-          backgroundColor: colors.surface,
-          borderTopLeftRadius: radii.xl,
-          borderTopRightRadius: radii.xl,
-          paddingTop: 10,
-          paddingBottom: Math.max(insets.bottom, 16) + 8,
-          paddingHorizontal: 16,
-        }}
-      >
-        <View style={{ width: 44, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 16 }} />
-        {NAV_GROUPS.map((g) => {
-          const items = g.items.filter((i) => !i.adminOnly || isAdmin);
-          if (!items.length) return null;
-          return (
-            <View key={g.title} style={{ marginBottom: 14 }}>
-              <Txt size={10.5} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.2, marginBottom: 8 }}>
-                {g.title.toUpperCase()}
-              </Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                {items.map((item) => {
-                  const on = item.key === active;
-                  return (
-                    <Pressable
-                      key={item.key}
-                      onPress={() => onGo(item.key)}
-                      style={({ pressed }) => ({
-                        width: '47.5%',
-                        flexGrow: 1,
-                        borderRadius: radii.md,
-                        borderWidth: 1,
-                        borderColor: on ? colors.blue : colors.border,
-                        backgroundColor: on ? colors.tint : pressed ? colors.surfaceAlt : colors.surface,
-                        padding: 13,
-                        gap: 8,
-                      })}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name={item.icon} size={19} color={on ? colors.blue : colors.textMuted} />
-                        {item.key === 'Notifications' && unread > 0 ? (
-                          <View
-                            style={{
-                              marginLeft: 'auto',
-                              minWidth: 18,
-                              height: 18,
-                              borderRadius: 9,
-                              backgroundColor: colors.danger,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              paddingHorizontal: 4,
-                            }}
-                          >
-                            <Txt size={10.5} weight="800" color="#fff">
-                              {unread}
-                            </Txt>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Txt size={13} weight="700" color={on ? colors.blue : colors.text}>
-                        {item.label}
-                      </Txt>
-                    </Pressable>
-                  );
-                })}
-              </View>
+    <View style={{ gap: 14 }}>
+      {NAV_GROUPS.map((g) => {
+        const items = g.items.filter((i) => !i.adminOnly || isAdmin);
+        if (!items.length) return null;
+        return (
+          <View key={g.title} style={{ gap: 8 }}>
+            <Txt size={10.5} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.2 }}>
+              {g.title.toUpperCase()}
+            </Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {items.map((item) => {
+                const on = item.key === active;
+                return (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => onGo(item.key)}
+                    style={({ pressed }) => ({
+                      width: '47.5%',
+                      flexGrow: 1,
+                      borderRadius: radii.md,
+                      borderWidth: 1,
+                      borderColor: on ? colors.blue : colors.border,
+                      backgroundColor: on ? colors.tint : pressed ? colors.surfaceAlt : colors.surface,
+                      padding: 13,
+                      gap: 8,
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name={item.icon} size={19} color={on ? colors.blue : colors.textMuted} />
+                      {item.key === 'Notifications' && unread > 0 ? (
+                        <View
+                          style={{
+                            marginLeft: 'auto',
+                            minWidth: 18,
+                            height: 18,
+                            borderRadius: 9,
+                            backgroundColor: colors.danger,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            paddingHorizontal: 4,
+                          }}
+                        >
+                          <Txt size={10.5} weight="800" color="#fff">
+                            {unread}
+                          </Txt>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Txt size={13} weight="700" color={on ? colors.blue : colors.text}>
+                      {item.label}
+                    </Txt>
+                  </Pressable>
+                );
+              })}
             </View>
-          );
-        })}
-      </View>
-    </Modal>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -547,49 +611,51 @@ export function DetailHeader({
   right?: React.ReactNode;
 }) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const { isMobile } = useLayout();
   return (
-    <View
-      style={{
-        paddingTop: (isMobile ? insets.top : 0) + 12,
-        paddingBottom: 12,
-        paddingHorizontal: 16,
-        backgroundColor: colors.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-      }}
-    >
-      <Pressable
-        onPress={onBack}
-        style={({ pressed }) => ({
-          width: 38,
-          height: 38,
-          borderRadius: 12,
+    <>
+      <AppHeader safeAreaTop={false} />
+      <View
+        style={{
+          paddingTop: 12,
+          paddingBottom: 12,
+          paddingHorizontal: 16,
+          backgroundColor: colors.surface,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: pressed ? colors.surfaceAlt : colors.bg,
-          borderWidth: 1,
-          borderColor: colors.border,
-        })}
+          gap: 10,
+        }}
       >
-        <Ionicons name="chevron-back" size={20} color={colors.text} />
-      </Pressable>
-      <View style={{ flex: 1 }}>
-        <Txt size={isMobile ? 15 : 16.5} weight="800" display numberOfLines={1}>
-          {title}
-        </Txt>
-        {subtitle ? (
-          <Txt size={11.5} color={colors.textMuted} numberOfLines={1}>
-            {subtitle}
+        <Pressable
+          onPress={onBack}
+          style={({ pressed }) => ({
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: pressed ? colors.surfaceAlt : colors.bg,
+            borderWidth: 1,
+            borderColor: colors.border,
+          })}
+        >
+          <Ionicons name="chevron-back" size={20} color={colors.text} />
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Txt size={isMobile ? 15 : 16.5} weight="800" display numberOfLines={1}>
+            {title}
           </Txt>
-        ) : null}
+          {subtitle ? (
+            <Txt size={11.5} color={colors.textMuted} numberOfLines={1}>
+              {subtitle}
+            </Txt>
+          ) : null}
+        </View>
+        {right}
       </View>
-      {right}
-    </View>
+    </>
   );
 }
 

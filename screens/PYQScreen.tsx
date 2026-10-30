@@ -279,7 +279,7 @@ export default function PYQScreen() {
               variant="soft"
               full
               style={{ marginTop: 6 }}
-              onPress={() => nav.navigate('Tests')}
+              onPress={() => nav.navigate('Tests', { headerBrand: route.params?.headerBrand })}
             />
           ) : null
         }

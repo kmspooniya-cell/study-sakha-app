@@ -94,7 +94,7 @@ export default function SakhaAIScreen() {
   const empty = state.chat.length === 0;
 
   return (
-    <Shell active="SakhaAI" title="Sakha AI" subtitle="Grounded answers from your library, PYQ bank and mock results" scroll={false}>
+    <Shell active="SakhaAI" title="" scroll={false}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90} style={{ flex: 1 }}>
         <ScrollView
           ref={scrollRef}
@@ -190,7 +190,12 @@ export default function SakhaAIScreen() {
                       icon="arrow-forward"
                       size="sm"
                       variant="soft"
-                      onPress={() => nav.navigate(m.action!.route, m.action!.params ?? {})}
+                      onPress={() =>
+                        nav.navigate(m.action!.route, {
+                          ...(m.action!.params ?? {}),
+                          headerBrand: 'SakhaAI',
+                        })
+                      }
                     />
                   ) : null}
                   {m.chips?.length ? (
