@@ -18,6 +18,7 @@ export default function TestResultScreen() {
   const { state } = useStore();
   const { isMobile, isDesktop } = useLayout();
   const [tab, setTab] = useState<'summary' | 'review'>('summary');
+  const headerContext = route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : {};
 
   const result = state.results.find((r) => r.id === route.params?.resultId) ?? state.results[0];
   const test = result ? TESTS.find((t) => t.id === result.testId) : undefined;
@@ -25,8 +26,8 @@ export default function TestResultScreen() {
   if (!result || !test) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
-        <DetailHeader title="Result" onBack={() => nav.navigate('Tests')} />
-        <EmptyState icon="stats-chart-outline" title="No result to show" body="Attempt a mock test and your analysis will appear here." action="Browse tests" onAction={() => nav.navigate('Tests')} />
+        <DetailHeader title="Result" onBack={() => nav.navigate('Tests', headerContext)} />
+        <EmptyState icon="stats-chart-outline" title="No result to show" body="Attempt a mock test and your analysis will appear here." action="Browse tests" onAction={() => nav.navigate('Tests', headerContext)} />
       </SafeAreaView>
     );
   }
@@ -51,8 +52,8 @@ export default function TestResultScreen() {
       <DetailHeader
         title="Test result"
         subtitle={result.title}
-        onBack={() => nav.navigate('Tests')}
-        right={<Button label="Retake" icon="refresh-outline" size="sm" variant="soft" onPress={() => nav.replace('TestPlayer', { testId: test.id })} />}
+        onBack={() => nav.navigate('Tests', headerContext)}
+        right={<Button label="Retake" icon="refresh-outline" size="sm" variant="soft" onPress={() => nav.replace('TestPlayer', { testId: test.id, ...headerContext })} />}
       />
 
       <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1100, width: '100%', alignSelf: 'center', paddingBottom: 44 }} showsVerticalScrollIndicator={false}>
@@ -279,8 +280,8 @@ export default function TestResultScreen() {
         )}
 
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-          <Button label="Back to test series" icon="list-outline" variant="outline" onPress={() => nav.navigate('Tests')} />
-          <Button label="Practise weak PYQs" icon="albums-outline" variant="soft" onPress={() => nav.navigate('PYQ', { subject: weakest.subject })} />
+          <Button label="Back to test series" icon="list-outline" variant="outline" onPress={() => nav.navigate('Tests', headerContext)} />
+          <Button label="Practise weak PYQs" icon="albums-outline" variant="soft" onPress={() => nav.navigate('PYQ', { subject: weakest.subject, ...headerContext })} />
         </View>
       </ScrollView>
     </SafeAreaView>

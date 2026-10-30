@@ -6,9 +6,17 @@ import { AppNotification, ChatMsg, ExamId, Learner, PendingContent, TestResult, 
 
 const KEY = 'sakha-store-v1';
 
-export type User = { name: string; email: string; role: 'learner' | 'admin'; exam: ExamId; joined: string };
+export type User = { name: string; email: string; role: 'learner' | 'admin'; exam: ExamId; joined: string; photoUri?: string };
 
 export type Announcement = { id: string; title: string; body: string; audience: string; at: number };
+
+export type PlannerCompletion = {
+  taskId: string;
+  label: string;
+  minutes: number;
+  category: string;
+  taskType: string;
+};
 
 export type State = {
   hydrated: boolean;
@@ -25,6 +33,8 @@ export type State = {
   bookmarks: string[];
   progress: Record<string, { percent: number; at: number; title: string }>;
   planDone: Record<string, string[]>;
+  plannerCompletions: Record<string, PlannerCompletion[]>;
+  plannerMinutesCredited: Record<string, string[]>;
   studyLog: Record<string, number>;
   results: TestResult[];
   chat: ChatMsg[];
@@ -85,6 +95,8 @@ const initialState: State = {
     r3: { percent: 22, at: Date.now() - 1000 * 60 * 60 * 30, title: 'Monetary Policy & Inflation Targeting' },
   },
   planDone: {},
+  plannerCompletions: {},
+  plannerMinutesCredited: {},
   studyLog: {},
   results: [],
   chat: [],
@@ -105,6 +117,7 @@ const initialState: State = {
 type Action =
   | { type: 'hydrate'; payload: Partial<State> }
   | { type: 'signIn'; user: User }
+  | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'exam' | 'photoUri'>> }
   | { type: 'signOut' }
   | { type: 'settings'; patch: Partial<State['settings']> }
   | { type: 'saveNote'; note: UserNote }
@@ -112,7 +125,9 @@ type Action =
   | { type: 'toggleStar'; id: string }
   | { type: 'toggleBookmark'; id: string }
   | { type: 'progress'; id: string; percent: number; title: string }
-  | { type: 'togglePlan'; id: string }
+  | { type: 'togglePlan'; id: string; date?: string }
+  | { type: 'creditPlanMinutes'; id: string; date: string; minutes: number }
+  | { type: 'plannerCompletion'; date: string; completion: PlannerCompletion; completed: boolean }
   | { type: 'study'; minutes: number }
   | { type: 'result'; result: TestResult }
   | { type: 'chat'; msg: ChatMsg }
@@ -129,6 +144,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, ...action.payload, hydrated: true };
     case 'signIn':
       return { ...state, user: action.user };
+    case 'updateProfile':
+      return state.user ? { ...state, user: { ...state.user, ...action.patch } } : state;
     case 'signOut':
       return { ...state, user: null };
     case 'settings':
@@ -160,13 +177,44 @@ function reducer(state: State, action: Action): State {
         progress: { ...state.progress, [action.id]: { percent: action.percent, at: Date.now(), title: action.title } },
       };
     case 'togglePlan': {
-      const k = todayKey();
+      const k = action.date ?? todayKey();
       const list = state.planDone[k] ?? [];
       return {
         ...state,
         planDone: {
           ...state.planDone,
           [k]: list.includes(action.id) ? list.filter((x) => x !== action.id) : [...list, action.id],
+        },
+      };
+    }
+    case 'creditPlanMinutes': {
+      const credited = state.plannerMinutesCredited[action.date] ?? [];
+      if (credited.includes(action.id)) return state;
+      return {
+        ...state,
+        plannerMinutesCredited: {
+          ...state.plannerMinutesCredited,
+          [action.date]: [...credited, action.id],
+        },
+        studyLog: {
+          ...state.studyLog,
+          [action.date]: (state.studyLog[action.date] ?? 0) + action.minutes,
+        },
+      };
+    }
+    case 'plannerCompletion': {
+      const completions = state.plannerCompletions[action.date] ?? [];
+      const next = action.completed
+        ? [
+            ...completions.filter((item) => item.taskId !== action.completion.taskId),
+            action.completion,
+          ]
+        : completions.filter((item) => item.taskId !== action.completion.taskId);
+      return {
+        ...state,
+        plannerCompletions: {
+          ...state.plannerCompletions,
+          [action.date]: next,
         },
       };
     }
@@ -221,8 +269,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       try {
         const raw = await AsyncStorage.getItem(KEY);
         if (raw) {
-          const saved = JSON.parse(raw) as Partial<State>;
-          dispatch({ type: 'hydrate', payload: { ...saved, hydrated: true } });
+          const saved = JSON.parse(raw) as Partial<State> & { offlineResources?: string[] };
+          delete saved.offlineResources;
+          const plannerMinutesCredited =
+            saved.plannerMinutesCredited ??
+            Object.fromEntries(
+              Object.entries(saved.planDone ?? {}).map(([date, ids]) => [
+                date,
+                Array.isArray(ids) ? ids : [],
+              ])
+            );
+          dispatch({
+            type: 'hydrate',
+            payload: { ...saved, plannerMinutesCredited, hydrated: true },
+          });
         } else {
           dispatch({ type: 'hydrate', payload: {} });
         }

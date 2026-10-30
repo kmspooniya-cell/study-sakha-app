@@ -3,7 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLayout } from '../components/Shell';
+import { AppHeader, useLayout } from '../components/Shell';
 import { Button, Card, ProgressBar, Tag, Txt } from '../components/ui';
 import { TESTS } from '../lib/data';
 import { useStore } from '../lib/store';
@@ -122,7 +122,7 @@ export default function TestPlayerScreen() {
         read: false,
       },
     });
-    nav.replace('TestResult', { resultId: result.id });
+    nav.replace('TestResult', { resultId: result.id, headerBrand: route.params?.headerBrand });
   };
 
   const timeLow = left < 60;
@@ -178,6 +178,7 @@ export default function TestPlayerScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
+      <AppHeader safeAreaTop={false} />
       <View
         style={{
           flexDirection: 'row',

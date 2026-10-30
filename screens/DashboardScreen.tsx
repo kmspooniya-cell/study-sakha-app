@@ -6,7 +6,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import Svg, { Circle } from 'react-native-svg';
 
 import { BarChart } from '../components/Charts';
-import { useLayout } from '../components/Shell';
+import { AppHeader, useLayout } from '../components/Shell';
 import { ProgressBar, Tag } from '../components/ui';
 import {
   CURRENT_AFFAIRS,
@@ -35,7 +35,7 @@ const clamp = (value: number, min: number, max: number) =>
 export default function DashboardScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
-  const { state, streak, todayMinutes, todayDone, dispatch } = useStore();
+  const { state, streak, todayMinutes, dispatch } = useStore();
   const { isMobile, isDesktop } = useLayout();
 
   const goal = Math.max(1, Number(state.settings.dailyGoalMin) || 1);
@@ -89,6 +89,51 @@ export default function DashboardScreen() {
     ? RESOURCES.filter((resource) => resource.exam === exam.id).slice(0, isDesktop ? 4 : 3)
     : [];
 
+  const planSuggestions = useMemo(() => {
+    const suggestions: {
+      id: string;
+      label: string;
+      category: string;
+      minutes: number;
+      taskType: 'Review' | 'Revision' | 'Practice' | 'Reading' | 'Mock Test' | 'Other';
+    }[] = [];
+
+    const mistakeNote = [...state.notes]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .find(
+        (note) =>
+          note.folder.toLowerCase().includes('error') ||
+          note.tags.some((tag) => tag.toLowerCase().includes('mistake'))
+      );
+    if (mistakeNote) {
+      suggestions.push({
+        id: `suggest-mistake-${mistakeNote.id}`,
+        label: `Review mistakes: ${mistakeNote.title}`,
+        category: mistakeNote.subject || 'Other',
+        minutes: 20,
+        taskType: 'Review',
+      });
+    }
+
+    const inProgressResource = RESOURCES.find(
+      (resource) =>
+        resource.exam === exam.id &&
+        state.progress[resource.id] &&
+        state.progress[resource.id].percent < 100
+    );
+    if (inProgressResource) {
+      suggestions.push({
+        id: `suggest-revision-${inProgressResource.id}`,
+        label: `Continue ${inProgressResource.title}`,
+        category: inProgressResource.subject,
+        minutes: inProgressResource.minutes,
+        taskType: 'Revision',
+      });
+    }
+
+    return suggestions.slice(0, 2);
+  }, [exam.id, state.notes, state.progress]);
+
   const quickActions = [
     {
       label: 'Notes',
@@ -102,7 +147,7 @@ export default function DashboardScreen() {
       icon: 'help-circle' as const,
       background: '#FEF3C7', // amber-100
       iconColor: '#D97706', // amber-600
-      onPress: () => nav.navigate('TestPlayer', { testId: 't4' }),
+      onPress: () => nav.navigate('Tests'),
     },
     {
       label: 'Revision',
@@ -146,40 +191,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.mainContainer}>
-      {/* Top App Bar (Stitch Design) */}
-      <LinearGradient
-        colors={['#2A1519', '#1F1013', '#150A0C']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}
-      >
-        <View style={styles.headerBrand}>
-        <Pressable onPress={() => nav.openDrawer()} style={{ marginRight: 10 }}>
-            <Ionicons name="menu" size={28} color="#FFF" />
-          </Pressable>
-          <LinearGradient
-            colors={['#E11D48', '#F43F5E', '#FBBF24']}
-            style={styles.logoBox}
-          >
-            <Ionicons name="book" size={18} color="#FFF" />
-          </LinearGradient>
-          <Text style={styles.headerTitle}>
-            Study <Text style={{ color: '#2DD4BF' }}>Sakha</Text>
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Ionicons name="moon-outline" size={20} color="#CBD5E1" />
-          <View>
-            <Ionicons name="notifications-outline" size={20} color="#CBD5E1" />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>3</Text>
-            </View>
-          </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{first.charAt(0)}</Text>
-          </View>
-        </View>
-      </LinearGradient>
+      <AppHeader />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
@@ -282,7 +294,13 @@ export default function DashboardScreen() {
           <View style={styles.layoutCol}>
             {/* Today's Plan */}
             <View style={styles.pastelCardWrap}>
-              <CustomStudyPlan plan={TODAY_PLAN} todayDone={todayDone} dispatch={dispatch} onOpenItem={openPlanItem} />
+              <CustomStudyPlan
+                plan={TODAY_PLAN}
+                planDone={state.planDone}
+                dispatch={dispatch}
+                onOpenItem={openPlanItem}
+                suggestions={planSuggestions}
+              />
             </View>
 
             {/* Continue Learning */}
@@ -316,7 +334,7 @@ export default function DashboardScreen() {
                   <Ionicons name="bar-chart" size={18} color="#2563EB" />
                   <Text style={styles.sectionTitle}>Weekly activity</Text>
                 </View>
-                <Text style={styles.sectionLink} onPress={() => nav.navigate('Profile')}>Profile ›</Text>
+                <Text style={styles.sectionLink} onPress={() => nav.navigate('Statistics')}>Statistics ›</Text>
               </View>
               <View style={styles.statsRow}>
                 <View>
@@ -470,7 +488,6 @@ export default function DashboardScreen() {
           <Text style={styles.navText}>More</Text>
         </Pressable>
       </View>
-
     </View>
   );
 }
@@ -479,69 +496,6 @@ const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 45, // Assuming safe area or status bar padding
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(244, 63, 94, 0.2)',
-  },
-  headerBrand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  logoBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#DC2626',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#1F1013',
-  },
-  badgeText: {
-    color: '#FFF',
-    fontSize: 9,
-    fontWeight: 'bold',
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#E11D48',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: 'bold',
   },
   scrollContent: {
     padding: 16,

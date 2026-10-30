@@ -46,7 +46,15 @@
     "scheme": "studysakha",
     "backgroundColor": "#F6F8FC",
     "plugins": [
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Study Sakha uses your photos to set your profile picture.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

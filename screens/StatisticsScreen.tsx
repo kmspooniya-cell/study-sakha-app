@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { BarChart, LineChart } from '../components/Charts';
+import { BarChart, HeatMap, LineChart } from '../components/Charts';
 import { Shell, useLayout } from '../components/Shell';
 import {
   Card,
@@ -11,6 +12,7 @@ import {
   SectionHeader,
   Txt,
 } from '../components/ui';
+import { TODAY_PLAN } from '../lib/data';
 import { useStore, dayKey } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -77,11 +79,19 @@ return parsed.filter(
 
 export default function StatisticsScreen() {
   const { colors } = useTheme();
-  const { streak } = useStore();
+  const nav = useNavigation<any>();
+  const { state, streak } = useStore();
   const { isMobile, isDesktop } = useLayout();
 
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const percentileTrend = useMemo(
+    () => state.results.slice(0, 8).reverse().map((result, index) => ({
+      label: `M${index + 1}`,
+      value: Math.round(result.percentile),
+    })),
+    [state.results]
+  );
 
   useEffect(() => {
     let active = true;
@@ -177,6 +187,48 @@ useEffect(() => {
       recentSessions,
     };
   }, [sessions, now]);
+
+  const plannerStats = useMemo(() => {
+    const summarizeDate = (date: string) => {
+      const doneIds = new Set(state.planDone[date] ?? []);
+      const completedBuiltIns = TODAY_PLAN.filter((task) => doneIds.has(task.id));
+      const builtInIds = new Set(TODAY_PLAN.map((task) => task.id));
+      const customById = new Map(
+        (state.plannerCompletions[date] ?? [])
+          .filter((completion) => !builtInIds.has(completion.taskId))
+          .map((completion) => [completion.taskId, completion])
+      );
+      const custom = Array.from(customById.values());
+
+      return {
+        tasks: completedBuiltIns.length + custom.length,
+        minutes:
+          completedBuiltIns.reduce((sum, task) => sum + task.minutes, 0) +
+          custom.reduce((sum, task) => sum + Math.max(0, Number(task.minutes) || 0), 0),
+      };
+    };
+
+    const todayKey = dayKey(now);
+    const today = summarizeDate(todayKey);
+    const utcToday = new Date(`${todayKey}T00:00:00.000Z`);
+    const week = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(utcToday);
+      date.setUTCDate(date.getUTCDate() - index);
+      return summarizeDate(date.toISOString().slice(0, 10));
+    });
+
+    return {
+      today,
+      week: week.reduce(
+        (total, day) => ({
+          tasks: total.tasks + day.tasks,
+          minutes: total.minutes + day.minutes,
+        }),
+        { tasks: 0, minutes: 0 }
+      ),
+    };
+  }, [now, state.planDone, state.plannerCompletions]);
+
   const DAILY_GOAL_MINUTES = 120;
   const WEEKLY_GOAL_MINUTES = 600;
 
@@ -305,6 +357,85 @@ useEffect(() => {
       title="Statistics"
       subtitle="Track your focus sessions and study patterns"
     >
+      <View style={{ gap: 16, marginBottom: 20 }}>
+        <Card>
+          <SectionHeader title="Study heat-map" icon="calendar-outline" action={`${streak}-day streak`} />
+          <HeatMap days={state.studyLog} weeks={isMobile ? 10 : 18} />
+        </Card>
+
+        <Card>
+          <SectionHeader title="Daily plan history" icon="checkbox-outline" />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ flex: 1, minWidth: 130, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+              <Txt size={11.5} color={colors.textMuted}>Today</Txt>
+              <Txt size={18} weight="800" style={{ marginTop: 4 }}>
+                {plannerStats.today.tasks} tasks
+              </Txt>
+              <Txt size={11.5} color={colors.textMuted}>
+                {formatDuration(plannerStats.today.minutes)} planned
+              </Txt>
+            </View>
+            <View style={{ flex: 1, minWidth: 130, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+              <Txt size={11.5} color={colors.textMuted}>Last 7 days</Txt>
+              <Txt size={18} weight="800" style={{ marginTop: 4 }}>
+                {plannerStats.week.tasks} tasks
+              </Txt>
+              <Txt size={11.5} color={colors.textMuted}>
+                {formatDuration(plannerStats.week.minutes)} planned
+              </Txt>
+            </View>
+          </View>
+          <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 10 }}>
+            Planned task durations are shown separately from measured focus-session time.
+          </Txt>
+        </Card>
+
+        <Card>
+          <SectionHeader title="Percentile history" icon="trending-up-outline" action="Tests" onAction={() => nav.navigate('Tests')} />
+          {percentileTrend.length >= 2 ? (
+            <LineChart data={percentileTrend} color={colors.violet} />
+          ) : (
+            <Txt size={13} color={colors.textMuted}>
+              Attempt two or more mocks to plot your percentile trajectory.
+            </Txt>
+          )}
+        </Card>
+
+        <Card>
+          <SectionHeader title="Recent results" icon="ribbon-outline" />
+          {state.results.length ? (
+            <View style={{ gap: 12 }}>
+              {state.results.slice(0, 6).map((result) => (
+                <Pressable
+                  key={result.id}
+                  onPress={() => nav.navigate('TestResult', { resultId: result.id })}
+                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, opacity: pressed ? 0.75 : 1 })}
+                >
+                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
+                    <Txt size={13} weight="800" color={colors.blue}>{result.percentile.toFixed(0)}</Txt>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Txt size={13.5} weight="700" numberOfLines={1}>{result.title}</Txt>
+                    <Txt size={11.5} color={colors.textMuted}>
+                      {result.score.toFixed(1)}/{result.maxScore} · {Math.round(result.accuracy)}% accuracy · {new Date(result.takenAt).toLocaleDateString('en-IN')}
+                    </Txt>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <EmptyState
+              icon="ribbon-outline"
+              title="No results yet"
+              body="Your mock history, percentile and subject trends will appear here."
+              action="Take a test"
+              onAction={() => nav.navigate('Tests')}
+            />
+          )}
+        </Card>
+      </View>
+
       {!loaded ? (
         <Card>
           <Txt size={14} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 24 }}>

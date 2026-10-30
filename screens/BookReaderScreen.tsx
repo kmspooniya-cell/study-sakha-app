@@ -87,7 +87,7 @@ export default function BookReaderScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
                   <Button label={progress > 0 ? 'Continue reading' : 'Start reading'} icon="book-outline" onPress={() => setMode('read')} />
-                  <Button label="Related PYQs" icon="albums-outline" variant="outline" onPress={() => nav.navigate('PYQ', { subject: book.subject })} />
+                  <Button label="Related PYQs" icon="albums-outline" variant="outline" onPress={() => nav.navigate('PYQ', { subject: book.subject, headerBrand: route.params?.headerBrand })} />
                 </View>
               </View>
             </View>
@@ -188,7 +188,7 @@ export default function BookReaderScreen() {
                   Lock this in with 10 PYQs on {book.subject}, or ask Sakha to quiz you on what you just read.
                 </Txt>
                 <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                  <Button label="Practise PYQs" icon="albums-outline" size="sm" onPress={() => nav.navigate('PYQ', { subject: book.subject })} />
+                  <Button label="Practise PYQs" icon="albums-outline" size="sm" onPress={() => nav.navigate('PYQ', { subject: book.subject, headerBrand: route.params?.headerBrand })} />
                   <Button label="Quiz me" icon="sparkles-outline" size="sm" variant="soft" onPress={() => nav.navigate('SakhaAI', { prompt: `Quiz me on ${book.title}` })} />
                 </View>
               </Card>
