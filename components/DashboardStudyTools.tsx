@@ -294,6 +294,7 @@ export function FocusActivityTimer({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const selectedDate = storeState.plannerSelectedDate;
   const [taskEditorOpen, setTaskEditorOpen] = useState(false);
+  const [tasksModalOpen, setTasksModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingDefaultTask, setEditingDefaultTask] = useState(false);
   const [taskFormTitle, setTaskFormTitle] = useState('');
@@ -566,6 +567,11 @@ export function FocusActivityTimer({
       setInput(String(selectedTask.minutes));
       setDuration(selectedDuration);
       setRemaining(selectedDuration);
+      if (task) {
+        setTasksModalOpen(false);
+        setTaskEditorOpen(false);
+        setDeleteTask(null);
+      }
     } else if (status === 'done' || status === 'ended') {
       setRemaining(duration);
     }
@@ -683,6 +689,9 @@ export function FocusActivityTimer({
     0
   );
   const todayTasks = getPlannerTasksForDate(storeState, selectedDate);
+  const selectedTodayTask = selectedTaskId
+    ? todayTasks.find((task) => task.id === selectedTaskId)
+    : undefined;
 
   function selectTask(task: TodayTask) {
     if (status === 'running' || status === 'paused') return;
@@ -899,6 +908,55 @@ export function FocusActivityTimer({
               </View>
 
               {activity === 'study' ? (
+                <>
+                  <Pressable
+                    onPress={() => setTasksModalOpen(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Today’s Tasks"
+                    style={({ pressed }) => ({
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+                      borderRadius: 16,
+                      padding: 14,
+                    })}
+                  >
+                    <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.tint }}>
+                      <Ionicons name="list-outline" size={21} color={colors.blue} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>Today’s Tasks</Text>
+                      <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>
+                        {selectedTodayTask ? `Selected: ${selectedTodayTask.label}` : formatDateKey(selectedDate)}
+                      </Text>
+                    </View>
+                    <View style={{ minWidth: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.tint, paddingHorizontal: 8 }}>
+                      <Text style={{ color: colors.blue, fontSize: 12, fontWeight: '800' }}>{todayTasks.length}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  </Pressable>
+
+                  <Modal
+                    visible={tasksModalOpen}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => {
+                      setTasksModalOpen(false);
+                      setTaskEditorOpen(false);
+                      setDeleteTask(null);
+                    }}
+                  >
+                    <View style={{ flex: 1, justifyContent: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.55)' }}>
+                      <View style={{ width: '100%', maxWidth: 560, maxHeight: '90%', alignSelf: 'center', backgroundColor: colors.surface, borderRadius: 24, padding: 16 }}>
+                        <ScrollView
+                          style={{ maxHeight: '100%' }}
+                          contentContainerStyle={{ gap: 10 }}
+                          keyboardShouldPersistTaps="handled"
+                          nestedScrollEnabled
+                        >
                 <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 14, gap: 10 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <View>
@@ -945,6 +1003,19 @@ export function FocusActivityTimer({
                         style={{ padding: 8 }}
                       >
                         <Ionicons name="chevron-forward" size={18} color={colors.blue} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setTasksModalOpen(false);
+                          setTaskEditorOpen(false);
+                          setDeleteTask(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close Today’s Tasks"
+                        hitSlop={8}
+                        style={{ padding: 8 }}
+                      >
+                        <Ionicons name="close" size={19} color={colors.textMuted} />
                       </Pressable>
                     </View>
                   </View>
@@ -1171,6 +1242,11 @@ export function FocusActivityTimer({
                     </Text>
                   ) : null}
                 </View>
+                        </ScrollView>
+                      </View>
+                    </View>
+                  </Modal>
+                </>
               ) : null}
 
               {activity === 'study' ? (

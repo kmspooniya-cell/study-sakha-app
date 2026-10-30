@@ -2,1144 +2,420 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Modal, Pressable, TextInput, View } from 'react-native';
 
-import { BarChart, HeatMap, LineChart } from '../components/Charts';
+import { BarChart, LineChart } from '../components/Charts';
 import { Shell, useLayout } from '../components/Shell';
+import { Button, Card, Chip, EmptyState, SectionHeader, Txt } from '../components/ui';
 import {
-  Card,
-  EmptyState,
-  SectionHeader,
-  Txt,
-} from '../components/ui';
-import { TODAY_PLAN } from '../lib/data';
-import { getPlannerTasksForDate } from '../lib/planner';
-import { useStore, dayKey } from '../lib/store';
+  deriveStatistics,
+  localDateKey,
+  normalizeFocusSessions,
+  NormalizedFocusSession,
+} from '../lib/statistics';
+import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
 const HISTORY_KEY = 'study-sakha-focus-history-v1';
-
-type FocusSession = {
-  id: string;
-  subject?: string;
-  topic?: string;
-  minutes: number;
-  completedAt: string;
-  taskId?: string;
-  startedAt?: string;
-  endedAt?: string;
-  actualSeconds?: number;
-  plannedMinutes?: number;
-};
-
-type TaskStatistic = {
-  taskId: string;
-  title: string;
-  category: string;
-  plannedMinutes: number;
-  actualMinutes: number;
-  completed: boolean;
-  completionDate: string | null;
-  remainingMinutes: number;
-  focusSessionCount: number;
-  historical: boolean;
-};
-
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
+type FilterMode = '7d' | '30d' | 'month' | 'custom';
 function formatDuration(minutes: number): string {
   if (minutes > 0 && minutes < 1) return '<1m';
-  const totalMinutes = Math.round(minutes);
+  const totalMinutes = Math.round(Math.max(0, minutes));
   if (totalMinutes < 60) return `${totalMinutes}m`;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const remainder = totalMinutes % 60;
+  return remainder === 0 ? `${hours}h` : `${hours}h ${remainder}m`;
 }
 
-function getSessionMinutes(session: FocusSession): number {
-  return typeof session.actualSeconds === 'number' &&
-    Number.isFinite(session.actualSeconds) &&
-    session.actualSeconds >= 0
-    ? session.actualSeconds / 60
-    : Math.max(0, session.minutes);
+function shiftDate(date: Date, days: number): Date {
+  const shifted = new Date(date);
+  shifted.setDate(shifted.getDate() + days);
+  return shifted;
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate();
+function rangeEndingToday(now: Date, days: number) {
+  return {
+    startDate: localDateKey(
+      shiftDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -(days - 1)),
+    ),
+    endDate: localDateKey(now),
+  };
 }
 
-function safeParseSessions(raw: unknown): FocusSession[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw as string);
-    if (!Array.isArray(parsed)) return [];
-    const seenIds = new Set<string>();
+function monthRange(now: Date) {
+  return {
+    startDate: localDateKey(new Date(now.getFullYear(), now.getMonth(), 1)),
+    endDate: localDateKey(now),
+  };
+}
 
-return parsed.filter(
-  (s: any) => {
-    if (
-      !s ||
-      typeof s.id !== 'string' ||
-      typeof s.minutes !== 'number' ||
-      !Number.isFinite(s.minutes) ||
-      s.minutes < 0 ||
-      typeof s.completedAt !== 'string' ||
-      Number.isNaN(Date.parse(s.completedAt)) ||
-      new Date(s.completedAt).getTime() > Date.now() ||
-      seenIds.has(s.id)
-    ) {
-      return false;
-    }
+function isValidLocalDateKey(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
 
-    seenIds.add(s.id);
-    return true;
-  }
-);
-  } catch {
-    return [];
-  }
+function displayDate(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? dateKey
+    : date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function signedMinutes(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+  return `${sign}${formatDuration(Math.abs(value))}`;
+}
+
+function goalMinutes(value: unknown): number | null {
+  const hours = Number(value);
+  return Number.isFinite(hours) && hours > 0 ? hours * 60 : null;
+}
+
+function dayLabel(value: number): string {
+  return `${value} day${value === 1 ? '' : 's'}`;
 }
 
 export default function StatisticsScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
-  const { state, streak } = useStore();
+  const { state } = useStore();
   const { isMobile, isDesktop } = useLayout();
-
-  const [sessions, setSessions] = useState<FocusSession[]>([]);
+  const [sessions, setSessions] = useState<NormalizedFocusSession[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const [filterMode, setFilterMode] = useState<FilterMode>('7d');
+  const [customRange, setCustomRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [customModalVisible, setCustomModalVisible] = useState(false);
+  const [draftStartDate, setDraftStartDate] = useState('');
+  const [draftEndDate, setDraftEndDate] = useState('');
+  const [customRangeError, setCustomRangeError] = useState<string | null>(null);
+
   const percentileTrend = useMemo(
     () => state.results.slice(0, 8).reverse().map((result, index) => ({
       label: `M${index + 1}`,
       value: Math.round(result.percentile),
     })),
-    [state.results]
+    [state.results],
   );
 
   useFocusEffect(useCallback(() => {
     let active = true;
+    setLoaded(false);
+    setLoadError(null);
+
     AsyncStorage.getItem(HISTORY_KEY)
       .then((raw) => {
         if (!active) return;
-        setSessions(safeParseSessions(raw));
+        try {
+          const parsed: unknown = raw ? JSON.parse(raw) : [];
+          setSessions(normalizeFocusSessions(parsed));
+        } catch {
+          setSessions([]);
+          setLoadError('Focus history could not be read.');
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!active) return;
+        setSessions([]);
+        setLoadError('Focus history could not be loaded.');
+      })
       .finally(() => {
         if (active) setLoaded(true);
       });
+
     return () => {
       active = false;
     };
   }, []));
 
-  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
-useEffect(() => {
-  const updateDate = () => setNow(new Date());
+  const selectedRange = useMemo(() => {
+    if (filterMode === '30d') return rangeEndingToday(now, 30);
+    if (filterMode === 'month') return monthRange(now);
+    if (filterMode === 'custom' && customRange) return customRange;
+    return rangeEndingToday(now, 7);
+  }, [customRange, filterMode, now]);
 
-  const interval = setInterval(updateDate, 60_000);
+  const statistics = useMemo(() => {
+    return deriveStatistics(state, sessions, selectedRange);
+  }, [selectedRange, sessions, state]);
 
-  return () => clearInterval(interval);
-}, []);
-
-  const stats = useMemo(() => {
-    const today = now;
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    const todaySessions = sessions.filter((s) => {
-      const d = new Date(s.completedAt);
-      return isSameDay(d, today);
-    });
-    const todayMinutes = todaySessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
-    const todayCount = todaySessions.length;
-
-    const weekStart = new Date(startOfToday);
-    weekStart.setDate(weekStart.getDate() - 6);
-    const weekSessions = sessions.filter((s) => new Date(s.completedAt) >= weekStart);
-    const weekMinutes = weekSessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
-
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthSessions = sessions.filter((s) => new Date(s.completedAt) >= monthStart);
-    const monthMinutes = monthSessions.reduce((sum, s) => sum + getSessionMinutes(s), 0);
-
-    const last7Days: { label: string; value: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(startOfToday);
-      d.setDate(d.getDate() - i);
-      const dayMins = sessions
-        .filter((s) => isSameDay(new Date(s.completedAt), d))
-        .reduce((sum, s) => sum + getSessionMinutes(s), 0);
-      last7Days.push({ label: DAY_LABELS[d.getDay()], value: dayMins });
-    }
-
-    const weeksInMonth: { label: string; value: number }[] = [];
-    const weeksCount = Math.ceil(today.getDate() / 7);
-    for (let w = 0; w < weeksCount; w++) {
-      const wStart = new Date(monthStart);
-      wStart.setDate(wStart.getDate() + w * 7);
-      const wEnd = new Date(wStart);
-      wEnd.setDate(wEnd.getDate() + 7);
-      const wMins = sessions
-        .filter((s) => {
-          const d = new Date(s.completedAt);
-          return d >= wStart && d < wEnd;
-        })
-        .reduce((sum, s) => sum + getSessionMinutes(s), 0);
-      weeksInMonth.push({ label: `W${w + 1}`, value: wMins });
-    }
-
-    const subjectMap = new Map<string, number>();
-    sessions.forEach((s) => {
-      const subj = s.subject || 'General Study';
-      subjectMap.set(subj, (subjectMap.get(subj) ?? 0) + getSessionMinutes(s));
-    });
-    const subjects = Array.from(subjectMap.entries())
-      .map(([name, mins]) => ({ name, mins }))
-      .sort((a, b) => b.mins - a.mins);
-
-    const recentSessions = sessions.slice(0, 10);
-
-    return {
-      todayMinutes,
-      todayCount,
-      weekMinutes,
-      monthMinutes,
-      last7Days,
-      weeksInMonth,
-      subjects,
-      recentSessions,
-    };
-  }, [sessions, now]);
-
-  const plannerStats = useMemo(() => {
-    const summarizeDate = (date: string) => {
-      const doneIds = new Set(state.planDone[date] ?? []);
-      const completionById = new Map(
-        (state.plannerCompletions[date] ?? []).map((completion) => [completion.taskId, completion])
-      );
-      const completedBuiltIns = TODAY_PLAN.filter(
-        (task) => doneIds.has(task.id) && !completionById.has(task.id)
-      );
-      const recordedCompletions = Array.from(completionById.values());
-
-      return {
-        tasks: completedBuiltIns.length + recordedCompletions.length,
-        minutes:
-          completedBuiltIns.reduce((sum, task) => sum + task.minutes, 0) +
-          recordedCompletions.reduce((sum, completion) => sum + Math.max(0, Number(completion.minutes) || 0), 0),
-      };
-    };
-
-    const todayKey = dayKey(now);
-    const today = summarizeDate(todayKey);
-    const utcToday = new Date(`${todayKey}T00:00:00.000Z`);
-    const week = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(utcToday);
-      date.setUTCDate(date.getUTCDate() - index);
-      return summarizeDate(date.toISOString().slice(0, 10));
-    });
-
-    return {
-      today,
-      week: week.reduce(
-        (total, day) => ({
-          tasks: total.tasks + day.tasks,
-          minutes: total.minutes + day.minutes,
-        }),
-        { tasks: 0, minutes: 0 }
-      ),
-    };
-  }, [now, state.planDone, state.plannerCompletions]);
-
-  const taskStatistics = useMemo<TaskStatistic[]>(() => {
-    const visibleTasks = getPlannerTasksForDate(state, state.plannerSelectedDate);
-    const sessionsByTask = new Map<string, FocusSession[]>();
-
-    sessions.forEach((session) => {
-      if (typeof session.taskId !== 'string' || !session.taskId) return;
-      const taskSessions = sessionsByTask.get(session.taskId) ?? [];
-      taskSessions.push(session);
-      sessionsByTask.set(session.taskId, taskSessions);
-    });
-
-    const summarize = (
-      task: {
-        id: string;
-        label: string;
-        category: string;
-        minutes: number;
-        completed: boolean;
-        completedOn: string | null;
-      },
-      historical = false,
-    ): TaskStatistic => {
-      const taskSessions = sessionsByTask.get(task.id) ?? [];
-      const actualMinutes = taskSessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
-      return {
-        taskId: task.id,
-        title: task.label,
-        category: task.category || 'General Study',
-        plannedMinutes: Math.max(0, Number(task.minutes) || 0),
-        actualMinutes,
-        completed: task.completed,
-        completionDate: task.completedOn,
-        remainingMinutes: Math.max(0, (Number(task.minutes) || 0) - actualMinutes),
-        focusSessionCount: taskSessions.length,
-        historical,
-      };
-    };
-
-    const visibleIds = new Set(visibleTasks.map((task) => task.id));
-    const current = visibleTasks.map((task) => summarize(task));
-    const historical = Array.from(sessionsByTask.entries())
-      .filter(([taskId]) => !visibleIds.has(taskId))
-      .map(([taskId, taskSessions]) => {
-        const firstSession = taskSessions[0];
-        const plannedMinutes = taskSessions.reduce(
-          (sum, session) => sum + (
-            typeof session.plannedMinutes === 'number' && Number.isFinite(session.plannedMinutes)
-              ? Math.max(0, session.plannedMinutes)
-              : 0
-          ),
-          0,
-        );
-        const actualMinutes = taskSessions.reduce((sum, session) => sum + getSessionMinutes(session), 0);
-        return {
-          taskId,
-          title: firstSession.topic?.trim() || 'Historical task',
-          category: firstSession.subject?.trim() || 'General Study',
-          plannedMinutes,
-          actualMinutes,
-          completed: false,
-          completionDate: null,
-          remainingMinutes: Math.max(0, plannedMinutes - actualMinutes),
-          focusSessionCount: taskSessions.length,
-          historical: true,
-        } satisfies TaskStatistic;
-      });
-
-    return [...current, ...historical];
-  }, [sessions, state, state.plannerSelectedDate]);
-
-  const DAILY_GOAL_MINUTES = state.plannerSettings.dailyTargetHours * 60;
-  const WEEKLY_GOAL_MINUTES = state.plannerSettings.weeklyTargetHours * 60;
-
-  const dailyGoalProgress = Math.min(
-    100,
-    Math.round((stats.todayMinutes / DAILY_GOAL_MINUTES) * 100)
-  );
-
-  const weeklyGoalProgress = Math.min(
-    100,
-    Math.round((stats.weekMinutes / WEEKLY_GOAL_MINUTES) * 100)
-  );
-
-  const smartInsight = useMemo(() => {
-    if (sessions.length === 0) {
-      return {
-        title: 'Your journey starts here',
-        message: 'Complete your first focus session to unlock personalized study insights.',
-        icon: 'sparkles-outline' as const,
-      };
-    }
-
-    if (stats.todayMinutes >= DAILY_GOAL_MINUTES) {
-      return {
-        title: 'Daily goal achieved!',
-        message: 'You reached your daily focus target. Great consistency!',
-        icon: 'trophy-outline' as const,
-      };
-    }
-
-    if (stats.todayMinutes > 0) {
-      const remaining = DAILY_GOAL_MINUTES - stats.todayMinutes;
-
-      return {
-        title: 'Keep your momentum',
-        message: `${formatDuration(remaining)} more to reach today's study goal.`,
-        icon: 'trending-up-outline' as const,
-      };
-    }
-
-    return {
-      title: 'Start with one session',
-      message: 'A short focused session today can help build a consistent study habit.',
-      icon: 'bulb-outline' as const,
-    };
-  }, [sessions.length, stats.todayMinutes, DAILY_GOAL_MINUTES]);
-  const hasHistory = sessions.length > 0;
-  const performanceStats = useMemo(() => {
-    const activeDays = stats.last7Days.filter(
-      (day) => day.value > 0
-    ).length;
-
-    const consistency = Math.round((activeDays / 7) * 100);
-
-    const averageSession = sessions.length
-      ? Math.round(
-          sessions.reduce(
-            (sum, session) => sum + getSessionMinutes(session),
-            0
-          ) / sessions.length
-        )
-      : 0;
-
-    return {
-      activeDays,
-      consistency,
-      averageSession,
-    };
-  }, [stats.last7Days, sessions]);
+  const dailyGoalMinutes = goalMinutes(state.plannerSettings?.dailyTargetHours);
+  const weeklyGoalMinutes = goalMinutes(state.plannerSettings?.weeklyTargetHours);
+  const hasHistory = statistics.sessions.length > 0;
+  const taskStatistics = statistics.tasks;
+  const subjects = statistics.subjects;
   const subjectColors = [colors.blue, colors.teal, colors.amber, colors.violet, colors.rose, colors.success];
-  const hasSubjects = stats.subjects.some(
-    (subject) => subject.name !== 'General Study'
-  );
-  
-  const activityHeatmap = useMemo(() => {
-    const days: { date: Date; minutes: number }[] = [];
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
-    for (let i = 83; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-  
-      const minutes = sessions
-        .filter((session) => isSameDay(new Date(session.completedAt), date))
-        .reduce((sum, session) => sum + getSessionMinutes(session), 0);
-  
-      days.push({ date, minutes });
-    }
-  
-    return days;
-  }, [sessions, now]);
-  const overviewCards = [
-    {
-      icon: 'time-outline' as keyof typeof Ionicons.glyphMap,
-      label: 'Today',
-      value: formatDuration(stats.todayMinutes),
-      sub: `${stats.todayCount} session${stats.todayCount !== 1 ? 's' : ''}`,
-      color: colors.blue,
-    },
-    {
-      icon: 'calendar-outline' as keyof typeof Ionicons.glyphMap,
-      label: 'This Week',
-      value: formatDuration(stats.weekMinutes),
-      sub: 'last 7 days',
-      color: colors.teal,
-    },
-    {
-      icon: 'flame-outline' as keyof typeof Ionicons.glyphMap,
-      label: 'Streak',
-      value: `${Math.max(0, Number(streak) || 0)} days`,
-      sub: hasHistory ? 'consecutive days' : 'no history yet',
-      color: colors.amber,
-    },
-    {
-      icon: 'bar-chart-outline' as keyof typeof Ionicons.glyphMap,
-      label: MONTH_NAMES[now.getMonth()],
-      value: formatDuration(stats.monthMinutes),
-      sub: 'this month',
-      color: colors.violet,
-    },
+
+  const activityData = statistics.dailyActivity.map((day) => ({
+    label: DAY_LABELS[new Date(`${day.date}T00:00:00`).getDay()],
+    value: day.actualMinutes,
+  }));
+  const weeklyTrend = statistics.weeklyActivity.map((week) => ({
+    label: week.label,
+    value: week.actualMinutes,
+  }));
+  const heatmapData = statistics.dailyActivity.map((day) => ({
+    date: day.date,
+    minutes: day.actualMinutes,
+  }));
+  const completionPercentage = statistics.overall.taskCompletionPercentage;
+  const dailyGoalProgress = dailyGoalMinutes
+    ? Math.min(100, Math.round((statistics.overall.actualMinutes / dailyGoalMinutes) * 100))
+    : 0;
+  const weeklyGoalProgress = weeklyGoalMinutes
+    ? Math.min(100, Math.round((statistics.overall.actualMinutes / weeklyGoalMinutes) * 100))
+    : 0;
+
+  const kpis = [
+    { label: 'Actual Study Time', value: formatDuration(statistics.overall.actualMinutes), sub: 'selected period', icon: 'time-outline' as const, color: colors.blue },
+    { label: 'Focus Sessions', value: String(statistics.overall.focusSessionCount), sub: 'selected period', icon: 'timer-outline' as const, color: colors.teal },
+    { label: 'Completed Tasks', value: String(statistics.overall.completedTaskCount), sub: `${statistics.overall.pendingTaskCount} pending`, icon: 'checkmark-circle-outline' as const, color: colors.success },
+    { label: 'Completion', value: completionPercentage === null ? '—' : `${Math.round(completionPercentage)}%`, sub: 'explicit planner state', icon: 'pie-chart-outline' as const, color: colors.violet },
   ];
 
-  return (
-    <Shell
-      active="Statistics"
-      title="Statistics"
-      subtitle="Track your focus sessions and study patterns"
-    >
-      <View style={{ gap: 16, marginBottom: 20 }}>
-        <Card>
-          <SectionHeader title="Study heat-map" icon="calendar-outline" action={`${streak}-day streak`} />
-          <HeatMap days={state.studyLog} weeks={isMobile ? 10 : 18} />
-        </Card>
+  const selectedRangeLabel = `${displayDate(selectedRange.startDate)} – ${displayDate(selectedRange.endDate)}`;
+  const openCustomRange = () => {
+    const initial = customRange ?? rangeEndingToday(now, 7);
+    setDraftStartDate(initial.startDate);
+    setDraftEndDate(initial.endDate);
+    setCustomRangeError(null);
+    setCustomModalVisible(true);
+  };
+  const saveCustomRange = () => {
+    const today = localDateKey(now);
+    if (!isValidLocalDateKey(draftStartDate) || !isValidLocalDateKey(draftEndDate)) {
+      setCustomRangeError('Enter valid dates using YYYY-MM-DD.');
+      return;
+    }
+    if (draftStartDate > draftEndDate) {
+      setCustomRangeError('Start date cannot be after the end date.');
+      return;
+    }
+    if (draftEndDate > today) {
+      setCustomRangeError('Future dates are not available yet.');
+      return;
+    }
+    setCustomRange({ startDate: draftStartDate, endDate: draftEndDate });
+    setFilterMode('custom');
+    setCustomModalVisible(false);
+  };
 
-        <Card>
-          <SectionHeader title="Daily plan history" icon="checkbox-outline" />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-            <View style={{ flex: 1, minWidth: 130, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
-              <Txt size={11.5} color={colors.textMuted}>Today</Txt>
-              <Txt size={18} weight="800" style={{ marginTop: 4 }}>
-                {plannerStats.today.tasks} tasks
-              </Txt>
-              <Txt size={11.5} color={colors.textMuted}>
-                {formatDuration(plannerStats.today.minutes)} planned
+  return (
+    <Shell active="Statistics" title="Statistics" subtitle="Your study performance at a glance">
+      <View style={{ gap: 16, paddingBottom: 20 }}>
+        <Card style={{ padding: 14 }}>
+          <View style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: 12 }}>
+            <View style={{ flex: isMobile ? undefined : 1, minWidth: isMobile ? undefined : 180 }}>
+              <Txt size={18} weight="800" display>Study Analytics</Txt>
+              <Txt size={12} color={colors.textMuted} style={{ marginTop: 2 }}>
+                Focus, progress, and consistency from your recorded sessions.
               </Txt>
             </View>
-            <View style={{ flex: 1, minWidth: 130, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
-              <Txt size={11.5} color={colors.textMuted}>Last 7 days</Txt>
-              <Txt size={18} weight="800" style={{ marginTop: 4 }}>
-                {plannerStats.week.tasks} tasks
-              </Txt>
-              <Txt size={11.5} color={colors.textMuted}>
-                {formatDuration(plannerStats.week.minutes)} planned
+            <View style={{ flex: isMobile ? undefined : 2, alignItems: isMobile ? 'flex-start' : 'flex-end' }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', gap: 7 }}>
+                <Chip label="Last 7 Days" active={filterMode === '7d'} onPress={() => setFilterMode('7d')} />
+                <Chip label="Last 30 Days" active={filterMode === '30d'} onPress={() => setFilterMode('30d')} />
+                <Chip label="This Month" active={filterMode === 'month'} onPress={() => setFilterMode('month')} />
+                <Chip label="Custom Range" active={filterMode === 'custom'} onPress={openCustomRange} />
+              </View>
+              <Txt size={11} color={colors.textFaint} style={{ marginTop: 6 }}>
+                Selected period: {selectedRangeLabel}
               </Txt>
             </View>
           </View>
-          <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 10 }}>
-            Planned task durations are shown separately from measured focus-session time.
-          </Txt>
         </Card>
 
-        <Card>
-          <SectionHeader
-            title="Task progress"
-            icon="list-outline"
-            action={new Date(`${state.plannerSelectedDate}T00:00:00.000Z`).toLocaleDateString('en-IN')}
-          />
-          {taskStatistics.length ? (
-            <View style={{ gap: 12 }}>
-              {taskStatistics.map((task) => {
-                const progress = task.plannedMinutes > 0
-                  ? Math.min(100, Math.round((task.actualMinutes / task.plannedMinutes) * 100))
-                  : 0;
+        {!loaded ? (
+          <Card><Txt size={14} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 24 }}>Loading study analytics…</Txt></Card>
+        ) : loadError ? (
+          <EmptyState icon="warning-outline" title="Statistics unavailable" body={loadError} />
+        ) : (
+          <>
+            <Card>
+              <SectionHeader title="Performance Overview" icon="analytics-outline" />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {kpis.map((kpi) => (
+                  <View key={kpi.label} style={{ flexBasis: isMobile ? '47%' : isDesktop ? '23.5%' : '31%', flexGrow: 1, minWidth: isMobile ? 130 : 145, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt, gap: 8 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: `${kpi.color}1A`, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name={kpi.icon} size={17} color={kpi.color} />
+                    </View>
+                    <Txt size={20} weight="800" display>{kpi.value}</Txt>
+                    <Txt size={11.5} weight="700" numberOfLines={2}>{kpi.label}</Txt>
+                    <Txt size={10.5} color={colors.textFaint}>{kpi.sub}</Txt>
+                  </View>
+                ))}
+              </View>
+            </Card>
+
+            <Card>
+              <SectionHeader title="Study Activity" icon="bar-chart-outline" />
+              <Txt size={12} color={colors.textMuted}>Actual Focus time over the last 7 days</Txt>
+              {hasHistory ? <BarChart data={activityData} height={165} color={colors.blue} /> : <Txt size={13} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 24 }}>Complete a Focus session to see your activity trend.</Txt>}
+              {weeklyTrend.some((week) => week.value > 0) ? <View style={{ marginTop: 16 }}><Txt size={12} color={colors.textMuted}>Weekly trend in selected period</Txt><LineChart data={weeklyTrend} height={125} color={colors.teal} /></View> : null}
+            </Card>
+
+            <Card>
+              <SectionHeader title="Planned vs Actual" icon="swap-vertical-outline" />
+              <Txt size={12} color={colors.textMuted}>Last 7 days · scheduled planner time compared with measured Focus time.</Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
+                {[
+                  ['Planned', formatDuration(statistics.plannedVsActual.plannedMinutes), colors.blue],
+                  ['Actual', formatDuration(statistics.plannedVsActual.actualMinutes), colors.teal],
+                  ['Actual − Planned', signedMinutes(statistics.plannedVsActual.differenceMinutes), colors.amber],
+                ].map(([label, value, color]) => (
+                  <View key={String(label)} style={{ flex: 1, minWidth: 100, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                    <Txt size={11.5} color={colors.textMuted}>{label}</Txt>
+                    <Txt size={20} weight="800" color={String(color)} display style={{ marginTop: 3 }}>{String(value)}</Txt>
+                  </View>
+                ))}
+              </View>
+              {!statistics.plannedVsActual.hasPlannerTasks ? <Txt size={11.5} color={colors.textFaint} style={{ marginTop: 10 }}>No planner tasks are scheduled in this period.</Txt> : null}
+            </Card>
+
+            <Card>
+              <SectionHeader title="Task Performance" icon="list-outline" action="View All Tasks" onAction={() => nav.navigate('TaskPerformance', selectedRange)} />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {[
+                  ['Total tasks', taskStatistics.filter((task) => !task.historical).length],
+                  ['Completed', statistics.overall.completedTaskCount],
+                  ['Pending', statistics.overall.pendingTaskCount],
+                  ['Completion', completionPercentage === null ? '—' : `${Math.round(completionPercentage)}%`],
+                ].map(([label, value]) => (
+                  <View key={String(label)} style={{ flex: 1, minWidth: 110, padding: 10, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                    <Txt size={11} color={colors.textMuted}>{String(label)}</Txt>
+                    <Txt size={17} weight="800" display style={{ marginTop: 2 }}>{String(value)}</Txt>
+                  </View>
+                ))}
+              </View>
+              {taskStatistics.length ? <View style={{ gap: 10 }}>{taskStatistics.slice(0, 3).map((task) => {
+                const progress = task.plannedMinutes && task.plannedMinutes > 0 ? Math.min(100, Math.round((task.actualMinutes / task.plannedMinutes) * 100)) : 0;
+                const status = task.completed === null ? 'Historical' : task.completed ? 'Completed' : 'Pending';
                 return (
-                  <View
-                    key={`${task.historical ? 'historical-' : ''}${task.taskId}`}
-                    style={{
-                      borderRadius: radii.md,
-                      backgroundColor: colors.surfaceAlt,
-                      padding: 12,
-                      gap: 6,
-                    }}
-                  >
+                  <View key={`${task.historical ? 'historical-' : ''}${task.taskId}-${task.scheduledDate}`} style={{ padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt, gap: 6 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <View style={{ flex: 1 }}>
-                        <Txt size={13} weight="800" numberOfLines={1}>{task.title}</Txt>
-                        <Txt size={11.5} color={colors.textMuted}>
-                          {task.category}{task.historical ? ' · historical' : ''}
-                        </Txt>
-                      </View>
-                      <Txt size={12} weight="800" color={task.completed ? colors.success : colors.textMuted}>
-                        {task.completed ? 'Completed' : 'Pending'}
-                      </Txt>
+                      <View style={{ flex: 1 }}><Txt size={13} weight="800" numberOfLines={1}>{task.title}</Txt><Txt size={11.5} color={colors.textMuted}>{task.category}{task.historical ? ' · historical' : ''}</Txt></View>
+                      <Txt size={11.5} weight="800" color={task.completed === true ? colors.success : colors.textMuted}>{status}</Txt>
                     </View>
-                    <View style={{ height: 7, borderRadius: 4, backgroundColor: colors.border, overflow: 'hidden' }}>
-                      <View style={{ width: `${progress}%`, height: '100%', backgroundColor: task.completed ? colors.success : colors.blue }} />
-                    </View>
-                    <Txt size={11.5} color={colors.textMuted}>
-                      {formatDuration(task.actualMinutes)} actual / {formatDuration(task.plannedMinutes)} planned · {formatDuration(task.remainingMinutes)} remaining · {task.focusSessionCount} focus session{task.focusSessionCount !== 1 ? 's' : ''}
-                    </Txt>
-                    {task.completed && task.completionDate ? (
-                      <Txt size={10.5} color={colors.textFaint}>Completed on {task.completionDate}</Txt>
-                    ) : null}
+                    <View style={{ height: 6, borderRadius: 4, backgroundColor: colors.border, overflow: 'hidden' }}><View style={{ width: `${progress}%`, height: '100%', backgroundColor: task.completed === true ? colors.success : colors.blue }} /></View>
+                    <Txt size={11.5} color={colors.textMuted}>{formatDuration(task.actualMinutes)} actual · {task.plannedMinutes === null ? 'planned unavailable' : `${formatDuration(task.plannedMinutes)} planned`} · {task.remainingMinutes === null ? 'remaining unavailable' : `${formatDuration(task.remainingMinutes)} remaining`} · {task.focusSessionCount} session{task.focusSessionCount === 1 ? '' : 's'}</Txt>
+                    {task.completed === true && task.completionDate ? <Txt size={10.5} color={colors.textFaint}>Completed on {task.completionDate}</Txt> : null}
                   </View>
                 );
-              })}
-            </View>
-          ) : (
-            <Txt size={13} color={colors.textMuted}>
-              No planner tasks or task-linked focus sessions for this date.
-            </Txt>
-          )}
-          <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 10 }}>
-            Actual time comes only from task-linked Focus Mode sessions. Completion is controlled explicitly in the planner.
-          </Txt>
-        </Card>
+              })}</View> : <Txt size={13} color={colors.textMuted}>No planner tasks or task-linked Focus sessions for this date.</Txt>}
+              {taskStatistics.length > 3 ? <Txt size={11.5} color={colors.textFaint} style={{ marginTop: 10 }}>Showing 3 of {taskStatistics.length} tasks for {selectedRangeLabel}.</Txt> : null}
+            </Card>
 
-        <Card>
-          <SectionHeader title="Percentile history" icon="trending-up-outline" action="Tests" onAction={() => nav.navigate('Tests')} />
-          {percentileTrend.length >= 2 ? (
-            <LineChart data={percentileTrend} color={colors.violet} />
-          ) : (
-            <Txt size={13} color={colors.textMuted}>
-              Attempt two or more mocks to plot your percentile trajectory.
-            </Txt>
-          )}
-        </Card>
+            <Card>
+              <SectionHeader title="Subject-wise Analysis" icon="book-outline" />
+              <Txt size={12} color={colors.textMuted} style={{ marginBottom: 12 }}>Actual Focus time by subject in the selected period.</Txt>
+              {subjects.length ? <View style={{ gap: 12 }}>{subjects.map((subject, index) => {
+                const maxMinutes = subjects[0].actualMinutes;
+                const width = maxMinutes > 0 ? Math.max(2, (subject.actualMinutes / maxMinutes) * 100) : 0;
+                return <View key={subject.subject} style={{ gap: 5 }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Txt size={13} weight="700" numberOfLines={1}>{subject.subject}</Txt><Txt size={11.5} color={colors.textMuted}>{formatDuration(subject.actualMinutes)} · {Math.round(subject.shareOfActualTime)}%</Txt></View><View style={{ height: 7, borderRadius: 4, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}><View style={{ width: `${width}%`, height: '100%', borderRadius: 4, backgroundColor: subjectColors[index % subjectColors.length] }} /></View></View>;
+              })}</View> : <Txt size={13} color={colors.textMuted}>Subject breakdown will appear after a Focus session has a subject.</Txt>}
+            </Card>
 
-        <Card>
-          <SectionHeader title="Recent results" icon="ribbon-outline" />
-          {state.results.length ? (
-            <View style={{ gap: 12 }}>
-              {state.results.slice(0, 6).map((result) => (
-                <Pressable
-                  key={result.id}
-                  onPress={() => nav.navigate('TestResult', { resultId: result.id })}
-                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, opacity: pressed ? 0.75 : 1 })}
-                >
-                  <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-                    <Txt size={13} weight="800" color={colors.blue}>{result.percentile.toFixed(0)}</Txt>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Txt size={13.5} weight="700" numberOfLines={1}>{result.title}</Txt>
-                    <Txt size={11.5} color={colors.textMuted}>
-                      {result.score.toFixed(1)}/{result.maxScore} · {Math.round(result.accuracy)}% accuracy · {new Date(result.takenAt).toLocaleDateString('en-IN')}
-                    </Txt>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <EmptyState
-              icon="ribbon-outline"
-              title="No results yet"
-              body="Your mock history, percentile and subject trends will appear here."
-              action="Take a test"
-              onAction={() => nav.navigate('Tests')}
-            />
-          )}
-        </Card>
-      </View>
+            <Card>
+              <SectionHeader title="Focus Analysis" icon="timer-outline" />
+              <Txt size={12} color={colors.textMuted} style={{ marginBottom: 12 }}>Focus sessions recorded over the last 7 days.</Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {[
+                  ['Total Sessions', String(statistics.focus.totalSessions)],
+                  ['Average Duration', statistics.focus.averageSessionMinutes === null ? '—' : formatDuration(statistics.focus.averageSessionMinutes)],
+                  ['Longest Session', statistics.focus.longestSessionMinutes === null ? '—' : formatDuration(statistics.focus.longestSessionMinutes)],
+                  ['Active Days', String(statistics.focus.activeStudyDays)],
+                ].map(([label, value]) => <View key={label} style={{ flex: 1, minWidth: 130, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}><Txt size={11.5} color={colors.textMuted}>{label}</Txt><Txt size={19} weight="800" display style={{ marginTop: 3 }}>{value}</Txt></View>)}
+              </View>
+            </Card>
 
-      {!loaded ? (
-        <Card>
-          <Txt size={14} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 24 }}>
-            Loading statistics…
-          </Txt>
-        </Card>
-      ) : !hasHistory ? (
-        <EmptyState
-          icon="analytics-outline"
-          title="No study history yet"
-          body="Complete a focus session from the Focus Timer to start building your study statistics. Your sessions will appear here with detailed breakdowns."
-        />
-      ) : (
-        <View style={{ gap: 20 }}>
-          {/* Overview cards */}
-          <View
-            style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              gap: 12,
-            }}
-          >
-            {overviewCards.map((card) => (
-              <View
-                key={card.label}
-                style={{
-                  flexBasis: isMobile ? '47%' : isDesktop ? '23.5%' : '31%',
-                  flexGrow: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: radii.lg,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  padding: 16,
-                  gap: 10,
-                }}
-              >
-                <View
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 12,
-                    backgroundColor: `${card.color}1A`,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Ionicons name={card.icon} size={19} color={card.color} />
+            <Card>
+              <SectionHeader title="Study Consistency" icon="calendar-outline" />
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                <View style={{ flex: 1, padding: 11, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                  <Txt size={20} weight="800" display>{dayLabel(statistics.streak.current)}</Txt>
+                  <Txt size={11.5} color={colors.textMuted}>Current Focus streak</Txt>
                 </View>
-                <View>
-                  <Txt size={22} weight="800" display>
-                    {card.value}
-                  </Txt>
-                  <Txt size={11.5} color={colors.textMuted} style={{ marginTop: 2 }}>
-                    {card.label}
-                  </Txt>
-                  <Txt size={10.5} color={colors.textFaint} style={{ marginTop: 1 }}>
-                    {card.sub}
-                  </Txt>
+                <View style={{ flex: 1, padding: 11, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                  <Txt size={20} weight="800" display>{dayLabel(statistics.streak.best)}</Txt>
+                  <Txt size={11.5} color={colors.textMuted}>Best in selected period</Txt>
                 </View>
               </View>
-            ))}
-          </View>
-{/* Smart Study Insights */}
-<Card>
-  <SectionHeader title="Smart Insights" icon="sparkles-outline" />
+              {hasHistory ? <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                  {heatmapData.map((day) => {
+                    const intensity = day.minutes <= 0 ? 0 : day.minutes < 25 ? 1 : day.minutes < 60 ? 2 : day.minutes < 120 ? 3 : 4;
+                    const backgrounds = [colors.surfaceAlt, `${colors.teal}35`, `${colors.teal}65`, `${colors.teal}A0`, colors.teal];
+                    return <View key={day.date} style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: backgrounds[intensity] }} />;
+                  })}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
+                  <Txt size={10} color={colors.textFaint}>Less</Txt>
+                  {[0, 30, 70, 110, 150].map((value) => <View key={value} style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: value === 0 ? colors.surfaceAlt : value < 40 ? `${colors.teal}35` : value < 80 ? `${colors.teal}65` : value < 120 ? `${colors.teal}A0` : colors.teal }} />)}
+                  <Txt size={10} color={colors.textFaint}>More</Txt>
+                </View>
+                <Txt size={10.5} color={colors.textFaint}>Focus activity in the selected period. Streaks reflect retained sessions only.</Txt>
+              </View> : <Txt size={13} color={colors.textMuted}>Complete a Focus session to build your consistency history.</Txt>}
+              {dailyGoalMinutes || weeklyGoalMinutes ? <View style={{ marginTop: 14, gap: 8 }}>{dailyGoalMinutes ? <Txt size={11.5} color={colors.textMuted}>Daily goal: {formatDuration(dailyGoalMinutes)} · {dailyGoalProgress}% in range</Txt> : null}{weeklyGoalMinutes ? <Txt size={11.5} color={colors.textMuted}>Weekly goal: {formatDuration(weeklyGoalMinutes)} · {weeklyGoalProgress}% in range</Txt> : null}</View> : null}
+            </Card>
 
-  <View
-    style={{
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 12,
-      padding: 14,
-      borderRadius: radii.lg,
-      backgroundColor: colors.surfaceAlt,
-    }}
-  >
-    <View
-      style={{
-        width: 42,
-        height: 42,
-        borderRadius: 14,
-        backgroundColor: `${colors.teal}20`,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Ionicons
-        name={smartInsight.icon}
-        size={22}
-        color={colors.teal}
-      />
-    </View>
-
-    <View style={{ flex: 1, gap: 5 }}>
-      <Txt size={15} weight="800">
-        {smartInsight.title}
-      </Txt>
-
-      <Txt size={12.5} color={colors.textMuted}>
-        {smartInsight.message}
-      </Txt>
-    </View>
-  </View>
-</Card>
-
-{/* Study Goal Tracker */}
-<Card>
-  <SectionHeader title="Study Goals" icon="flag-outline" />
-
-  <View style={{ gap: 22 }}>
-    <View style={{ gap: 9 }}>
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <View style={{ flex: 1 }}>
-          <Txt size={14} weight="700">
-            Daily Focus Goal
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
-            Target: 2 hours per day
-          </Txt>
-        </View>
-
-        <Txt size={13} weight="800" color={colors.blue}>
-          {dailyGoalProgress}%
-        </Txt>
+            <Card>
+              <SectionHeader title="Academic Performance" icon="ribbon-outline" action="Tests" onAction={() => nav.navigate('Tests')} />
+              {percentileTrend.length >= 2 ? <LineChart data={percentileTrend} color={colors.violet} /> : <Txt size={13} color={colors.textMuted}>Attempt two or more mocks to plot your percentile trajectory.</Txt>}
+              <View style={{ gap: 10, marginTop: 16 }}><Txt size={13} weight="800">Recent test results</Txt>{state.results.length ? state.results.slice(0, 6).map((result) => <Pressable key={result.id} onPress={() => nav.navigate('TestResult', { resultId: result.id })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, opacity: pressed ? 0.75 : 1 })}><View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}><Txt size={12} weight="800" color={colors.blue}>{result.percentile.toFixed(0)}</Txt></View><View style={{ flex: 1 }}><Txt size={13} weight="700" numberOfLines={1}>{result.title}</Txt><Txt size={11.5} color={colors.textMuted}>{result.score.toFixed(1)}/{result.maxScore} · {Math.round(result.accuracy)}% accuracy</Txt></View><Ionicons name="chevron-forward" size={16} color={colors.textFaint} /></Pressable>) : <EmptyState icon="ribbon-outline" title="No results yet" body="Your mock results will appear here." action="Take a test" onAction={() => nav.navigate('Tests')} />}</View>
+            </Card>
+          </>
+        )}
       </View>
-
-      <View
-        style={{
-          height: 10,
-          borderRadius: 10,
-          backgroundColor: colors.surfaceAlt,
-          overflow: 'hidden',
-        }}
+      <Modal
+        visible={customModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCustomModalVisible(false)}
       >
-        <View
-          style={{
-            width: `${dailyGoalProgress}%`,
-            height: '100%',
-            backgroundColor: colors.blue,
-            borderRadius: 10,
-          }}
-        />
-      </View>
-
-      <Txt size={11.5} color={colors.textMuted}>
-        {formatDuration(stats.todayMinutes)} of 2h completed
-      </Txt>
-    </View>
-
-    <View style={{ gap: 9 }}>
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <View style={{ flex: 1 }}>
-          <Txt size={14} weight="700">
-            Weekly Focus Goal
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
-            Target: 10 hours per week
-          </Txt>
-        </View>
-
-        <Txt size={13} weight="800" color={colors.teal}>
-          {weeklyGoalProgress}%
-        </Txt>
-      </View>
-
-      <View
-        style={{
-          height: 10,
-          borderRadius: 10,
-          backgroundColor: colors.surfaceAlt,
-          overflow: 'hidden',
-        }}
-      >
-        <View
-          style={{
-            width: `${weeklyGoalProgress}%`,
-            height: '100%',
-            backgroundColor: colors.teal,
-            borderRadius: 10,
-          }}
-        />
-      </View>
-
-      <Txt size={11.5} color={colors.textMuted}>
-        {formatDuration(stats.weekMinutes)} of 10h completed
-      </Txt>
-    </View>
-  </View>
-</Card>
-{/* 12-Week Study Activity */}
-<Card>
-  <SectionHeader
-    title="Study Activity"
-    icon="calendar-outline"
-  />
-
-  <Txt size={12} color={colors.textMuted}>
-    Your focus activity over the last 12 weeks
-  </Txt>
-
-  <View style={{ gap: 8, marginTop: 14 }}>
-    <View
-      style={{
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-      }}
-    >
-      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(
-        (day) => (
-          <Txt
-            key={day}
-            size={9}
-            color={colors.textMuted}
-            style={{ width: '13%', textAlign: 'center' }}
-          >
-            {day}
-          </Txt>
-        )
-      )}
-    </View>
-
-    <View
-      style={{
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        gap: 4,
-      }}
-    >
-      {activityHeatmap.map((day) => {
-        const intensity =
-          day.minutes === 0 ? 0 :
-          day.minutes < 25 ? 1 :
-          day.minutes < 60 ? 2 :
-          day.minutes < 120 ? 3 : 4;
-
-        const backgrounds = [
-          colors.surfaceAlt,
-          `${colors.teal}35`,
-          `${colors.teal}65`,
-          `${colors.teal}A0`,
-          colors.teal,
-        ];
-
-        return (
-          <View
-            key={dayKey(day.date)}
-            style={{
-              width: '2.7%',
-              aspectRatio: 1,
-              minWidth: 7,
-              borderRadius: 3,
-              backgroundColor: backgrounds[intensity],
-            }}
-          />
-        );
-      })}
-    </View>
-
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 5,
-        marginTop: 8,
-      }}
-    >
-      <Txt size={10} color={colors.textMuted}>Less</Txt>
-
-      {[colors.surfaceAlt, `${colors.teal}35`, `${colors.teal}65`, `${colors.teal}A0`, colors.teal].map(
-        (color, index) => (
-          <View
-            key={index}
-            style={{
-              width: 11,
-              height: 11,
-              borderRadius: 3,
-              backgroundColor: color,
-            }}
-          />
-        )
-      )}
-
-      <Txt size={10} color={colors.textMuted}>More</Txt>
-    </View>
-  </View>
-</Card>{/* Weekly Performance */}
-<Card>
-  <SectionHeader
-    title="Weekly Performance"
-    icon="analytics-outline"
-  />
-
-  <View
-    style={{
-      flexDirection: 'row',
-      gap: 12,
-      flexWrap: 'wrap',
-    }}
-  >
-    {[
-      {
-        label: 'Active Days',
-        value: `${performanceStats.activeDays}/7`,
-        icon: 'calendar-outline' as const,
-        color: colors.blue,
-      },
-      {
-        label: 'Consistency',
-        value: `${performanceStats.consistency}%`,
-        icon: 'trending-up-outline' as const,
-        color: colors.teal,
-      },
-      {
-        label: 'Avg. Session',
-        value: formatDuration(performanceStats.averageSession),
-        icon: 'time-outline' as const,
-        color: colors.violet,
-      },
-    ].map((item) => (
-      <View
-        key={item.label}
-        style={{
-          flexGrow: 1,
-          flexBasis: '28%',
-          minWidth: 100,
-          padding: 14,
-          gap: 10,
-          borderRadius: radii.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-        }}
-      >
-        <Ionicons
-          name={item.icon}
-          size={21}
-          color={item.color}
-        />
-
-        <Txt size={20} weight="800" display>
-          {item.value}
-        </Txt>
-
-        <Txt size={11} color={colors.textMuted}>
-          {item.label}
-        </Txt>
-      </View>
-    ))}
-  </View>
-
-  <Txt
-    size={12}
-    color={colors.textMuted}
-    style={{ marginTop: 12 }}
-  >
-    Consistency is based on the number of days with recorded focus time in the last 7 days.
-  </Txt>
-</Card>
-          {/* Weekly chart */}
-          <Card>
-            <SectionHeader title="Last 7 days" icon="bar-chart-outline" />
-            <View style={{ flexDirection: 'row', gap: 24, marginBottom: 14, flexWrap: 'wrap' }}>
-              <View>
-                <Txt size={22} weight="800" display>
-                  {formatDuration(stats.weekMinutes)}
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  total this week
-                </Txt>
-              </View>
-              <View>
-                <Txt size={22} weight="800" display color={colors.teal}>
-                  {formatDuration(Math.round(stats.weekMinutes / 7))}
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  daily average
-                </Txt>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <Card style={{ width: '100%', maxWidth: 460, alignSelf: 'center' }}>
+            <SectionHeader title="Custom Date Range" icon="calendar-outline" />
+            <Txt size={12} color={colors.textMuted} style={{ marginBottom: 12 }}>
+              Use local dates in YYYY-MM-DD format. Future dates are not available.
+            </Txt>
+            <View style={{ gap: 10 }}>
+              <TextInput
+                value={draftStartDate}
+                onChangeText={setDraftStartDate}
+                placeholder="Start date (YYYY-MM-DD)"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="numbers-and-punctuation"
+                autoCorrect={false}
+                style={{ borderWidth: 1, borderColor: customRangeError ? colors.danger : colors.border, borderRadius: radii.md, paddingHorizontal: 12, height: 44, color: colors.text, backgroundColor: colors.surfaceAlt }}
+              />
+              <TextInput
+                value={draftEndDate}
+                onChangeText={setDraftEndDate}
+                placeholder="End date (YYYY-MM-DD)"
+                placeholderTextColor={colors.textFaint}
+                keyboardType="numbers-and-punctuation"
+                autoCorrect={false}
+                style={{ borderWidth: 1, borderColor: customRangeError ? colors.danger : colors.border, borderRadius: radii.md, paddingHorizontal: 12, height: 44, color: colors.text, backgroundColor: colors.surfaceAlt }}
+              />
+              {customRangeError ? <Txt size={11.5} color={colors.danger}>{customRangeError}</Txt> : null}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                <Button label="Cancel" variant="ghost" onPress={() => setCustomModalVisible(false)} />
+                <Button label="Last 7 Days" variant="outline" onPress={() => { setFilterMode('7d'); setCustomModalVisible(false); }} />
+                <Button label="Apply Range" onPress={saveCustomRange} />
               </View>
             </View>
-            <BarChart data={stats.last7Days} height={170} />
-          </Card>
-
-          {/* Monthly trend */}
-          <Card>
-            <SectionHeader
-              title={`${MONTH_NAMES[now.getMonth()]} weekly trend`}
-              icon="trending-up-outline"
-            />
-            <View style={{ flexDirection: 'row', gap: 24, marginBottom: 14, flexWrap: 'wrap' }}>
-              <View>
-                <Txt size={22} weight="800" display>
-                  {formatDuration(stats.monthMinutes)}
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  this month total
-                </Txt>
-              </View>
-              <View>
-                <Txt size={22} weight="800" display color={colors.blue}>
-                  {stats.weeksInMonth.length}
-                </Txt>
-                <Txt size={11.5} color={colors.textMuted}>
-                  active weeks
-                </Txt>
-              </View>
-            </View>
-            {stats.weeksInMonth.some((w) => w.value > 0) ? (
-              <LineChart data={stats.weeksInMonth} height={140} color={colors.violet} />
-            ) : (
-              <Txt size={12.5} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 20 }}>
-                No sessions recorded this month yet.
-              </Txt>
-            )}
-          </Card>
-
-          {/* Subject-wise statistics */}
-          <Card>
-            <SectionHeader title="Study time by subject" icon="book-outline" />
-            {hasSubjects ? (
-              <View style={{ gap: 14 }}>
-                {stats.subjects.map((subj, i) => {
-                  const maxMins = stats.subjects[0].mins;
-                  const pct = maxMins > 0 ? (subj.mins / maxMins) * 100 : 0;
-                  const color = subjectColors[i % subjectColors.length];
-                  return (
-                    <View key={subj.name}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <Txt size={13} weight="600">
-                          {subj.name}
-                        </Txt>
-                        <Txt size={12.5} weight="700" color={colors.textMuted}>
-                          {formatDuration(subj.mins)}
-                        </Txt>
-                      </View>
-                      <View
-                        style={{
-                          height: 8,
-                          borderRadius: 8,
-                          backgroundColor: colors.surfaceAlt,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: `${Math.max(2, pct)}%`,
-                            height: 8,
-                            backgroundColor: color,
-                            borderRadius: 8,
-                          }}
-                        />
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Txt size={12.5} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 20 }}>
-                Subjects will appear here once you complete focus sessions with a subject set.
-              </Txt>
-            )}
-          </Card>
-
-          {/* Recent sessions */}
-          <Card>
-            <SectionHeader title="Recent sessions" icon="time-outline" />
-            {stats.recentSessions.length > 0 ? (
-              <View style={{ gap: 10 }}>
-                {stats.recentSessions.map((session) => {
-                  const d = new Date(session.completedAt);
-                  const dateStr = d.toLocaleDateString([], {
-                    month: 'short',
-                    day: 'numeric',
-                  });
-                  const timeStr = d.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
-                  return (
-                    <View
-                      key={session.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 12,
-                        paddingVertical: 12,
-                        borderBottomWidth: 1,
-                        borderBottomColor: colors.border,
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 12,
-                          backgroundColor: colors.tint,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Ionicons name="checkmark-done-outline" size={20} color={colors.blue} />
-                      </View>
-                      <View style={{ flex: 1, gap: 3 }}>
-                        <Txt size={13.5} weight="700" numberOfLines={1}>
-                          {session.subject || 'General Study'}
-                          {session.topic ? ` · ${session.topic}` : ''}
-                        </Txt>
-                        <Txt size={11.5} color={colors.textMuted}>
-                          {dateStr} · {timeStr}
-                        </Txt>
-                      </View>
-                      <View
-                        style={{
-                          backgroundColor: colors.surfaceAlt,
-                          borderRadius: radii.pill,
-                          paddingHorizontal: 12,
-                          paddingVertical: 5,
-                        }}
-                      >
-                        <Txt size={12} weight="800" color={colors.teal}>
-                          {formatDuration(getSessionMinutes(session))}
-                        </Txt>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Txt size={12.5} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 20 }}>
-                No completed sessions yet.
-              </Txt>
-            )}
           </Card>
         </View>
-      )}
+      </Modal>
     </Shell>
   );
 }

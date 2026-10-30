@@ -38,6 +38,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
+import TaskPerformanceScreen from './screens/TaskPerformanceScreen';
 import StudyPlannerScreen from './screens/StudyPlannerScreen';
 import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
@@ -79,6 +80,7 @@ const linking = {
               Search: 'search',
               Notifications: 'notifications',
               Statistics: 'statistics',
+              TaskPerformance: 'statistics/tasks',
               StudyPlanner: 'study-planner',
               Profile: 'profile',
               Settings: 'settings',
@@ -217,6 +219,7 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Search" component={SearchScreen} />
       <AppStack.Screen name="Notifications" component={NotificationsScreen} />
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
+      <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
       <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
