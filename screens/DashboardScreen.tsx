@@ -6,7 +6,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import Svg, { Circle } from 'react-native-svg';
 
 import { BarChart } from '../components/Charts';
-import { AppHeader, useLayout } from '../components/Shell';
+import { AppBottomNav, AppHeader, useLayout } from '../components/Shell';
 import { ProgressBar, Tag } from '../components/ui';
 import {
   CURRENT_AFFAIRS,
@@ -425,29 +425,7 @@ export default function DashboardScreen() {
           </View>
         </View>
       </ScrollView>
-            {/* Bottom Navigation */}
-            <View style={styles.bottomNav}>
-        <Pressable style={styles.navItem} onPress={() => nav.navigate('Dashboard')}>
-          <Ionicons name="home" size={20} color="#2563EB" />
-          <Text style={[styles.navText, { color: '#2563EB', fontWeight: 'bold' }]}>Home</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => nav.navigate('Library')}>
-          <Ionicons name="library-outline" size={20} color="#64748B" />
-          <Text style={styles.navText}>Library</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => nav.navigate('Tests')}>
-          <Ionicons name="radio-outline" size={20} color="#64748B" />
-          <Text style={styles.navText}>Tests</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => nav.navigate('SakhaAI')}>
-          <Ionicons name="sparkles-outline" size={20} color="#64748B" />
-          <Text style={styles.navText}>Sakha AI</Text>
-        </Pressable>
-        <Pressable style={styles.navItem} onPress={() => nav.navigate('More')}>
-          <Ionicons name="grid-outline" size={20} color="#64748B" />
-          <Text style={styles.navText}>More</Text>
-        </Pressable>
-      </View>
+      <AppBottomNav active="Dashboard" />
     </View>
   );
 }

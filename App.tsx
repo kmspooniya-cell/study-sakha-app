@@ -112,14 +112,16 @@ function CustomDrawerContent(props: any) {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
   const first = (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
+  const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
+  const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 0 }}>
         {/* Profile Header (Top) */}
         <LinearGradient 
-          colors={scheme === 'dark' ? ['#2A1519', '#1F1013'] : ['#E11D48', '#BE123C']} 
-          style={{ padding: 20, paddingTop: 60, paddingBottom: 30, flexDirection: 'row', alignItems: 'center' }}
+          colors={scheme === 'dark' ? [colors.navy, colors.bg] : [colors.rose, colors.navy]}
+          style={{ padding: 20, paddingTop: 56, paddingBottom: 28, flexDirection: 'row', alignItems: 'center' }}
         >
           <Pressable
             onPress={() => {
@@ -128,20 +130,20 @@ function CustomDrawerContent(props: any) {
             }}
             accessibilityRole="button"
             accessibilityLabel="View profile"
-            style={{ flexDirection: 'row', alignItems: 'center' }}
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.82 : 1 })}
           >
-            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
-              <Text style={{ color: '#E11D48', fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
+            <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surfaceRaised, alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
+              <Text style={{ color: colors.brandPrimary, fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
             </View>
             <View>
               <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{state.user?.name || 'Aspirant'}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
             </View>
           </Pressable>
         </LinearGradient>
 
         {/* 4 Menu Options */}
-        <View style={{ padding: 15, gap: 5 }}>
+        <View style={{ padding: 16, gap: 6 }}>
           {[
             { label: 'Offline downloads', icon: 'cloud-download-outline', route: 'LibraryDownloads' },
             { label: 'How to use the app', icon: 'help-circle-outline', route: 'AppGuide' },
@@ -153,10 +155,10 @@ function CustomDrawerContent(props: any) {
                 props.navigation.closeDrawer();
                 props.navigation.navigate('MainStack', { screen: item.route });
               }}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderRadius: 8, opacity: pressed ? 0.7 : 1 })}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.route ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
             >
-              <Ionicons name={item.icon as any} size={22} color={colors.text} />
-              <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text, marginLeft: 15 }}>{item.label}</Text>
+              <Ionicons name={item.icon as any} size={22} color={currentRoute === item.route ? colors.brandPrimary : colors.text} />
+              <Text style={{ fontSize: 15, fontWeight: currentRoute === item.route ? '800' : '600', color: currentRoute === item.route ? colors.brandPrimary : colors.text, marginLeft: 15 }}>{item.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -180,10 +182,10 @@ function CustomDrawerContent(props: any) {
         }}
         accessibilityRole="button"
         accessibilityLabel="Share Study Sakha with friends"
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', padding: 20, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 64, padding: 20, borderTopWidth: 1, borderTopColor: colors.borderSubtle, backgroundColor: colors.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
       >
-        <Ionicons name="share-social-outline" size={24} color={colors.blue} />
-        <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.blue, marginLeft: 15 }}>Share with friends</Text>
+        <Ionicons name="share-social-outline" size={22} color={colors.brandPrimary} />
+        <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.brandPrimary, marginLeft: 15 }}>Share with friends</Text>
       </Pressable>
     </View>
   );

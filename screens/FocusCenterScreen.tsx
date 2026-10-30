@@ -29,7 +29,7 @@ export default function FocusCenterScreen() {
   }, [navigation]);
 
   return (
-    <Shell active="StudyPlanner" title="Focus & Wellness" subtitle="Choose a session for your next study moment">
+    <Shell active="FocusCenter" title="Focus & Wellness" subtitle="Choose a session for your next study moment">
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
         {ACTIVITIES.map((item, index) => {
           const color = colors[item.colorKey];
