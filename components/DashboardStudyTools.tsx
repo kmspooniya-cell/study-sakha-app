@@ -24,8 +24,9 @@ import {
 import { getPlannerTasksForDate, PlannerTaskView, updatePlannerTask } from '../lib/planner';
 import Svg, { Circle } from 'react-native-svg';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { FullScreenMeditation } from './FullScreenMeditation';
 
-import rainSound from '../assets/Sounds/calming_rain copy.mp3';
+import rainSound from '../assets/Sounds/calming_rain.mp3';
 import forestSound from '../assets/Sounds/forest_crickets.mp3';
 import nightSound from '../assets/Sounds/night_time_sounds.mp3';
 import relaxingNightSound from '../assets/Sounds/relaxing_night_sounds.mp3';
@@ -852,6 +853,36 @@ export function FocusActivityTimer({
     setDeleteTask(null);
   }
 
+  if (activity === 'meditation') {
+    return (
+      <FullScreenMeditation
+        visible={visible}
+        durationMinutes={10}
+        initialSoundId="rain"
+        onComplete={(elapsed) => {
+          const minutes = Math.max(1, Math.round(elapsed / 60));
+          dispatch({ type: 'study', minutes });
+          const newSession = {
+            id: `med-${Date.now()}`,
+            minutes,
+            completedAt: new Date().toISOString(),
+            actualSeconds: elapsed,
+          };
+          AsyncStorage.getItem(MEDITATION_HISTORY_KEY)
+            .then((raw) => {
+              const history = raw ? JSON.parse(raw) : [];
+              AsyncStorage.setItem(MEDITATION_HISTORY_KEY, JSON.stringify([newSession, ...history]));
+            })
+            .catch(() => {});
+        }}
+        onClose={() => {
+          setVisible(false);
+          onClose();
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <Modal
@@ -1369,8 +1400,7 @@ export function FocusActivityTimer({
       strokeLinecap="round"
       strokeDasharray={2 * Math.PI * 91}
       strokeDashoffset={2 * Math.PI * 91 * (1 - progress)}
-      rotation={-90}
-      origin="105, 105"
+      transform="rotate(-90 105 105)"
     />
   </Svg>
 
@@ -1748,9 +1778,7 @@ export function FocusActivityTimer({
                   <Text style={{ color: colors.text, textAlign: 'center', fontWeight: '700' }}>
                     {activity === 'break'
                       ? 'Break complete — welcome back!'
-                      : activity === 'meditation'
-                        ? 'Meditation complete. Take a calm moment before you continue.'
-                        : 'Focus session complete. Great work!'}
+                      : 'Focus session complete. Great work!'}
                   </Text>
                 </View>
               ) : status === 'ended' ? (

@@ -137,9 +137,20 @@ export default function TaskPerformanceScreen() {
                   ['Pending', statistics.overall.pendingTaskCount],
                   ['Completion', statistics.overall.taskCompletionPercentage === null ? '—' : `${Math.round(statistics.overall.taskCompletionPercentage)}%`],
                 ].map(([label, value]) => (
-                  <View key={String(label)} style={{ flex: 1, minWidth: isMobile ? 130 : 150, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                  <View
+                    key={String(label)}
+                    style={{
+                      flex: 1,
+                      minWidth: isMobile ? 130 : 150,
+                      padding: 14,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: colors.borderSubtle,
+                      backgroundColor: colors.surfaceAlt,
+                    }}
+                  >
                     <Txt size={11.5} color={colors.textMuted}>{String(label)}</Txt>
-                    <Txt size={20} weight="800" display style={{ marginTop: 3 }}>{String(value)}</Txt>
+                    <Txt size={21} weight="800" display style={{ marginTop: 3 }}>{String(value)}</Txt>
                   </View>
                 ))}
               </View>

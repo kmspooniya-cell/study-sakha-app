@@ -128,7 +128,7 @@ export function Donut({
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} style={{ position: 'absolute' }}>
-        <G rotation={-90} origin={`${size / 2}, ${size / 2}`}>
+        <G transform={`rotate(-90 ${size / 2} ${size / 2})`}>
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceAlt} strokeWidth={stroke} fill="none" />
           {segments.map((s, i) => {
             const len = (s.value / total) * c;

@@ -244,13 +244,26 @@ export default function StatisticsScreen() {
               <SectionHeader title="Performance Overview" icon="analytics-outline" />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {kpis.map((kpi) => (
-                  <View key={kpi.label} style={{ flexBasis: isMobile ? '47%' : isDesktop ? '23.5%' : '31%', flexGrow: 1, minWidth: isMobile ? 130 : 145, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt, gap: 8 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: `${kpi.color}1A`, alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name={kpi.icon} size={17} color={kpi.color} />
+                  <View
+                    key={kpi.label}
+                    style={{
+                      flexBasis: isMobile ? '47%' : isDesktop ? '23.5%' : '31%',
+                      flexGrow: 1,
+                      minWidth: isMobile ? 130 : 145,
+                      padding: 14,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: colors.borderSubtle,
+                      backgroundColor: colors.surfaceAlt,
+                      gap: 8,
+                    }}
+                  >
+                    <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: `${kpi.color}18`, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name={kpi.icon} size={18} color={kpi.color} />
                     </View>
-                    <Txt size={20} weight="800" display>{kpi.value}</Txt>
-                    <Txt size={11.5} weight="700" numberOfLines={2}>{kpi.label}</Txt>
-                    <Txt size={10.5} color={colors.textFaint}>{kpi.sub}</Txt>
+                    <Txt size={21} weight="800" display>{kpi.value}</Txt>
+                    <Txt size={12} weight="700" numberOfLines={2}>{kpi.label}</Txt>
+                    <Txt size={11} color={colors.textFaint}>{kpi.sub}</Txt>
                   </View>
                 ))}
               </View>
@@ -272,7 +285,18 @@ export default function StatisticsScreen() {
                   ['Actual', formatDuration(statistics.plannedVsActual.actualMinutes), colors.teal],
                   ['Actual − Planned', signedMinutes(statistics.plannedVsActual.differenceMinutes), colors.amber],
                 ].map(([label, value, color]) => (
-                  <View key={String(label)} style={{ flex: 1, minWidth: 100, padding: 12, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                  <View
+                    key={String(label)}
+                    style={{
+                      flex: 1,
+                      minWidth: 100,
+                      padding: 14,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: colors.borderSubtle,
+                      backgroundColor: colors.surfaceAlt,
+                    }}
+                  >
                     <Txt size={11.5} color={colors.textMuted}>{label}</Txt>
                     <Txt size={20} weight="800" color={String(color)} display style={{ marginTop: 3 }}>{String(value)}</Txt>
                   </View>

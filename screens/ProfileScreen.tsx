@@ -159,20 +159,32 @@ export default function ProfileScreen() {
               flexGrow: 1,
               flexBasis: isMobile ? '30%' : 0,
               minWidth: isMobile ? 94 : 120,
-              minHeight: 82,
+              minHeight: 88,
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 7,
-              padding: 12,
-              borderRadius: radii.lg,
+              gap: 8,
+              padding: 14,
+              borderRadius: 18,
               borderWidth: 1,
-              borderColor: pressed ? colors.blue : colors.border,
+              borderColor: pressed ? colors.blue : colors.borderSubtle,
               backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+              transform: [{ scale: pressed ? 0.985 : 1 }],
             })}
             accessibilityRole="button"
           >
-            <Ionicons name={action.icon} size={21} color={colors.blue} />
-            <Txt size={12} weight="700" style={{ textAlign: 'center' }}>{action.label}</Txt>
+            <View
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                backgroundColor: colors.tint,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name={action.icon} size={20} color={colors.blue} />
+            </View>
+            <Txt size={12.5} weight="700" style={{ textAlign: 'center' }}>{action.label}</Txt>
           </Pressable>
         ))}
       </View>
@@ -194,10 +206,10 @@ export default function ProfileScreen() {
               maxWidth: 680,
               maxHeight: '88%',
               alignSelf: 'center',
-              borderRadius: radii.xl,
+              borderRadius: radii.dialog,
               backgroundColor: colors.bg,
               borderWidth: 1,
-              borderColor: colors.border,
+              borderColor: colors.borderSubtle,
               overflow: 'hidden',
             }}
           >
@@ -207,15 +219,19 @@ export default function ProfileScreen() {
               </Txt>
               <Pressable
                 onPress={() => setOpenModal(null)}
+                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="Back to Profile"
                 style={({ pressed }) => ({
-                  width: 34,
-                  height: 34,
-                  borderRadius: radii.sm,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.borderSubtle,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
                 })}
               >
                 <Ionicons name="arrow-back" size={18} color={colors.text} />
@@ -234,21 +250,32 @@ export default function ProfileScreen() {
                         style={{
                           width: '47%',
                           flexGrow: 1,
-                          padding: 13,
-                          borderRadius: radii.md,
+                          padding: 14,
+                          borderRadius: 16,
                           borderWidth: 1,
-                          borderColor: badge.earned ? colors.teal : colors.border,
+                          borderColor: badge.earned ? colors.teal : colors.borderSubtle,
                           backgroundColor: badge.earned ? colors.tealTint : colors.surface,
-                          gap: 7,
+                          gap: 8,
                           opacity: badge.earned ? 1 : 0.65,
                         }}
                       >
-                        <Ionicons
-                          name={badge.icon as keyof typeof Ionicons.glyphMap}
-                          size={20}
-                          color={badge.earned ? colors.teal : colors.textFaint}
-                        />
-                        <Txt size={13} weight="800">{badge.name}</Txt>
+                        <View
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 11,
+                            backgroundColor: badge.earned ? colors.teal : colors.surfaceAlt,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Ionicons
+                            name={badge.icon as keyof typeof Ionicons.glyphMap}
+                            size={19}
+                            color={badge.earned ? '#FFFFFF' : colors.textFaint}
+                          />
+                        </View>
+                        <Txt size={13.5} weight="800">{badge.name}</Txt>
                         <Txt size={11.5} color={colors.textMuted}>{badge.desc}</Txt>
                       </View>
                     ))}

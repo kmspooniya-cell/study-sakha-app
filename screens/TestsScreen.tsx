@@ -84,9 +84,9 @@ export default function TestsScreen() {
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
           {test.sections.map((section) => (
-            <View key={section.name} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.pill, backgroundColor: colors.surfaceAlt }}>
+            <View key={section.name} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt }}>
               <Txt size={11.5} weight="700" color={colors.textMuted}>{section.name}</Txt>
-              <View style={{ paddingHorizontal: 6, borderRadius: 7, backgroundColor: colors.surface }}>
+              <View style={{ paddingHorizontal: 6, borderRadius: 6, backgroundColor: colors.surface }}>
                 <Txt size={11} weight="800" color={colors.blue}>{section.count}</Txt>
               </View>
             </View>
@@ -131,16 +131,34 @@ export default function TestsScreen() {
               style={({ pressed }) => ({
                 width: '47.5%',
                 flexGrow: 1,
-                borderRadius: radii.md,
+                borderRadius: 18,
                 borderWidth: 1,
-                borderColor: isActive ? colors.blue : colors.border,
-                backgroundColor: isActive ? colors.tint : pressed ? colors.surfaceAlt : colors.surface,
-                padding: 13,
-                gap: 8,
+                borderColor: isActive ? colors.blue : colors.borderSubtle,
+                backgroundColor: isActive
+                  ? colors.bg === '#0C1220'
+                    ? 'rgba(0,122,255,0.18)'
+                    : '#EBF5FF'
+                  : pressed
+                  ? colors.surfaceAlt
+                  : colors.surface,
+                padding: 14,
+                gap: 10,
+                transform: [{ scale: pressed ? 0.985 : 1 }],
               })}
             >
-              <Ionicons name={category.icon} size={19} color={isActive ? colors.blue : colors.textMuted} />
-              <Txt size={13} weight="700" color={isActive ? colors.blue : colors.text}>
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isActive ? colors.blue : colors.tint,
+                }}
+              >
+                <Ionicons name={category.icon} size={20} color={isActive ? '#FFFFFF' : colors.blue} />
+              </View>
+              <Txt size={13.5} weight="700" color={isActive ? colors.blue : colors.text}>
                 {category.label}
               </Txt>
             </Pressable>

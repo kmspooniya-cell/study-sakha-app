@@ -118,7 +118,7 @@ export default function CurrentAffairsScreen() {
                 </Txt>
 
                 {expanded ? (
-                  <View style={{ gap: 10, marginTop: 4, padding: 13, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
+                  <View style={{ gap: 10, marginTop: 4, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderSubtle }}>
                     {item.points.map((p, i) => (
                       <View key={i} style={{ flexDirection: 'row', gap: 9 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.teal, marginTop: 7 }} />

@@ -97,16 +97,19 @@ export default function TestResultScreen() {
             <Pressable
               key={t}
               onPress={() => setTab(t)}
-              style={{
+              accessibilityRole="button"
+              accessibilityState={{ selected: tab === t }}
+              style={({ pressed }) => ({
                 paddingHorizontal: 16,
-                height: 38,
-                borderRadius: radii.pill,
+                height: 40,
+                borderRadius: radii.control,
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: tab === t ? colors.blue : colors.surface,
                 borderWidth: 1,
-                borderColor: tab === t ? colors.blue : colors.border,
-              }}
+                borderColor: tab === t ? colors.blue : colors.borderSubtle,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              })}
             >
               <Txt size={13} weight="800" color={tab === t ? '#fff' : colors.textMuted}>
                 {t === 'summary' ? 'Analysis' : `Review (${test.questions.length})`}

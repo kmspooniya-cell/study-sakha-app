@@ -114,7 +114,7 @@ export default function DashboardScreen() {
               <View style={styles.progressCircleContainer}>
                 <Svg width={48} height={48} viewBox="0 0 36 36">
                   <Circle cx="18" cy="18" r={radius} stroke="rgba(255,255,255,0.15)" strokeWidth="3" fill="none" />
-                  <Circle cx="18" cy="18" r={radius} stroke="#007AFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} rotation="-90" origin="18, 18" />
+                  <Circle cx="18" cy="18" r={radius} stroke="#007AFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} transform="rotate(-90 18 18)" />
                 </Svg>
                 <View style={styles.progressCircleTextWrap}><Text style={styles.progressCircleText}>{Math.round(target * 100)}%</Text></View>
               </View>

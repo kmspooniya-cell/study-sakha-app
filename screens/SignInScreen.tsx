@@ -94,15 +94,16 @@ export default function SignInScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: 12,
-              padding: 12,
-              borderRadius: radii.md,
+              padding: 13,
+              borderRadius: 16,
               borderWidth: 1,
-              borderColor: colors.border,
+              borderColor: colors.borderSubtle,
               backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+              transform: [{ scale: pressed ? 0.985 : 1 }],
             })}
           >
-            <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={a.role === 'admin' ? 'shield-checkmark-outline' : 'school-outline'} size={18} color={colors.blue} />
+            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name={a.role === 'admin' ? 'shield-checkmark-outline' : 'school-outline'} size={19} color={colors.blue} />
             </View>
             <View style={{ flex: 1 }}>
               <Txt size={13} weight="700">

@@ -1,0 +1,11 @@
+{
+  "name": "Study Sakha",
+  "description": "Premium exam preparation platform for competitive exams like UPSC, SSC, Banking, NEET, and JEE with interactive test series, PYQ banks, study planner, and AI mentor.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ],
+  "permissions": []
+}

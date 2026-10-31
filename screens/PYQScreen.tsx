@@ -67,15 +67,28 @@ export default function PYQScreen() {
             {p.paper}
           </Txt>
           <Pressable
-            hitSlop={10}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={marked ? 'Remove bookmark' : 'Bookmark question'}
             onPress={() => dispatch({ type: 'toggleBookmark', id: p.id })}
-            style={{ marginLeft: 'auto', width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: marked ? colors.tint : colors.surfaceAlt }}
+            style={({ pressed }) => ({
+              marginLeft: 'auto',
+              width: 36,
+              height: 36,
+              borderRadius: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: marked ? colors.tint : colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: marked ? colors.blue : colors.borderSubtle,
+              transform: [{ scale: pressed ? 0.96 : 1 }],
+            })}
           >
-            <Ionicons name={marked ? 'bookmark' : 'bookmark-outline'} size={16} color={marked ? colors.blue : colors.textFaint} />
+            <Ionicons name={marked ? 'bookmark' : 'bookmark-outline'} size={17} color={marked ? colors.blue : colors.textFaint} />
           </Pressable>
         </View>
 
-        <Txt size={14.5} weight="700" style={{ marginBottom: 12 }}>
+        <Txt size={15} weight="700" style={{ marginBottom: 12 }}>
           {p.question}
         </Txt>
 
@@ -90,7 +103,7 @@ export default function PYQScreen() {
               : isPicked
               ? `${colors.danger}15`
               : colors.surface;
-            const bc = !open ? colors.border : isAnswer ? colors.success : isPicked ? colors.danger : colors.border;
+            const bc = !open ? colors.borderSubtle : isAnswer ? colors.success : isPicked ? colors.danger : colors.borderSubtle;
             return (
               <Pressable
                 key={i}
@@ -98,41 +111,43 @@ export default function PYQScreen() {
                 style={({ pressed }) => ({
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 10,
-                  padding: 12,
-                  borderRadius: radii.md,
-                  borderWidth: 1.3,
+                  gap: 12,
+                  padding: 13,
+                  borderRadius: radii.control,
+                  borderWidth: 1.2,
                   borderColor: bc,
                   backgroundColor: pressed && !open ? colors.surfaceAlt : bg,
+                  transform: [{ scale: pressed && !open ? 0.99 : 1 }],
                 })}
               >
                 <View
                   style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    borderWidth: 1.4,
-                    borderColor: open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.border,
+                    width: 26,
+                    height: 26,
+                    borderRadius: 13,
+                    borderWidth: 1.5,
+                    borderColor: open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.borderSubtle,
+                    backgroundColor: open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.surfaceAlt,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Txt size={11.5} weight="800" color={open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.textMuted}>
+                  <Txt size={11.5} weight="800" color={open && (isAnswer || isPicked) ? '#FFFFFF' : colors.textMuted}>
                     {String.fromCharCode(65 + i)}
                   </Txt>
                 </View>
                 <Txt size={13.5} style={{ flex: 1 }}>
                   {opt}
                 </Txt>
-                {open && isAnswer ? <Ionicons name="checkmark-circle" size={18} color={colors.success} /> : null}
-                {open && isPicked && !isAnswer ? <Ionicons name="close-circle" size={18} color={colors.danger} /> : null}
+                {open && isAnswer ? <Ionicons name="checkmark-circle" size={19} color={colors.success} /> : null}
+                {open && isPicked && !isAnswer ? <Ionicons name="close-circle" size={19} color={colors.danger} /> : null}
               </Pressable>
             );
           })}
         </View>
 
         {open ? (
-          <View style={{ marginTop: 12, padding: 13, borderRadius: radii.md, backgroundColor: colors.surfaceAlt, gap: 6 }}>
+          <View style={{ marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceAlt, gap: 7, borderWidth: 1, borderColor: colors.borderSubtle }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
               <Ionicons name="bulb-outline" size={16} color={colors.teal} />
               <Txt size={12.5} weight="800" color={colors.teal}>

@@ -83,13 +83,13 @@ export default function SettingsScreen() {
                   key={option.value}
                   onPress={() => set({ textScale: option.value })}
                   style={{
-                    width: 40,
-                    height: 36,
-                    borderRadius: radii.sm,
+                    width: 44,
+                    height: 40,
+                    borderRadius: radii.control,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderWidth: 1,
-                    borderColor: state.settings.textScale === option.value ? colors.blue : colors.border,
+                    borderColor: state.settings.textScale === option.value ? colors.blue : colors.borderSubtle,
                     backgroundColor: state.settings.textScale === option.value ? colors.tint : colors.surface,
                   }}
                 >
@@ -256,21 +256,36 @@ export default function SettingsScreen() {
             style={({ pressed }) => ({
               width: '47.5%',
               flexGrow: 1,
-              minHeight: 116,
-              borderRadius: radii.md,
+              minHeight: 118,
+              borderRadius: 18,
               borderWidth: 1,
-              borderColor: colors.border,
+              borderColor: colors.borderSubtle,
               backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
-              padding: 13,
-              gap: 8,
+              padding: 14,
+              gap: 10,
+              justifyContent: 'space-between',
+              transform: [{ scale: pressed ? 0.985 : 1 }],
             })}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Ionicons name={section.icon} size={20} color={colors.blue} />
-              <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  backgroundColor: colors.tint,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name={section.icon} size={20} color={colors.blue} />
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
             </View>
-            <Txt size={13} weight="700">{section.title}</Txt>
-            <Txt size={11.5} color={colors.textMuted}>{section.summary}</Txt>
+            <View style={{ gap: 2 }}>
+              <Txt size={13.5} weight="700">{section.title}</Txt>
+              <Txt size={11.5} color={colors.textMuted} numberOfLines={2}>{section.summary}</Txt>
+            </View>
           </Pressable>
         ))}
       </View>
@@ -288,10 +303,10 @@ export default function SettingsScreen() {
               maxWidth: 680,
               maxHeight: '88%',
               alignSelf: 'center',
-              borderRadius: radii.xl,
+              borderRadius: radii.dialog,
               backgroundColor: colors.bg,
               borderWidth: 1,
-              borderColor: colors.border,
+              borderColor: colors.borderSubtle,
               overflow: 'hidden',
             }}
           >
@@ -301,15 +316,19 @@ export default function SettingsScreen() {
               </Txt>
               <Pressable
                 onPress={() => setOpenSection(null)}
+                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel="Back to Settings"
                 style={({ pressed }) => ({
-                  width: 34,
-                  height: 34,
-                  borderRadius: radii.sm,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.borderSubtle,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
                 })}
               >
                 <Ionicons name="arrow-back" size={18} color={colors.text} />

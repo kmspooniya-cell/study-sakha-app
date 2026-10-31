@@ -47,7 +47,7 @@ export function Card({
   );
 }
 
-/** Shared Stitch-inspired surface for Wave 1 content. */
+/** Shared Stitch-inspired surface for content sections. */
 export function StitchCard({
   children,
   style,
@@ -112,8 +112,8 @@ export function Txt({
           fontSize: f(resolvedSize),
           fontWeight: weight ?? role?.fontWeight ?? '500',
           color: color ?? colors.textPrimary,
-          lineHeight: f(role?.lineHeight ?? resolvedSize * 1.45),
-          letterSpacing: role?.letterSpacing,
+          lineHeight: f(role?.lineHeight ?? Math.round(resolvedSize * 1.4)),
+          letterSpacing: role?.letterSpacing ?? -0.15,
         },
         style,
       ]}
@@ -149,23 +149,26 @@ export function Button({
   accessibilityHint?: string;
 }) {
   const { colors, f } = useTheme();
-  const h = size === 'sm' ? 36 : size === 'lg' ? 52 : 44;
-  const fs = size === 'sm' ? 13 : size === 'lg' ? 16 : 14.5;
+  const h = size === 'sm' ? 38 : size === 'lg' ? 50 : 44;
+  const fs = size === 'sm' ? 13 : size === 'lg' ? 15.5 : 14;
   const base: ViewStyle = {
     height: h,
     borderRadius: radii.control,
-    paddingHorizontal: size === 'sm' ? 12 : 18,
+    paddingHorizontal: size === 'sm' ? 14 : size === 'lg' ? 22 : 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     alignSelf: full ? 'stretch' : 'flex-start',
-    opacity: disabled ? 0.5 : 1,
+    opacity: disabled ? 0.45 : 1,
   };
+
   const fg =
     variant === 'primary' || variant === 'danger'
       ? '#FFFFFF'
       : variant === 'soft'
+      ? colors.blue
+      : variant === 'ghost'
       ? colors.blue
       : colors.textPrimary;
 
@@ -174,24 +177,47 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={fg} size="small" />
       ) : icon ? (
-        <Ionicons name={icon} size={f(fs) + 3} color={fg} />
+        <Ionicons name={icon} size={f(fs) + 2} color={fg} />
       ) : null}
-      <Text style={{ fontFamily: fonts.body, fontWeight: '700', fontSize: f(fs), color: fg }}>{label}</Text>
+      <Text style={{ fontFamily: fonts.body, fontWeight: '700', fontSize: f(fs), color: fg, letterSpacing: -0.2 }}>
+        {label}
+      </Text>
     </>
   );
 
   if (variant === 'primary') {
     return (
-      <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} accessibilityHint={accessibilityHint} accessibilityState={{ disabled: !!disabled, busy: !!loading }} onPress={disabled || loading ? undefined : onPress} style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1, alignSelf: full ? 'stretch' : 'flex-start' }, style]}>
-        <LinearGradient colors={[colors.blue, colors.navy]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[base, shadow(colors, 1)]}>
-          {inner}
-        </LinearGradient>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{ disabled: !!disabled, busy: !!loading }}
+        disabled={disabled || loading}
+        onPress={onPress}
+        style={({ pressed }) => [
+          base,
+          {
+            backgroundColor: colors.blue,
+            opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+            transform: [{ scale: pressed ? 0.985 : 1 }],
+            ...shadow(colors, 1),
+          },
+          style,
+        ]}
+      >
+        {inner}
       </Pressable>
     );
   }
 
   const bg =
-    variant === 'soft' ? colors.tint : variant === 'danger' ? colors.danger : variant === 'outline' ? 'transparent' : 'transparent';
+    variant === 'soft'
+      ? colors.tint
+      : variant === 'danger'
+      ? colors.danger
+      : variant === 'outline'
+      ? colors.surfaceRaised
+      : 'transparent';
 
   return (
     <Pressable
@@ -199,14 +225,17 @@ export function Button({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!disabled, busy: !!loading }}
-      onPress={disabled || loading ? undefined : onPress}
+      disabled={disabled || loading}
+      onPress={onPress}
       style={({ pressed }) => [
         base,
         {
           backgroundColor: bg,
           borderWidth: variant === 'outline' ? 1 : 0,
-          borderColor: colors.border,
-          opacity: pressed ? 0.75 : disabled ? 0.5 : 1,
+          borderColor: colors.borderSubtle,
+          opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+          ...(variant === 'outline' || variant === 'danger' ? shadow(colors, 1) : {}),
         },
         style,
       ]}
@@ -232,32 +261,36 @@ export function Chip({
   disabled?: boolean;
 }) {
   const { colors, f } = useTheme();
-  const accent = tone ?? colors.blue;
+  const activeColor = tone ?? colors.dark;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled, selected: !!active }}
-      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingHorizontal: 12,
-        height: 34,
-        borderRadius: radii.pill,
-        backgroundColor: active ? accent : colors.surfaceRaised,
+        paddingHorizontal: 16,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: active ? activeColor : colors.surfaceRaised,
         borderWidth: 1,
-        borderColor: active ? accent : colors.borderSubtle,
-        opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+        borderColor: active ? activeColor : colors.borderSubtle,
+        opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
+        transform: [{ scale: pressed ? 0.98 : 1 }],
+        ...(active ? shadow(colors, 1) : {}),
       })}
     >
-      {icon ? <Ionicons name={icon} size={f(13)} color={active ? '#fff' : colors.textMuted} /> : null}
+      {icon ? <Ionicons name={icon} size={f(13)} color={active ? colors.surface : colors.textMuted} /> : null}
       <Text
         style={{
           fontFamily: fonts.body,
-          fontSize: f(12.5),
-          fontWeight: '600',
-          color: active ? '#fff' : colors.textMuted,
+          fontSize: f(13),
+          fontWeight: active ? '700' : '600',
+          color: active ? colors.surface : colors.textPrimary,
+          letterSpacing: -0.1,
         }}
       >
         {label}
@@ -270,8 +303,10 @@ export function Tag({ label, color }: { label: string; color?: string }) {
   const { colors, f } = useTheme();
   const c = color ?? colors.blue;
   return (
-    <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.sm, backgroundColor: `${c}1A` }}>
-      <Text style={{ fontFamily: fonts.body, fontSize: f(11), fontWeight: '700', color: c }}>{label}</Text>
+    <View style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, backgroundColor: `${c}18` }}>
+      <Text style={{ fontFamily: fonts.body, fontSize: f(11), fontWeight: '700', color: c, letterSpacing: 0.1 }}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -289,17 +324,31 @@ export function SectionHeader({
 }) {
   const { colors, f } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        {icon ? <Ionicons name={icon} size={f(17)} color={colors.brandPrimary} /> : null}
-        <Txt variant="sectionTitle" display>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingHorizontal: 2 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        {icon ? <Ionicons name={icon} size={f(17)} color={colors.blue} /> : null}
+        <Txt size={16} weight="700" display style={{ letterSpacing: -0.2 }}>
           {title}
         </Txt>
       </View>
-      {action ? (
-        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => ({ minHeight: 36, opacity: pressed ? 0.6 : 1, flexDirection: 'row', alignItems: 'center', gap: 3 })}>
-          <Txt variant="label" color={colors.brandPrimary}>{action}</Txt>
-          <Ionicons name="chevron-forward" size={f(14)} color={colors.brandPrimary} />
+      {action && onAction ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onAction}
+          style={({ pressed }) => ({
+            minHeight: 36,
+            opacity: pressed ? 0.6 : 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 3,
+            paddingVertical: 4,
+            paddingHorizontal: 6,
+          })}
+        >
+          <Text style={{ fontFamily: fonts.body, fontSize: f(13), fontWeight: '600', color: colors.blue }}>
+            {action}
+          </Text>
+          <Ionicons name="chevron-forward" size={f(14)} color={colors.blue} />
         </Pressable>
       ) : null}
     </View>
@@ -323,27 +372,29 @@ export function EmptyState({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={{ alignItems: 'center', paddingVertical: compact ? 24 : 48, paddingHorizontal: 24 }}>
+    <View style={{ alignItems: 'center', paddingVertical: compact ? 24 : 40, paddingHorizontal: 20 }}>
       <View
         style={{
-          width: 72,
-          height: 72,
-          borderRadius: 36,
-          backgroundColor: colors.selectedSurface,
+          width: 64,
+          height: 64,
+          borderRadius: 20,
+          backgroundColor: colors.tint,
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: 16,
+          marginBottom: 14,
         }}
       >
-        <Ionicons name={icon} size={32} color={colors.info} />
+        <Ionicons name={icon} size={28} color={colors.blue} />
       </View>
-      <Txt size={16} weight="800" display style={{ marginBottom: 6, textAlign: 'center' }}>
+      <Txt size={16} weight="700" display style={{ marginBottom: 6, textAlign: 'center', letterSpacing: -0.2 }}>
         {title}
       </Txt>
-      <Txt variant="supporting" color={colors.textSecondary} style={{ textAlign: 'center', maxWidth: 340 }}>
+      <Txt size={13} color={colors.textSecondary} style={{ textAlign: 'center', maxWidth: 320, lineHeight: 18 }}>
         {body}
       </Txt>
-      {action ? <Button label={action} onPress={onAction} variant="soft" style={{ marginTop: 18 }} /> : null}
+      {action && onAction ? (
+        <Button label={action} onPress={onAction} variant="soft" size="sm" style={{ marginTop: 16 }} />
+      ) : null}
     </View>
   );
 }
@@ -401,12 +452,12 @@ export function ProgressRing({
   );
 }
 
-export function ProgressBar({ value, color, height = 8, accessibilityLabel }: { value: number; color?: string; height?: number; accessibilityLabel?: string }) {
+export function ProgressBar({ value, color, height = 6, accessibilityLabel }: { value: number; color?: string; height?: number; accessibilityLabel?: string }) {
   const { colors } = useTheme();
   const clamped = Math.max(0, Math.min(100, value));
   return (
-    <View accessible accessibilityRole="progressbar" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: 0, max: 100, now: clamped }} style={{ height, borderRadius: height, backgroundColor: colors.surfaceSubtle, overflow: 'hidden' }}>
-      <View style={{ width: `${clamped === 0 ? 0 : Math.max(2, clamped)}%`, height, borderRadius: height, backgroundColor: color ?? colors.brandPrimary }} />
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: 0, max: 100, now: clamped }} style={{ height, borderRadius: height / 2, backgroundColor: colors.surfaceSubtle, overflow: 'hidden' }}>
+      <View style={{ width: `${clamped === 0 ? 0 : Math.max(2, clamped)}%`, height, borderRadius: height / 2, backgroundColor: color ?? colors.blue }} />
     </View>
   );
 }
@@ -454,7 +505,7 @@ export function Field({
   return (
     <View style={style}>
       {label ? (
-        <Txt size={12.5} weight="700" color={colors.textMuted} style={{ marginBottom: 7 }}>
+        <Txt size={13} weight="600" color={colors.textSecondary} style={{ marginBottom: 6 }}>
           {label}
         </Txt>
       ) : null}
@@ -463,13 +514,13 @@ export function Field({
           flexDirection: 'row',
           alignItems: multiline ? 'flex-start' : 'center',
           gap: 10,
-          backgroundColor: colors.surfaceRaised,
-          borderWidth: 1.4,
-          borderColor: error ? colors.danger : focus ? colors.focus : colors.borderSubtle,
-          borderRadius: radii.md,
+          backgroundColor: colors.surfaceAlt,
+          borderWidth: 1,
+          borderColor: error ? colors.danger : focus ? colors.blue : colors.borderSubtle,
+          borderRadius: radii.control,
           paddingHorizontal: 14,
           paddingVertical: multiline ? 12 : 0,
-          minHeight: minHeight ?? (multiline ? 140 : 48),
+          minHeight: minHeight ?? (multiline ? 120 : 46),
         }}
       >
         {icon ? <Ionicons name={icon} size={f(17)} color={focus ? colors.blue : colors.textFaint} style={{ marginTop: multiline ? 2 : 0 }} /> : null}
@@ -485,7 +536,7 @@ export function Field({
           multiline={multiline}
           editable={!disabled}
           accessibilityLabel={accessibilityLabel ?? label}
-          selectionColor={colors.focus}
+          selectionColor={colors.blue}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
           onFocus={() => setFocus(true)}
@@ -493,11 +544,11 @@ export function Field({
           style={{
             flex: 1,
             fontFamily: fonts.body,
-            fontSize: f(14.5),
+            fontSize: f(14),
             color: colors.text,
-            paddingVertical: multiline ? 0 : 12,
+            paddingVertical: multiline ? 0 : 10,
             textAlignVertical: multiline ? 'top' : 'center',
-            minHeight: multiline ? 110 : undefined,
+            minHeight: multiline ? 90 : undefined,
             outlineStyle: 'none',
           } as any}
         />
@@ -507,7 +558,7 @@ export function Field({
           </Pressable>
         ) : null}
       </View>
-      {error || helper ? <Txt variant="caption" color={error ? colors.danger : colors.textSecondary} style={{ marginTop: 6 }}>{error ?? helper}</Txt> : null}
+      {error || helper ? <Txt variant="caption" color={error ? colors.danger : colors.textSecondary} style={{ marginTop: 5 }}>{error ?? helper}</Txt> : null}
     </View>
   );
 }
@@ -522,12 +573,12 @@ export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
     .toUpperCase();
   return (
     <LinearGradient
-      colors={[colors.teal, colors.blue]}
+      colors={[colors.orange, colors.red]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center' }}
+      style={{ width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', ...shadow(colors, 1) }}
     >
-      <Text style={{ fontFamily: fonts.display, fontSize: f(size * 0.36), fontWeight: '800', color: '#fff' }}>{initials}</Text>
+      <Text style={{ fontFamily: fonts.body, fontSize: f(size * 0.38), fontWeight: '700', color: '#fff' }}>{initials}</Text>
     </LinearGradient>
   );
 }
@@ -558,32 +609,34 @@ export function IconButton({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
-        width: 40,
-        height: 40,
-        borderRadius: 12,
+        width: 42,
+        height: 42,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: pressed ? colors.surfaceInteractive : 'transparent',
-        opacity: disabled ? 0.5 : 1,
+        opacity: disabled ? 0.45 : 1,
       })}
     >
-      <Ionicons name={icon} size={size} color={color ?? colors.textMuted} />
+      <Ionicons name={icon} size={size} color={color ?? colors.textSecondary} />
       {badge && badge > 0 ? (
         <View
           style={{
             position: 'absolute',
-            top: 6,
-            right: 6,
+            top: 5,
+            right: 5,
             minWidth: 16,
             height: 16,
-            paddingHorizontal: 3,
+            paddingHorizontal: 4,
             borderRadius: 8,
             backgroundColor: colors.danger,
             alignItems: 'center',
             justifyContent: 'center',
+            borderWidth: 1.5,
+            borderColor: colors.surface,
           }}
         >
-          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', fontFamily: fonts.body }}>{badge > 9 ? '9+' : badge}</Text>
+          <Text style={{ color: '#fff', fontSize: 9.5, fontWeight: '700', fontFamily: fonts.body }}>{badge > 9 ? '9+' : badge}</Text>
         </View>
       ) : null}
     </Pressable>
@@ -635,7 +688,8 @@ export function PressableCard({
           borderRadius: radii.card,
           borderWidth: 1,
           borderColor: colors.borderSubtle,
-          opacity: disabled ? 0.5 : pressed ? 0.94 : 1,
+          opacity: disabled ? 0.45 : pressed ? 0.92 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
           ...shadow(colors, level),
         },
         style,
@@ -656,14 +710,27 @@ export function StatCard({ label, value, description, icon, color, onPress, styl
   style?: StyleProp<ViewStyle>;
 }) {
   const { colors, f } = useTheme();
+  const accent = color ?? colors.blue;
   const content = (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <Txt variant="label" color={colors.textSecondary}>{label}</Txt>
-        {icon ? <Ionicons name={icon} size={f(18)} color={color ?? colors.brandPrimary} /> : null}
+        <Text style={{ fontFamily: fonts.body, fontSize: f(12), fontWeight: '600', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          {label}
+        </Text>
+        {icon ? (
+          <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: `${accent}18` }}>
+            <Ionicons name={icon} size={f(16)} color={accent} />
+          </View>
+        ) : null}
       </View>
-      <Txt variant="kpi" display color={color ?? colors.textPrimary} style={{ marginTop: 8 }}>{value}</Txt>
-      {description ? <Txt variant="caption" color={colors.textSecondary} style={{ marginTop: 4 }}>{description}</Txt> : null}
+      <Text style={{ fontFamily: fonts.display, fontSize: f(24), lineHeight: f(29), fontWeight: '800', color: colors.textPrimary, marginTop: 8, letterSpacing: -0.4 }}>
+        {value}
+      </Text>
+      {description ? (
+        <Text style={{ fontFamily: fonts.body, fontSize: f(12), color: colors.textSecondary, marginTop: 4 }}>
+          {description}
+        </Text>
+      ) : null}
     </>
   );
   return onPress ? <PressableCard onPress={onPress} style={style}>{content}</PressableCard> : <Card style={style}>{content}</Card>;
@@ -681,16 +748,20 @@ export function ListRow({ title, subtitle, leading, trailing, onPress, disabled,
 }) {
   const { colors } = useTheme();
   const content = (
-    <View style={[{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs, borderBottomWidth: divider ? 1 : 0, borderBottomColor: colors.borderSubtle }, style]}>
+    <View style={[{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: divider ? 1 : 0, borderBottomColor: colors.borderSubtle }, style]}>
       {leading}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Txt numberOfLines={1} variant="cardTitle">{title}</Txt>
-        {subtitle ? <Txt numberOfLines={2} variant="supporting" color={colors.textSecondary}>{subtitle}</Txt> : null}
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Txt numberOfLines={1} size={14} weight="700" style={{ letterSpacing: -0.15 }}>{title}</Txt>
+        {subtitle ? <Txt numberOfLines={2} size={12} color={colors.textSecondary}>{subtitle}</Txt> : null}
       </View>
-      {trailing}
+      {trailing ?? <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />}
     </View>
   );
-  return onPress ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? 0.5 : pressed ? 0.72 : 1 })}>{content}</Pressable> : content;
+  return onPress ? (
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? 0.45 : pressed ? 0.75 : 1 })}>
+      {content}
+    </Pressable>
+  ) : content;
 }
 
 export function FilterBar({ options, value, onChange, scrollable = false, style }: {
@@ -701,7 +772,7 @@ export function FilterBar({ options, value, onChange, scrollable = false, style 
   style?: StyleProp<ViewStyle>;
 }) {
   const content = options.map((option) => <Chip key={option.value} label={option.label} active={option.value === value} disabled={option.disabled} onPress={() => onChange(option.value)} />);
-  return scrollable ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[{ gap: spacing.xs }, style]}>{content}</ScrollView> : <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }, style]}>{content}</View>;
+  return scrollable ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[{ gap: 8, paddingVertical: 4 }, style]}>{content}</ScrollView> : <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, style]}>{content}</View>;
 }
 
 export function ModalSheet({ visible, onClose, title, children, actions, style }: {
@@ -713,19 +784,22 @@ export function ModalSheet({ visible, onClose, title, children, actions, style }
   style?: StyleProp<ViewStyle>;
 }) {
   const { colors } = useTheme();
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay }}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ flex: 1 }} />
-      <View style={[{ maxHeight: '88%', backgroundColor: colors.surfaceRaised, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.card, ...shadow(colors, 3) }, style]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
-          {title ? <Txt variant="sectionTitle" display>{title}</Txt> : <View />}
-          <IconButton icon="close" onPress={onClose} accessibilityLabel="Close" />
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ flex: 1 }} />
+        <View style={[{ maxHeight: '88%', backgroundColor: colors.surfaceRaised, borderTopLeftRadius: radii.dialog, borderTopRightRadius: radii.dialog, padding: spacing.card, ...shadow(colors, 3) }, style]}>
+          <View style={{ width: 38, height: 4.5, borderRadius: 2.5, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 14 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            {title ? <Txt size={17} weight="700" display>{title}</Txt> : <View />}
+            <IconButton icon="close" onPress={onClose} accessibilityLabel="Close" />
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>{children}</ScrollView>
+          {actions ? <View style={{ marginTop: 16 }}>{actions}</View> : null}
         </View>
-        <ScrollView showsVerticalScrollIndicator={false}>{children}</ScrollView>
-        {actions ? <View style={{ marginTop: spacing.md }}>{actions}</View> : null}
       </View>
-    </View>
-  </Modal>;
+    </Modal>
+  );
 }
 
 export function ConfirmDialog({ visible, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger, onConfirm, onCancel }: {

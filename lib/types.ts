@@ -95,6 +95,16 @@ export type UserNote = {
   aiSummary?: string;
 };
 
+export type SourceRef = {
+  id: string;
+  title: string;
+  type: 'Book' | 'Note' | 'PYQ' | 'Test';
+  section?: string;
+  pages?: number;
+  route: string;
+  params?: any;
+};
+
 export type ChatMsg = {
   id: string;
   role: 'user' | 'sakha';
@@ -102,7 +112,12 @@ export type ChatMsg = {
   at: number;
   chips?: string[];
   action?: { label: string; route: string; params?: any };
+  sources?: SourceRef[];
   intent?: string;
+  status?: 'sending' | 'sent' | 'error';
+  error?: string;
+  modelUsed?: string;
+  retryText?: string;
 };
 
 export type CurrentAffair = {

@@ -553,13 +553,13 @@ export function MoreOptionsGrid({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={{ gap: 14 }}>
+    <View style={{ gap: 16 }}>
       {NAV_GROUPS.map((g) => {
         const items = g.items.filter((i) => !i.adminOnly || isAdmin);
         if (!items.length) return null;
         return (
-          <View key={g.title} style={{ gap: 8 }}>
-            <Txt size={10.5} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.2 }}>
+          <View key={g.title} style={{ gap: 10 }}>
+            <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.2, paddingHorizontal: 4 }}>
               {g.title.toUpperCase()}
             </Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -569,39 +569,56 @@ export function MoreOptionsGrid({
                   <Pressable
                     key={item.key}
                     onPress={() => onGo(item.key)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
                     style={({ pressed }) => ({
                       width: '47.5%',
                       flexGrow: 1,
-                      borderRadius: radii.md,
+                      minHeight: 88,
+                      borderRadius: 18,
                       borderWidth: 1,
-                      borderColor: on ? colors.blue : colors.border,
-                      backgroundColor: on ? colors.tint : pressed ? colors.surfaceAlt : colors.surface,
-                      padding: 13,
-                      gap: 8,
+                      borderColor: on ? colors.blue : colors.borderSubtle,
+                      backgroundColor: on ? (colors.bg === '#0C1220' ? 'rgba(0,122,255,0.18)' : '#EBF5FF') : pressed ? colors.surfaceAlt : colors.surface,
+                      padding: 14,
+                      justifyContent: 'space-between',
+                      transform: [{ scale: pressed ? 0.985 : 1 }],
+                      opacity: pressed ? 0.9 : 1,
                     })}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name={item.icon} size={19} color={on ? colors.blue : colors.textMuted} />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 12,
+                          backgroundColor: on ? colors.blue : colors.tint,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Ionicons name={item.icon} size={19} color={on ? '#FFFFFF' : colors.blue} />
+                      </View>
                       {item.key === 'Notifications' && unread > 0 ? (
                         <View
                           style={{
-                            marginLeft: 'auto',
-                            minWidth: 18,
-                            height: 18,
-                            borderRadius: 9,
+                            minWidth: 20,
+                            height: 20,
+                            borderRadius: 10,
                             backgroundColor: colors.danger,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            paddingHorizontal: 4,
+                            paddingHorizontal: 5,
                           }}
                         >
                           <Txt size={10.5} weight="800" color="#fff">
                             {unread}
                           </Txt>
                         </View>
-                      ) : null}
+                      ) : (
+                        <Ionicons name="chevron-forward" size={15} color={colors.textFaint} />
+                      )}
                     </View>
-                    <Txt size={13} weight="700" color={on ? colors.blue : colors.text}>
+                    <Txt size={13.5} weight="700" color={on ? colors.blue : colors.text} numberOfLines={1}>
                       {item.label}
                     </Txt>
                   </Pressable>
@@ -641,11 +658,14 @@ export function DetailHeader({
           borderBottomColor: colors.border,
           flexDirection: 'row',
           alignItems: 'center',
-          gap: 10,
+          gap: 12,
         }}
       >
         <Pressable
           onPress={onBack}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           style={({ pressed }) => ({
             width: 38,
             height: 38,
@@ -654,7 +674,8 @@ export function DetailHeader({
             justifyContent: 'center',
             backgroundColor: pressed ? colors.surfaceAlt : colors.bg,
             borderWidth: 1,
-            borderColor: colors.border,
+            borderColor: colors.borderSubtle,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
           })}
         >
           <Ionicons name="chevron-back" size={20} color={colors.text} />

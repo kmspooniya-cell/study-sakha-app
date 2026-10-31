@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.1.1",
+    "@google/genai": "^2.32.0",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-navigation/drawer": "7.14.3",
     "@react-navigation/native": "^7.5.0",
@@ -20,7 +21,10 @@
     "expo-image-picker": "~57.0.20",
     "expo-linear-gradient": "~57.0.2",
     "expo-secure-store": "^57.0.4",
+    "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
+    "express": "^5.3.0",
+    "http-proxy": "^1.18.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -32,11 +36,17 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/http-proxy": "^1.17.17",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "expo export --platform web",
+    "lint": "tsc --noEmit",
+    "expo:web": "expo start --web --port 3000",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
