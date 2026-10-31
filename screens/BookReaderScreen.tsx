@@ -57,7 +57,7 @@ export default function BookReaderScreen() {
       />
 
       {mode === 'overview' ? (
-        <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1080, width: '100%', alignSelf: 'center', paddingBottom: 44 }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1120, width: '100%', alignSelf: 'center', paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
           <Card style={{ gap: 18 }}>
             <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 20 }}>
               <Image source={{ uri: book.cover }} style={{ width: isMobile ? '100%' : 180, height: isMobile ? 220 : 240, borderRadius: radii.lg, backgroundColor: colors.surfaceAlt }} />

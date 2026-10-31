@@ -132,8 +132,8 @@ export default function NoteEditorScreen() {
       />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1080, width: '100%', alignSelf: 'center', paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
-          <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1120, width: '100%', alignSelf: 'center', paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 18, maxWidth: 1120, width: '100%', alignSelf: 'center' }}>
             <View style={{ flex: 1.5, gap: 16 }}>
               <Card style={{ gap: 14 }}>
                 {readOnly ? (

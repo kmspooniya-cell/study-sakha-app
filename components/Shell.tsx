@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Path } from 'react-native-svg';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
@@ -29,6 +30,8 @@ export type NavKey =
   | 'FocusCenter';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
+
+const STITCH_LOGO_PATH = 'M12 3C7.03 3 3 7.03 3 12v7a2 2 0 002 2h4.5a2 2 0 002-2v-4a2 2 0 00-2-2H5c0-3.86 3.14-7 7-7s7 3.14 7 7h-2.5a2 2 0 00-2 2v4a2 2 0 002 2H19a2 2 0 002-2v-7c0-4.97-4.03-9-9-9z';
 
 export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
@@ -89,8 +92,9 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
-  const { mode, colors } = useTheme();
+  const { mode, scheme, colors } = useTheme();
   const { state, unread, dispatch } = useStore();
+  const { width } = useWindowDimensions();
   const parentState = nav.getParent?.()?.getState?.();
   const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
   const isSakhaAI =
@@ -130,69 +134,59 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
 
   const goHome = () => navigate('DashboardRoot');
 
+  const glassBackground = scheme === 'dark' ? 'rgba(20,28,46,0.92)' : 'rgba(248,248,250,0.92)';
+  const secondaryText = scheme === 'dark' ? colors.textMuted : '#3C3C4399';
+
   return (
-    <LinearGradient
-      colors={[colors.navy, colors.bg, colors.surfaceBase]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 14,
-        paddingTop: safeAreaTop ? Math.max(insets.top, 45) : 0,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.borderStrong,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Pressable onPress={openMenu} style={({ pressed }) => ({ width: 44, height: 44, marginRight: 4, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Open menu">
-          <Ionicons name="menu" size={25} color="#FFF" />
-        </Pressable>
-        <Pressable
-          onPress={!isHome && !isSakhaAI ? goHome : undefined}
-          disabled={isHome || isSakhaAI}
-          accessibilityRole={!isHome && !isSakhaAI ? 'button' : undefined}
-          accessibilityLabel={!isHome && !isSakhaAI ? 'Go to Home' : undefined}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-        >
-          <LinearGradient colors={[colors.rose, colors.amber]} style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="book" size={18} color="#FFF" />
-          </LinearGradient>
-          <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '800' }}>
-            {isSakhaAI ? (
-              <>Sakha <Text style={{ color: '#2DD4BF' }}>AI</Text></>
-            ) : (
-              <>Study <Text style={{ color: '#2DD4BF' }}>Sakha</Text></>
-            )}
-          </Text>
-        </Pressable>
+    <View style={{ backgroundColor: glassBackground, borderBottomWidth: 1, borderBottomColor: `${colors.border}CC`, paddingTop: safeAreaTop ? insets.top : 0 }}>
+      <View style={{ width: '108%', maxWidth: width < 768 ? 518 : 743, minHeight: 56, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Pressable onPress={openMenu} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Open menu">
+            <Ionicons name="menu-outline" size={22} color={colors.text} />
+          </Pressable>
+          <Pressable
+            onPress={!isHome && !isSakhaAI ? goHome : undefined}
+            disabled={isHome || isSakhaAI}
+            accessibilityRole={!isHome && !isSakhaAI ? 'button' : undefined}
+            accessibilityLabel={!isHome && !isSakhaAI ? 'Go to Home' : undefined}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+          >
+            <LinearGradient colors={['#FF9500', '#FF5E3A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', ...shadow(colors, 1) }}>
+              <Svg width={17} height={17} viewBox="0 0 24 24" accessibilityLabel="Study Sakha logo">
+                <Path d={STITCH_LOGO_PATH} fill="#FFFFFF" />
+              </Svg>
+            </LinearGradient>
+            <Text style={{ color: colors.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.35 }}>
+              {isSakhaAI ? (
+                <>Sakha <Text style={{ color: colors.blue, fontWeight: '700' }}>AI</Text></>
+              ) : (
+                <>Study <Text style={{ color: colors.blue, fontWeight: '700' }}>Sakha</Text></>
+              )}
+            </Text>
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+          <Pressable onPress={cycleTheme} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Toggle theme">
+            <Ionicons name={scheme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={18} color={secondaryText} />
+          </Pressable>
+          <Pressable onPress={() => navigate('Notifications')} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Notifications">
+            <View>
+              <Ionicons name="notifications-outline" size={20} color={secondaryText} />
+              {unread > 0 ? (
+                <View style={{ position: 'absolute', top: -5, right: -6, width: 16, height: 16, borderRadius: 8, backgroundColor: scheme === 'dark' ? colors.danger : '#FF3B30', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: scheme === 'dark' ? colors.surface : '#F2F2F7' }}>
+                  <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '600' }}>{unread > 9 ? '9+' : unread}</Text>
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+          <Pressable onPress={() => navigate('Profile')} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => ({ width: 32, height: 32, marginLeft: 2, borderRadius: 16, overflow: 'hidden', borderWidth: 2, borderColor: scheme === 'dark' ? colors.surface : '#FFFFFF', opacity: pressed ? 0.8 : 1, ...shadow(colors, 1) })}>
+            <LinearGradient colors={['#FF3B30', '#FF6B6B']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>{first.charAt(0)}</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <Pressable onPress={cycleTheme} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Toggle theme">
-          <Ionicons name="moon-outline" size={20} color="#CBD5E1" />
-        </Pressable>
-        <Pressable onPress={() => navigate('Notifications')} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? 'rgba(255,255,255,0.12)' : 'transparent' })} accessibilityRole="button" accessibilityLabel="Notifications">
-          <View>
-            <Ionicons name="notifications-outline" size={20} color="#CBD5E1" />
-            {unread > 0 ? (
-              <View style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.bg }}>
-                <Text style={{ color: '#FFF', fontSize: 9, fontWeight: 'bold' }}>{unread > 9 ? '9+' : unread}</Text>
-              </View>
-            ) : null}
-          </View>
-        </Pressable>
-        <Pressable
-          onPress={() => navigate('Profile')}
-          accessibilityRole="button"
-          accessibilityLabel="Open profile"
-          style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.rose, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.8 : 1 })}
-        >
-          <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '800' }}>{first.charAt(0)}</Text>
-        </Pressable>
-      </View>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -200,6 +194,7 @@ export function AppBottomNav({ active }: { active: NavKey }) {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
 
   const go = (key: NavKey) => {
     const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
@@ -214,39 +209,33 @@ export function AppBottomNav({ active }: { active: NavKey }) {
     }
   };
 
+  const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
+  const inactive = colors.bg === '#0C1220' ? colors.textMuted : '#8E8E93';
   return (
-    <View
-      style={{
-        flexDirection: 'row',
-        backgroundColor: colors.surfaceRaised,
-        borderTopWidth: 1,
-        borderTopColor: colors.borderSubtle,
-        paddingBottom: Math.max(insets.bottom, 8),
-        paddingTop: 8,
-        ...shadow(colors, 2),
-      }}
-    >
-      {MOBILE_TABS.map((t) => {
-        const on = t.key === active;
-        return (
-          <Pressable key={t.key} onPress={() => go(t.key)} accessibilityRole="button" accessibilityState={{ selected: on }} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', gap: 2, paddingVertical: 2, opacity: pressed ? 0.72 : 1 })}>
-            <View style={{ width: 34, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? colors.selectedSurface : 'transparent' }}>
-              <Ionicons name={on ? t.icon : (`${t.icon}-outline` as any)} size={20} color={on ? colors.selected : colors.textTertiary} />
-            </View>
-            <Txt size={10.5} weight={on ? '800' : '600'} color={on ? colors.brandPrimary : colors.textTertiary}>
-              {t.label}
-            </Txt>
-          </Pressable>
-        );
-      })}
-      <Pressable onPress={() => go('More')} accessibilityRole="button" accessibilityState={{ selected: active === 'More' }} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: 'center', gap: 2, paddingVertical: 2, opacity: pressed ? 0.72 : 1 })}>
-        <View style={{ width: 34, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: active === 'More' ? colors.selectedSurface : 'transparent' }}>
-          <Ionicons name="grid-outline" size={20} color={active === 'More' ? colors.selected : colors.textTertiary} />
-        </View>
-        <Txt size={10.5} weight={active === 'More' ? '800' : '600'} color={active === 'More' ? colors.brandPrimary : colors.textTertiary}>
-          More
-        </Txt>
-      </Pressable>
+    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 20), ...shadow(colors, 2) }}>
+      <View style={{ width: '92%', maxWidth: width < 768 ? 383 : 545, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24 }}>
+        {MOBILE_TABS.map((t) => {
+          const on = t.key === active;
+          return (
+            <Pressable key={t.key} onPress={() => go(t.key)} accessibilityRole="button" accessibilityState={{ selected: on }} style={({ pressed }) => ({ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2, opacity: pressed ? 0.6 : 1 })}>
+              <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name={on ? t.icon : (`${t.icon}-outline` as any)} size={20} color={on ? colors.blue : inactive} />
+              </View>
+              <Txt size={10} weight={on ? '700' : '500'} color={on ? colors.blue : inactive} style={{ marginTop: 2 }}>
+                {t.label}
+              </Txt>
+            </Pressable>
+          );
+        })}
+        <Pressable onPress={() => go('More')} accessibilityRole="button" accessibilityState={{ selected: active === 'More' }} style={({ pressed }) => ({ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2, opacity: pressed ? 0.6 : 1 })}>
+          <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="grid" size={20} color={active === 'More' ? colors.blue : inactive} />
+          </View>
+          <Txt size={10} weight={active === 'More' ? '700' : '500'} color={active === 'More' ? colors.blue : inactive} style={{ marginTop: 2 }}>
+            More
+          </Txt>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -497,7 +486,7 @@ export function Shell({
         <AppHeader />
         <View style={{ flex: 1 }}>
           {scroll ? (
-            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 112 }} showsVerticalScrollIndicator={false}>
               {hasPageHeading ? (
                 <View style={{ marginBottom: 14 }}>
                   <View style={{ marginBottom: 16 }}>
@@ -517,7 +506,7 @@ export function Shell({
               {children}
             </ScrollView>
           ) : (
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, paddingBottom: 112 }}>
               {hasPageHeading ? (
                 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
                   <Txt size={21} weight="800" display>
