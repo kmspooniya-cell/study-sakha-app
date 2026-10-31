@@ -78,7 +78,7 @@ export default function CurrentAffairsScreen() {
         data={data}
         keyExtractor={(c) => c.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ padding: isMobile ? 16 : 20, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 48, maxWidth: 960, width: '100%', alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

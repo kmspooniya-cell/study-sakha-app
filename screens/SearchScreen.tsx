@@ -110,6 +110,7 @@ export default function SearchScreen() {
 
   return (
     <Shell active="Search" title="Search" subtitle="One query across notes, books, PYQs, tests and current affairs">
+      <View style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}>
       <Field value={query} onChangeText={setQuery} placeholder="Search everything in Study Sakha…" icon="search-outline" returnKeyType="search" />
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
@@ -229,6 +230,7 @@ export default function SearchScreen() {
           />
         </View>
       )}
+      </View>
     </Shell>
   );
 }

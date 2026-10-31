@@ -3,7 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
-import { Card, Chip, EmptyState, Field, ProgressBar, Skeleton, Tag, Txt } from '../components/ui';
+import { Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
 import { EXAMS, RESOURCES, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
 import type { State } from '../lib/store';
@@ -50,9 +50,9 @@ export default function LibraryScreen() {
         keyExtractor={(section) => section.route}
         numColumns={2}
         columnWrapperStyle={{ gap: 10 }}
-        contentContainerStyle={{ padding: isMobile ? 12 : 20, paddingBottom: 40, gap: 10 }}
+        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 48, gap: 12, maxWidth: 920, width: '100%', alignSelf: 'center' }}
         renderItem={({ item: section }) => (
-          <Card style={{ flex: 1, padding: 0 }}>
+          <StitchCard style={{ flex: 1, padding: 0 }} tone="glass">
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open ${section.label}`}
@@ -76,7 +76,7 @@ export default function LibraryScreen() {
               </View>
               <SectionCount section={section} state={state} />
             </Pressable>
-          </Card>
+          </StitchCard>
         )}
       />
     </Shell>
@@ -145,7 +145,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
     const progress = state.progress[resource.id]?.percent ?? 0;
     const subjectMeta = SUBJECTS.find((item) => item.name === resource.subject);
     return (
-      <Card style={{ flex: 1, margin: 6, padding: 14 }} key={resource.id}>
+      <StitchCard style={{ flex: 1, margin: 6, padding: 14 }} key={resource.id} tone="raised">
         <View style={{ gap: 12 }}>
           <Pressable onPress={() => open(resource)} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, gap: 12 })}>
             <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -199,12 +199,12 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
             </Pressable>
           </View>
         </View>
-      </Card>
+      </StitchCard>
     );
   };
 
   const header = (
-    <View style={{ gap: 14, paddingHorizontal: isMobile ? 10 : 6, paddingTop: 6 }}>
+    <View style={{ gap: 14, paddingHorizontal: isMobile ? 10 : 6, paddingTop: 6, maxWidth: 1120, width: '100%', alignSelf: 'center' }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Back to Library categories"

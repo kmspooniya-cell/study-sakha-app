@@ -36,7 +36,41 @@ export function Card({
           borderRadius: radii.card,
           borderWidth: 1,
           borderColor: colors.borderSubtle,
-          padding: padded ? 16 : 0,
+          padding: padded ? spacing.card : 0,
+          ...shadow(colors, level),
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** Shared Stitch-inspired surface for Wave 1 content. */
+export function StitchCard({
+  children,
+  style,
+  padded = true,
+  level = 1,
+  tone = 'raised',
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  padded?: boolean;
+  level?: 1 | 2 | 3;
+  tone?: 'raised' | 'soft' | 'glass';
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: tone === 'soft' ? colors.surfaceSubtle : colors.surfaceRaised,
+          borderRadius: radii.card,
+          borderWidth: 1,
+          borderColor: tone === 'glass' ? colors.borderStrong : colors.borderSubtle,
+          padding: padded ? spacing.card : 0,
           ...shadow(colors, level),
         },
         style,

@@ -99,8 +99,8 @@ export const spacing = {
   lg: 24,
   xl: 32,
   xxl: 40,
-  card: 16,
-  section: 24,
+  card: 18,
+  section: 26,
 };
 
 export const radii = {
@@ -110,7 +110,7 @@ export const radii = {
   xl: 28,
   pill: 999,
   control: 14,
-  card: 20,
+  card: 22,
   dialog: 28,
 };
 
