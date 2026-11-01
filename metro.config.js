@@ -1,4 +1,15 @@
-const { getDefaultConfig } = require('@expo/metro-config');
+const path = require('path');
+
+// Expo includes the SDK-matched Metro config, but some installs do not hoist
+// it to the app root. Prefer a direct install and fall back to Expo's bundled
+// copy so preview startup works with both npm and Bun installs.
+let getDefaultConfig;
+try {
+  ({ getDefaultConfig } = require('@expo/metro-config'));
+} catch (error) {
+  const expoPackageRoot = path.dirname(require.resolve('expo/package.json'));
+  ({ getDefaultConfig } = require(path.join(expoPackageRoot, 'node_modules/@expo/metro-config')));
+}
 
 const config = getDefaultConfig(__dirname);
 

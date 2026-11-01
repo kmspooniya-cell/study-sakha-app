@@ -97,16 +97,13 @@ export default function DashboardScreen() {
       <AppHeader />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.contentWidth, !isTablet && styles.mobileContentWidth]}>
-          <View style={[styles.greetingCard, styles.card]}>
-            <Text style={styles.greetingTitle}>{greeting()}, {first} 👋</Text>
-            <Text style={styles.greetingSub}>Small steps. Consistent progress.</Text>
-          </View>
-
           <LinearGradient colors={['#1E1B2E', '#2A1D33', '#171224']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
             <View pointerEvents="none" style={styles.heroGlowTop} />
             <View pointerEvents="none" style={styles.heroGlowBottom} />
             <View style={styles.heroTopRow}>
               <View style={styles.heroCopy}>
+                <Text style={styles.heroGreetingTitle}>{greeting()}, {first} 👋</Text>
+                <Text style={styles.heroGreetingSub}>Small steps. Consistent progress.</Text>
                 <View style={styles.missionBadge}><Text style={styles.missionBadgeText}>TODAY'S MISSION</Text></View>
                 <Text style={styles.heroTitle}>Make today count.</Text>
                 <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
@@ -148,13 +145,11 @@ export default function DashboardScreen() {
 
             <View style={styles.layoutCol}>
               <View style={styles.testsSection}>
-                <SectionHeader icon="radio" title="Upcoming live tests" action="All tests" onPress={() => nav.navigate('Tests')} styles={styles} />
+                <SectionHeader icon="radio" title="Upcoming Live Tests" action="All tests" onPress={() => nav.navigate('Tests')} styles={styles} />
                 {liveTests.length === 0 ? <View style={[styles.card, styles.sectionCard]}><Text style={styles.emptyText}>No live tests scheduled.</Text></View> : liveTests.map((test) => <View key={test.id} style={styles.testCard}><View style={styles.testHeader}><Text style={styles.testTime}>● {test.liveAt}</Text><Tag label={test.kind} color={stitch.blue} /></View><Text style={styles.testTitle}>{test.title}</Text><Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text><Pressable accessibilityRole="button" onPress={() => nav.navigate('TestPlayer', { testId: test.id })} style={styles.primaryBtn}><Text style={styles.primaryBtnText}>Enter test</Text></Pressable></View>)}
               </View>
 
               <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{CURRENT_AFFAIRS.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
-
-              <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="swap-horizontal" title="Switch focus" styles={styles} /><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.focusPills}>{EXAMS.map((item) => { const active = item.id === exam.id; return <Pressable accessibilityRole="button" key={item.id} onPress={() => nav.navigate('Library', { exam: item.id })} style={[styles.focusPill, active ? styles.focusPillActive : styles.focusPillInactive]}><Text style={[styles.focusPillText, active ? styles.focusPillTextActive : styles.focusPillTextInactive]}>{item.short}</Text></Pressable>; })}</ScrollView></View>
 
               <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="library" title="Fresh in library" action="See all" onPress={() => nav.navigate('Library')} styles={styles} />{recent.map((resource) => <Pressable accessibilityRole="button" key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}><View style={[styles.iconBox, { backgroundColor: `${stitch.blue}18` }]}><Ionicons name="book" size={18} color={stitch.blue} /></View><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text><Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}</View>
             </View>
@@ -183,14 +178,13 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
     contentWidth: { width: '100%', maxWidth: 1180, alignSelf: 'center' },
     mobileContentWidth: { maxWidth: 448 },
     card: { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1, borderRadius: 20, ...shadow(colors, 1) },
-    greetingCard: { padding: 16, marginBottom: 14 },
-    greetingTitle: { fontSize: 20, lineHeight: 24, fontWeight: '800', letterSpacing: -0.4, color: palette.text },
-    greetingSub: { fontSize: 13, color: palette.muted, marginTop: 2 },
     heroCard: { borderRadius: 22, padding: 16, marginBottom: 14, borderColor: 'rgba(58,46,76,0.5)', borderWidth: 1, overflow: 'hidden', ...shadow(colors, 3) },
     heroGlowTop: { position: 'absolute', width: 176, height: 176, borderRadius: 88, right: -48, top: -48, backgroundColor: 'rgba(175,82,222,0.16)' },
     heroGlowBottom: { position: 'absolute', width: 144, height: 144, borderRadius: 72, left: -48, bottom: -40, backgroundColor: 'rgba(0,122,255,0.12)' },
     heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 1 },
     heroCopy: { flex: 1 },
+    heroGreetingTitle: { color: '#FFF', fontSize: 18, lineHeight: 22, fontWeight: '800', letterSpacing: -0.3 },
+    heroGreetingSub: { color: '#CBD5E1', fontSize: 12, marginTop: 2, marginBottom: 10 },
     missionBadge: { backgroundColor: 'rgba(76, 29, 36, 0.6)', borderColor: '#9F1239', borderWidth: 1, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginBottom: 7 },
     missionBadgeText: { color: '#FDA4AF', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
     heroTitle: { color: '#FFF', fontSize: 21, fontWeight: '800' },
@@ -250,12 +244,5 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
     caHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
     caDate: { fontSize: 11, color: palette.muted },
     caTitle: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: palette.text },
-    focusPills: { gap: 6, paddingVertical: 4 },
-    focusPill: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
-    focusPillActive: { backgroundColor: palette.dark, borderColor: palette.dark, ...shadow(colors, 1) },
-    focusPillInactive: { backgroundColor: palette.surfaceAlt, borderColor: palette.surfaceAlt },
-    focusPillText: { fontSize: 13, fontWeight: '600' },
-    focusPillTextActive: { color: palette.surface },
-    focusPillTextInactive: { color: palette.text },
   });
 }

@@ -19,19 +19,8 @@ export function MeditationSceneRenderer({
   switch (presetId) {
     case 'pure_cosmic_waves':
       return <PureCosmicWavesScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'ocean_waves':
-      return <OceanWavesScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'forest_calm':
-      return <ForestCalmScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'rain_relaxation':
-      return <RainRelaxationScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'cosmic_meditation':
-      return <CosmicMeditationScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'zen_garden':
-      return <ZenGardenScene isPlaying={isPlaying} width={width} height={height} />;
-    case 'calm_breathing':
     default:
-      return <CalmBreathingScene isPlaying={isPlaying} width={width} height={height} />;
+      return <PureCosmicWavesScene isPlaying={isPlaying} width={width} height={height} />;
   }
 }
 
