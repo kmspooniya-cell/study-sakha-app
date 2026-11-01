@@ -858,7 +858,6 @@ export function FocusActivityTimer({
       <FullScreenMeditation
         visible={visible}
         durationMinutes={10}
-        initialSoundId="rain"
         onComplete={(elapsed) => {
           const minutes = Math.max(1, Math.round(elapsed / 60));
           dispatch({ type: 'study', minutes });

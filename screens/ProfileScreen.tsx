@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
+import { FocusSelector } from '../components/FocusSelector';
 import { Avatar, Button, Card, Chip, Field, SectionHeader, Txt } from '../components/ui';
 import { EXAMS } from '../lib/data';
 import { ExamId } from '../lib/types';
@@ -189,7 +190,9 @@ export default function ProfileScreen() {
         ))}
       </View>
 
-      <Card style={{ gap: 10, marginTop: 18 }}>
+      <FocusSelector />
+
+      <Card style={{ gap: 10, marginTop: 14 }}>
         <SectionHeader title="Account" icon="person-circle-outline" />
         <Button label="Open settings" icon="settings-outline" variant="outline" full onPress={() => nav.navigate('Settings')} />
         {user?.role === 'admin' ? (

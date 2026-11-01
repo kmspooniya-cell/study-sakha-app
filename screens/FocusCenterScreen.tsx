@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -14,9 +14,6 @@ import {
 } from '../components/FullScreenMeditation';
 import {
   getPresetById,
-  getSoundById,
-  MEDITATION_PRESETS,
-  MEDITATION_SOUND_LIST,
   MeditationPresetId,
 } from '../components/MeditationPresets';
 import { MeditationSceneRenderer } from '../components/MeditationSceneRenderer';
@@ -31,7 +28,7 @@ const MEDITATION_HISTORY_KEY = 'study-sakha-meditation-history-v1';
 const MEDITATION_PREFS_KEY = 'study-sakha-meditation-prefs-v2';
 
 const ACTIVITIES: {
-  id: FocusActivity;
+  id: FocusActivity | 'hobbies';
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -40,6 +37,7 @@ const ACTIVITIES: {
   { id: 'study', title: 'Focus for Study', subtitle: 'Build a focused study session.', icon: 'book-outline', colorKey: 'blue' },
   { id: 'meditation', title: 'Mindful Meditation', subtitle: 'Immersive animations & soundscapes.', icon: 'leaf-outline', colorKey: 'teal' },
   { id: 'break', title: 'Rest & Recharge', subtitle: 'Reset your mind between study blocks.', icon: 'cafe-outline', colorKey: 'violet' },
+  { id: 'hobbies', title: 'Hobbies', subtitle: 'Take a refreshing break with activities you enjoy.', icon: 'color-palette-outline', colorKey: 'violet' },
 ];
 
 const MEDITATION_DURATIONS = [5, 10, 15, 20, 30];
@@ -54,9 +52,7 @@ export default function FocusCenterScreen() {
 
   // Meditation configuration state (defaults to new Pure Cosmic Waves experience)
   const [showMeditationConfig, setShowMeditationConfig] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<MeditationPresetId>('pure_cosmic_waves');
-  const [selectedSoundId, setSelectedSoundId] = useState<string>('pure_cosmic_waves');
-  const [hasCustomSound, setHasCustomSound] = useState(false);
+  const selectedPresetId: MeditationPresetId = 'pure_cosmic_waves';
   const [meditationDuration, setMeditationDuration] = useState(10);
   const [fullScreenMeditationActive, setFullScreenMeditationActive] = useState(false);
 
@@ -98,10 +94,9 @@ export default function FocusCenterScreen() {
         const raw = await AsyncStorage.getItem(MEDITATION_PREFS_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed.presetId) setSelectedPresetId(parsed.presetId);
-          if (parsed.soundId) setSelectedSoundId(parsed.soundId);
-          if (parsed.durationMinutes) setMeditationDuration(parsed.durationMinutes);
-          if (parsed.hasCustomSound !== undefined) setHasCustomSound(parsed.hasCustomSound);
+          if (Number.isInteger(parsed.durationMinutes) && parsed.durationMinutes >= 5 && parsed.durationMinutes <= 30) {
+            setMeditationDuration(parsed.durationMinutes);
+          }
         }
       } catch (e) {
         console.warn('Could not load meditation prefs:', e);
@@ -110,15 +105,12 @@ export default function FocusCenterScreen() {
   }, []);
 
   // Save preferences
-  const savePrefs = async (presetId: MeditationPresetId, soundId: string, duration: number, customSound: boolean) => {
+  const savePrefs = async (duration: number) => {
     try {
       await AsyncStorage.setItem(
         MEDITATION_PREFS_KEY,
         JSON.stringify({
-          presetId,
-          soundId,
           durationMinutes: duration,
-          hasCustomSound: customSound,
         })
       );
     } catch (e) {
@@ -134,46 +126,20 @@ export default function FocusCenterScreen() {
     });
   }, [navigation]);
 
-  const handleCardPress = (id: FocusActivity) => {
+  const handleCardPress = (id: FocusActivity | 'hobbies') => {
     if (id === 'meditation') {
       setShowMeditationConfig(true);
+    } else if (id === 'hobbies') {
+      navigation.navigate('Hobbies');
     } else {
       setActivity(id);
     }
   };
 
-  // Handle preset selection with automatic default sound mapping
-  const handleSelectPreset = (newPresetId: MeditationPresetId) => {
-    setSelectedPresetId(newPresetId);
-    const preset = getPresetById(newPresetId);
-    // Automatically map to default sound unless user previously set a custom sound
-    const newSoundId = preset.defaultSoundId;
-    setSelectedSoundId(newSoundId);
-    setHasCustomSound(false);
-    savePrefs(newPresetId, newSoundId, meditationDuration, false);
-  };
-
-  // Handle independent sound choice
-  const handleSelectSound = (soundId: string) => {
-    setSelectedSoundId(soundId);
-    const preset = getPresetById(selectedPresetId);
-    const isCustom = soundId !== preset.defaultSoundId;
-    setHasCustomSound(isCustom);
-    savePrefs(selectedPresetId, soundId, meditationDuration, isCustom);
-  };
-
-  // Restore default sound for current preset
-  const handleRestoreDefaultSound = () => {
-    const preset = getPresetById(selectedPresetId);
-    setSelectedSoundId(preset.defaultSoundId);
-    setHasCustomSound(false);
-    savePrefs(selectedPresetId, preset.defaultSoundId, meditationDuration, false);
-  };
-
   // Change duration
   const handleSelectDuration = (duration: number) => {
     setMeditationDuration(duration);
-    savePrefs(selectedPresetId, selectedSoundId, duration, hasCustomSound);
+    savePrefs(duration);
   };
 
   const startMeditationImmediately = () => {
@@ -192,7 +158,7 @@ export default function FocusCenterScreen() {
       actualSeconds: elapsedSeconds,
       plannedMinutes: meditationDuration,
       presetId: selectedPresetId,
-      soundId: selectedSoundId,
+      soundId: 'pure_cosmic_waves',
     };
 
     try {
@@ -216,16 +182,13 @@ export default function FocusCenterScreen() {
     });
   };
 
-  const selectedPreset = useMemo(() => getPresetById(selectedPresetId), [selectedPresetId]);
-  const activeSound = useMemo(() => getSoundById(selectedSoundId), [selectedSoundId]);
-  const isDefaultSound = selectedSoundId === selectedPreset.defaultSoundId;
+  const selectedPreset = getPresetById(selectedPresetId);
 
   return (
     <Shell active="FocusCenter" title="Focus & Wellness" subtitle="Choose a session for your next study moment">
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {ACTIVITIES.map((item, index) => {
+        {ACTIVITIES.map((item) => {
           const color = colors[item.colorKey];
-          const fullWidth = index === ACTIVITIES.length - 1;
           return (
             <Pressable
               key={item.id}
@@ -233,8 +196,8 @@ export default function FocusCenterScreen() {
               accessibilityRole="button"
               accessibilityLabel={item.title}
               style={({ pressed }) => ({
-                width: fullWidth ? '100%' : '48%',
-                flexGrow: fullWidth ? 0 : 1,
+                width: '48%',
+                flexGrow: 1,
                 minHeight: 152,
                 justifyContent: 'space-between',
                 backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
@@ -319,6 +282,34 @@ export default function FocusCenterScreen() {
                 </Pressable>
               </View>
 
+              {/* Duration Selector */}
+              <View style={{ gap: 8 }}>
+                <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
+                  SESSION DURATION
+                </Txt>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {MEDITATION_DURATIONS.map((dur) => (
+                    <Chip
+                      key={dur}
+                      label={`${dur} min`}
+                      active={meditationDuration === dur}
+                      onPress={() => handleSelectDuration(dur)}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              {/* Start Button */}
+              <View style={{ marginTop: 6 }}>
+                <Button
+                  label="Start Meditation"
+                  icon="play"
+                  size="lg"
+                  full
+                  onPress={startMeditationImmediately}
+                />
+              </View>
+
               {/* Live Preview Card */}
               <View
                 style={{
@@ -399,107 +390,56 @@ export default function FocusCenterScreen() {
                   >
                     <Ionicons name="volume-medium-outline" size={12} color={selectedPreset.accentColor} />
                     <Txt size={10} weight="700" color={selectedPreset.accentColor}>
-                      {activeSound.name}
+                      Pure Cosmic Waves
                     </Txt>
                   </View>
                 </View>
               </View>
 
-              {/* Animation Preset Gallery (6 Presets) */}
-              <View style={{ gap: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
-                    CHOOSE ANIMATION EXPERIENCE
-                  </Txt>
-                  <Txt size={11} color={colors.textMuted}>
-                    6 Presets
-                  </Txt>
+              {/* The Studio has one focused experience: Pure Cosmic Waves. */}
+              <View
+                style={{
+                  gap: 6,
+                  padding: 14,
+                  borderRadius: 16,
+                  borderWidth: 1.5,
+                  borderColor: selectedPreset.accentColor,
+                  backgroundColor: isDark ? `${selectedPreset.accentColor}18` : `${selectedPreset.accentColor}10`,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      backgroundColor: `${selectedPreset.accentColor}25`,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Ionicons name={selectedPreset.icon} size={18} color={selectedPreset.accentColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Txt size={13} weight="800" color={selectedPreset.accentColor}>
+                      {selectedPreset.title}
+                    </Txt>
+                    <Txt size={10.5} color={colors.textMuted} numberOfLines={2}>
+                      {selectedPreset.subtitle}
+                    </Txt>
+                  </View>
+                  <Ionicons name="checkmark-circle" size={20} color={selectedPreset.accentColor} />
                 </View>
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  {MEDITATION_PRESETS.map((preset) => {
-                    const isSelected = preset.id === selectedPresetId;
-                    return (
-                      <Pressable
-                        key={preset.id}
-                        onPress={() => handleSelectPreset(preset.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel={preset.title}
-                        style={({ pressed }) => ({
-                          width: '48%',
-                          flexGrow: 1,
-                          padding: 12,
-                          borderRadius: 16,
-                          borderWidth: 1.5,
-                          borderColor: isSelected ? preset.accentColor : colors.borderSubtle,
-                          backgroundColor: isSelected
-                            ? (isDark ? `${preset.accentColor}18` : `${preset.accentColor}10`)
-                            : (isDark ? colors.surfaceAlt : '#F7F8FA'),
-                          opacity: pressed ? 0.85 : 1,
-                          gap: 6,
-                        })}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <View
-                            style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 10,
-                              backgroundColor: `${preset.accentColor}25`,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <Ionicons name={preset.icon} size={18} color={preset.accentColor} />
-                          </View>
-                          {isSelected && (
-                            <View
-                              style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: 10,
-                                backgroundColor: preset.accentColor,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                            </View>
-                          )}
-                        </View>
-                        <Txt size={13} weight="800" color={isSelected ? preset.accentColor : colors.text}>
-                          {preset.title}
-                        </Txt>
-                        <Txt size={10.5} color={colors.textMuted} numberOfLines={2}>
-                          {preset.subtitle}
-                        </Txt>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <Txt size={11} color={colors.textMuted}>
+                  {selectedPreset.description}
+                </Txt>
               </View>
 
-              {/* Soundscape Selection & Default Mapping */}
-              <View style={{ gap: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
-                    CALMING AUDIO SOUNDSCAPE
-                  </Txt>
-                  {!isDefaultSound && (
-                    <Pressable
-                      onPress={handleRestoreDefaultSound}
-                      hitSlop={6}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                    >
-                      <Ionicons name="refresh-outline" size={12} color={colors.blue} />
-                      <Txt size={11} weight="700" color={colors.blue}>
-                        Restore Default
-                      </Txt>
-                    </Pressable>
-                  )}
-                </View>
-
-                {/* Default Mapping Note */}
+              {/* Pure Cosmic Waves is the only available meditation audio. */}
+              <View style={{ gap: 8 }}>
+                <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
+                  CALMING AUDIO SOUNDSCAPE
+                </Txt>
                 <View
                   style={{
                     flexDirection: 'row',
@@ -511,69 +451,14 @@ export default function FocusCenterScreen() {
                     backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F2F4F7',
                   }}
                 >
-                  <Ionicons
-                    name={isDefaultSound ? 'sparkles' : 'information-circle-outline'}
-                    size={14}
-                    color={isDefaultSound ? selectedPreset.accentColor : colors.textMuted}
-                  />
+                  <Ionicons name="sparkles" size={14} color={selectedPreset.accentColor} />
                   <Txt size={11} color={colors.textMuted} style={{ flex: 1 }}>
-                    {isDefaultSound
-                      ? `Default sound for ${selectedPreset.title}: ${activeSound.name}`
-                      : `Custom sound active. Default is ${getSoundById(selectedPreset.defaultSoundId).name}`}
+                    Pure Cosmic Waves · default audio
                   </Txt>
                 </View>
 
-                {/* Horizontal Sound Selector */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {MEDITATION_SOUND_LIST.map((snd) => {
-                    const isSelected = snd.id === selectedSoundId;
-                    const isPresetDefault = snd.id === selectedPreset.defaultSoundId;
-                    return (
-                      <Pressable
-                        key={snd.id}
-                        onPress={() => handleSelectSound(snd.id)}
-                        style={({ pressed }) => ({
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 8,
-                          paddingHorizontal: 13,
-                          paddingVertical: 9,
-                          borderRadius: 14,
-                          borderWidth: 1,
-                          borderColor: isSelected ? selectedPreset.accentColor : colors.borderSubtle,
-                          backgroundColor: isSelected
-                            ? (isDark ? `${selectedPreset.accentColor}25` : `${selectedPreset.accentColor}12`)
-                            : (isDark ? '#1B2439' : '#F2F2F7'),
-                          opacity: pressed ? 0.8 : 1,
-                        })}
-                      >
-                        <Ionicons
-                          name={snd.icon}
-                          size={16}
-                          color={isSelected ? selectedPreset.accentColor : colors.textMuted}
-                        />
-                        <View>
-                          <Txt
-                            size={12}
-                            weight={isSelected ? '800' : '600'}
-                            color={isSelected ? selectedPreset.accentColor : colors.text}
-                          >
-                            {snd.name}
-                          </Txt>
-                          {isPresetDefault && (
-                            <Txt size={9} weight="700" color={selectedPreset.accentColor}>
-                              Preset Default
-                            </Txt>
-                          )}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
                 {/* Downloadable Offline Audio Card for Pure Cosmic Waves */}
-                {selectedSoundId === 'pure_cosmic_waves' && (
-                  <View
+                <View
                     style={{
                       borderRadius: 16,
                       padding: 14,
@@ -690,36 +575,8 @@ export default function FocusCenterScreen() {
                       )}
                     </View>
                   </View>
-                )}
               </View>
 
-              {/* Duration Selector */}
-              <View style={{ gap: 8 }}>
-                <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
-                  SESSION DURATION
-                </Txt>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {MEDITATION_DURATIONS.map((dur) => (
-                    <Chip
-                      key={dur}
-                      label={`${dur} min`}
-                      active={meditationDuration === dur}
-                      onPress={() => handleSelectDuration(dur)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Start Button */}
-              <View style={{ marginTop: 6 }}>
-                <Button
-                  label="Start Meditation"
-                  icon="play"
-                  size="lg"
-                  full
-                  onPress={startMeditationImmediately}
-                />
-              </View>
             </ScrollView>
           </View>
         </View>
@@ -729,14 +586,12 @@ export default function FocusCenterScreen() {
       <FullScreenMeditation
         visible={fullScreenMeditationActive}
         presetId={selectedPresetId}
-        soundId={selectedSoundId}
         durationMinutes={meditationDuration}
-        onSoundChange={(newSoundId) => {
-          setSelectedSoundId(newSoundId);
-          setHasCustomSound(newSoundId !== selectedPreset.defaultSoundId);
-        }}
         onComplete={handleMeditationComplete}
-        onClose={() => setFullScreenMeditationActive(false)}
+        onClose={() => {
+          setFullScreenMeditationActive(false);
+          setShowMeditationConfig(true);
+        }}
       />
 
       {/* Focus for Study & Break activities */}

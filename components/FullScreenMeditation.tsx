@@ -15,19 +15,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   getPresetById,
   getSoundById,
-  MEDITATION_PRESETS,
-  MEDITATION_SOUND_LIST,
   MeditationPresetId,
 } from './MeditationPresets';
 import { MeditationSceneRenderer } from './MeditationSceneRenderer';
 import { radii, useTheme } from '../lib/theme';
 import { AudioDownloadManager } from '../lib/audioDownloadManager';
-
-export {
-  MEDITATION_PRESETS,
-  MEDITATION_SOUND_LIST,
-  MEDITATION_SOUND_LIST as MEDITATION_SOUNDS,
-};
 
 function formatMinutesSeconds(totalSeconds: number) {
   const m = Math.floor(Math.max(0, totalSeconds) / 60);
@@ -38,10 +30,7 @@ function formatMinutesSeconds(totalSeconds: number) {
 export type FullScreenMeditationProps = {
   visible: boolean;
   presetId?: MeditationPresetId;
-  soundId?: string;
-  initialSoundId?: string;
   durationMinutes?: number;
-  onSoundChange?: (newSoundId: string) => void;
   onComplete: (elapsedSeconds: number) => void;
   onClose: () => void;
 };
@@ -49,10 +38,7 @@ export type FullScreenMeditationProps = {
 export function FullScreenMeditation({
   visible,
   presetId = 'pure_cosmic_waves',
-  soundId,
-  initialSoundId: legacySoundId,
   durationMinutes = 10,
-  onSoundChange,
   onComplete,
   onClose,
 }: FullScreenMeditationProps) {
@@ -61,21 +47,7 @@ export function FullScreenMeditation({
   const { width, height } = useWindowDimensions();
 
   const preset = useMemo(() => getPresetById(presetId), [presetId]);
-
-  // Active sound state: defaults to passed soundId/initialSoundId or preset defaultSoundId
-  const startingSoundId = soundId || legacySoundId || preset.defaultSoundId;
-  const [currentSoundId, setCurrentSoundId] = useState(startingSoundId);
-
-  // Sync with prop when preset changes
-  useEffect(() => {
-    if (soundId) {
-      setCurrentSoundId(soundId);
-    } else {
-      setCurrentSoundId(preset.defaultSoundId);
-    }
-  }, [preset.defaultSoundId, soundId]);
-
-  const activeSound = useMemo(() => getSoundById(currentSoundId), [currentSoundId]);
+  const activeSound = getSoundById('pure_cosmic_waves');
 
   // Offline downloaded local file URI support
   const [downloadedUri, setDownloadedUri] = useState<string | null>(null);
@@ -117,6 +89,15 @@ export function FullScreenMeditation({
 
   const timerIntervalRef = useRef<any>(null);
   const elapsedSecondsRef = useRef(0);
+
+  useEffect(() => {
+    if (!visible) {
+      setRemainingSeconds(totalDurationSeconds);
+      setIsRunning(true);
+      setShowSoundSelector(false);
+      elapsedSecondsRef.current = 0;
+    }
+  }, [visible, totalDurationSeconds]);
 
   // Setup audio mode
   useEffect(() => {
@@ -210,30 +191,34 @@ export function FullScreenMeditation({
     onClose();
   };
 
-  const selectSound = (newId: string) => {
-    setCurrentSoundId(newId);
-    onSoundChange?.(newId);
-    setShowSoundSelector(false);
-  };
-
-  const restoreDefaultSound = () => {
-    selectSound(preset.defaultSoundId);
+  const handleBackToStudio = () => {
+    if (audioPlayer) {
+      try {
+        audioPlayer.pause();
+        audioPlayer.seekTo(0);
+      } catch {}
+    }
+    onClose();
   };
 
   if (!visible) return null;
 
   const isDark = scheme === 'dark';
-  const isCustomSound = currentSoundId !== preset.defaultSoundId;
-
   return (
     <Modal
       visible={visible}
       animationType="fade"
       presentationStyle="fullScreen"
       statusBarTranslucent
-      onRequestClose={handleFinish}
+      onRequestClose={handleBackToStudio}
     >
-      <View style={{ flex: 1, backgroundColor: preset.gradient[0] }}>
+      <View
+        style={{
+          flex: 1,
+          position: 'relative',
+          backgroundColor: preset.gradient[0],
+        }}
+      >
         {/* Soft Animated Preset Gradient */}
         <LinearGradient
           colors={preset.gradient}
@@ -253,54 +238,64 @@ export function FullScreenMeditation({
         {/* Minimal Apple HUD Layer */}
         <View
           style={{
-            flex: 1,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             paddingTop: Math.max(insets.top, 16),
             paddingBottom: Math.max(insets.bottom, 22),
             paddingHorizontal: 20,
             justifyContent: 'space-between',
+            zIndex: 100,
+            elevation: 100,
           }}
           pointerEvents="box-none"
         >
-          {/* Top Bar: End Session & Sound Selector Button */}
+          {/* Top Bar: Back and Audio Controls */}
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
               minHeight: 48,
+              zIndex: 101,
+              elevation: 101,
             }}
+            pointerEvents="auto"
           >
             {/* End Button */}
             <Pressable
-              onPress={handleFinish}
+              onPress={handleBackToStudio}
+              testID="meditation-back-button"
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="End meditation session"
+              accessibilityLabel="Back to Meditation Studio"
               style={({ pressed }) => ({
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 6,
+                minWidth: 88,
+                minHeight: 44,
+                justifyContent: 'center',
                 paddingHorizontal: 14,
                 paddingVertical: 8,
                 borderRadius: radii.control,
-                backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                backgroundColor: 'rgba(10, 16, 30, 0.78)',
                 borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.15)',
+                borderColor: 'rgba(255, 255, 255, 0.35)',
                 transform: [{ scale: pressed ? 0.96 : 1 }],
               })}
             >
-              <Ionicons name="close" size={17} color="#FFFFFF" />
+              <Ionicons name="arrow-back" size={17} color="#FFFFFF" />
               <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                End
+                Back
               </Text>
             </Pressable>
 
-            {/* Experience & Audio Indicator (Tap to change sound) */}
-            <Pressable
-              onPress={() => setShowSoundSelector(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Change audio soundscape"
-              style={({ pressed }) => ({
+            {/* Experience & Audio Indicator */}
+            <View
+              style={{
                 alignItems: 'center',
                 paddingHorizontal: 14,
                 paddingVertical: 6,
@@ -308,8 +303,7 @@ export function FullScreenMeditation({
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 borderWidth: 1,
                 borderColor: 'rgba(255, 255, 255, 0.12)',
-                opacity: pressed ? 0.8 : 1,
-              })}
+              }}
             >
               <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800', letterSpacing: -0.3 }}>
                 {preset.title}
@@ -321,18 +315,16 @@ export function FullScreenMeditation({
                   color={preset.accentColor}
                 />
                 <Text style={{ color: 'rgba(255, 255, 255, 0.75)', fontSize: 11, fontWeight: '600' }}>
-                  {activeSound.name} {isCustomSound ? '• Custom' : ''}
+                  {activeSound.name}
                 </Text>
                 <Ionicons name="chevron-down" size={12} color="rgba(255, 255, 255, 0.6)" />
               </View>
-            </Pressable>
-
-            {/* Sound Settings Button */}
+            </View>
             <Pressable
               onPress={() => setShowSoundSelector(true)}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Sound and volume controls"
+              accessibilityLabel="Audio volume controls"
               style={({ pressed }) => ({
                 width: 40,
                 height: 40,
@@ -350,7 +342,10 @@ export function FullScreenMeditation({
           </View>
 
           {/* Bottom Floating Control Dock */}
-          <View style={{ alignItems: 'center', gap: 14 }}>
+          <View
+            style={{ alignItems: 'center', gap: 14, zIndex: 101, elevation: 101 }}
+            pointerEvents="auto"
+          >
             {/* Minimal Timer Display */}
             <View style={{ alignItems: 'center', gap: 3 }}>
               <Text
@@ -425,6 +420,7 @@ export function FullScreenMeditation({
               {/* Main Pause / Resume Button */}
               <Pressable
                 onPress={togglePauseResume}
+                testID="meditation-pause-resume-button"
                 accessibilityRole="button"
                 accessibilityLabel={isRunning ? 'Pause meditation' : 'Resume meditation'}
                 style={({ pressed }) => ({
@@ -449,23 +445,7 @@ export function FullScreenMeditation({
                 </Text>
               </Pressable>
 
-              {/* Sound Palette Selector Button */}
-              <Pressable
-                onPress={() => setShowSoundSelector(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Open sound library"
-                style={({ pressed }) => ({
-                  width: 44,
-                  height: 44,
-                  borderRadius: 14,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  transform: [{ scale: pressed ? 0.94 : 1 }],
-                })}
-              >
-                <Ionicons name="disc-outline" size={20} color="#FFFFFF" />
-              </Pressable>
+              <View style={{ width: 44, height: 44 }} />
             </View>
           </View>
         </View>
@@ -493,10 +473,10 @@ export function FullScreenMeditation({
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View>
                   <Text style={{ color: isDark ? '#EDF1F8' : '#1C1C1E', fontSize: 18, fontWeight: '800' }}>
-                    Meditation Audio Soundscape
+                    Pure Cosmic Waves Audio
                   </Text>
                   <Text style={{ color: isDark ? '#9AA6BC' : '#8E8E93', fontSize: 12, marginTop: 2 }}>
-                    Change sound without interrupting your session
+                    Adjust volume without interrupting your session
                   </Text>
                 </View>
                 <Pressable
@@ -574,117 +554,6 @@ export function FullScreenMeditation({
                   </View>
                 </View>
 
-                {/* Restore Default Sound Button (if customized) */}
-                {isCustomSound && (
-                  <Pressable
-                    onPress={restoreDefaultSound}
-                    style={({ pressed }) => ({
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      padding: 11,
-                      borderRadius: 14,
-                      backgroundColor: isDark ? '#1E283F' : '#EBF5FF',
-                      borderWidth: 1,
-                      borderColor: preset.accentColor,
-                      opacity: pressed ? 0.8 : 1,
-                    })}
-                  >
-                    <Ionicons name="refresh" size={16} color={preset.accentColor} />
-                    <Text style={{ color: preset.accentColor, fontSize: 13, fontWeight: '700' }}>
-                      Restore Default Sound ({getSoundById(preset.defaultSoundId).name})
-                    </Text>
-                  </Pressable>
-                )}
-
-                {/* Available Sounds List */}
-                <View style={{ gap: 8 }}>
-                  <Text style={{ color: isDark ? '#EDF1F8' : '#1C1C1E', fontSize: 13.5, fontWeight: '700' }}>
-                    Available Soundscapes
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                    {MEDITATION_SOUND_LIST.map((snd) => {
-                      const on = snd.id === currentSoundId;
-                      const isDefault = snd.id === preset.defaultSoundId;
-                      return (
-                        <Pressable
-                          key={snd.id}
-                          onPress={() => selectSound(snd.id)}
-                          style={({ pressed }) => ({
-                            width: '47.5%',
-                            flexGrow: 1,
-                            padding: 12,
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: on
-                              ? preset.accentColor
-                              : isDark
-                              ? '#253049'
-                              : '#E5E5EA',
-                            backgroundColor: on
-                              ? isDark
-                                ? 'rgba(0,122,255,0.18)'
-                                : '#EBF5FF'
-                              : isDark
-                              ? '#141C2E'
-                              : '#FFFFFF',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 10,
-                            transform: [{ scale: pressed ? 0.98 : 1 }],
-                          })}
-                        >
-                          <View
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 11,
-                              backgroundColor: on
-                                ? preset.accentColor
-                                : isDark
-                                ? '#1B2439'
-                                : '#F2F2F7',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <Ionicons
-                              name={snd.icon}
-                              size={18}
-                              color={on ? '#FFFFFF' : isDark ? '#EDF1F8' : '#1C1C1E'}
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                color: on
-                                  ? preset.accentColor
-                                  : isDark
-                                  ? '#EDF1F8'
-                                  : '#1C1C1E',
-                                fontSize: 13,
-                                fontWeight: '700',
-                              }}
-                            >
-                              {snd.name}
-                            </Text>
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                color: isDark ? '#9AA6BC' : '#8E8E93',
-                                fontSize: 10.5,
-                              }}
-                            >
-                              {isDefault ? 'Default' : snd.subtitle}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
               </ScrollView>
             </View>
           </View>

@@ -169,7 +169,10 @@ if (isDev) {
     RCT_METRO_PORT: String(METRO_PORT),
   };
 
-  metroProcess = spawn('npx', ['expo', 'start', '--web', '--port', String(METRO_PORT), '--localhost'], {
+  // Use LAN host mode so Metro listens on IPv4 as well as IPv6. The proxy
+  // below connects through 127.0.0.1, which is not reachable when Expo's
+  // localhost mode binds only to ::1 in SDK 57.
+  metroProcess = spawn('npx', ['expo', 'start', '--web', '--port', String(METRO_PORT), '--host', 'lan'], {
     stdio: 'inherit',
     env: metroEnv,
   });
