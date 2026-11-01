@@ -186,6 +186,36 @@ export default function FocusCenterScreen() {
 
   return (
     <Shell active="FocusCenter" title="Focus & Wellness" subtitle="Choose a session for your next study moment">
+      <Pressable
+        onPress={() => navigation.navigate('FocusLock')}
+        accessibilityRole="button"
+        accessibilityLabel="Open Focus Lock setup"
+        style={({ pressed }) => ({
+          minHeight: 132,
+          marginBottom: 14,
+          padding: 20,
+          borderRadius: 20,
+          backgroundColor: isDark ? '#1A2E3D' : colors.navy,
+          borderWidth: 1,
+          borderColor: isDark ? '#315269' : '#38559A',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 16,
+          opacity: pressed ? 0.9 : 1,
+          transform: [{ scale: pressed ? 0.99 : 1 }],
+        })}
+      >
+        <View style={{ width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' }}>
+          <Ionicons name="lock-closed-outline" size={25} color="#FFFFFF" />
+        </View>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Txt size={18} weight="800" color="#FFFFFF">Focus Lock</Txt>
+          <Txt size={12.5} color="rgba(255,255,255,0.78)">Set a focus timer and choose what you want to avoid.</Txt>
+          <Txt size={11} weight="700" color="#FFFFFF" style={{ marginTop: 4 }}>SET UP SESSION  &gt;</Txt>
+        </View>
+        <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+      </Pressable>
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
         {ACTIVITIES.map((item) => {
           const color = colors[item.colorKey];

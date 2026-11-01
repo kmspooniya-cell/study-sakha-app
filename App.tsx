@@ -26,6 +26,7 @@ import BookReaderScreen from './screens/BookReaderScreen';
 import CurrentAffairsScreen from './screens/CurrentAffairsScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import FocusCenterScreen from './screens/FocusCenterScreen';
+import FocusLockScreen from './screens/FocusLockScreen';
 import HobbiesScreen from './screens/HobbiesScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import MoreScreen from './screens/MoreScreen';
@@ -89,6 +90,7 @@ const linking = {
               StudentTestimonials: 'student-testimonials',
               Admin: 'admin',
               Hobbies: 'focus/hobbies',
+              FocusLock: 'focus/lock',
             },
           },
         },
@@ -226,6 +228,7 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
       <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
+      <AppStack.Screen name="FocusLock" component={FocusLockScreen} />
       <AppStack.Screen name="Hobbies" component={HobbiesScreen} />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
       <AppStack.Screen name="Settings" component={SettingsScreen} />
