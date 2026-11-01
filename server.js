@@ -53,15 +53,26 @@ app.post('/api/chat', handleChat);
 
 // Audio Library catalog endpoint
 app.get('/api/audio-catalog', (req, res) => {
-  const p = path.join(__dirname, 'assets', 'audio_library', 'pure_cosmic_waves.mp3');
-  const size = fs.existsSync(p) ? fs.statSync(p).size : 9852000;
+  const pDeep = path.join(__dirname, 'assets', 'audio_library', 'deep_positive_energy.mp3');
+  const sizeDeep = fs.existsSync(pDeep) ? fs.statSync(pDeep).size : 6000726;
+  const pCosmic = path.join(__dirname, 'assets', 'audio_library', 'pure_cosmic_waves.mp3');
+  const sizeCosmic = fs.existsSync(pCosmic) ? fs.statSync(pCosmic).size : 9852000;
   res.json([
+    {
+      id: 'deep_positive_energy',
+      name: 'Deep Positive Energy',
+      subtitle: '30-Minute deep meditation music for positive energy & inner peace (10 mins tuned)',
+      filename: 'deep_positive_energy.mp3',
+      sizeBytes: sizeDeep,
+      durationSeconds: 600,
+      downloadUrl: '/api/audio/deep_positive_energy.mp3',
+    },
     {
       id: 'pure_cosmic_waves',
       name: 'Pure Cosmic Waves',
       subtitle: 'Harmonic deep cosmic meditation waves (10 mins)',
       filename: 'pure_cosmic_waves.mp3',
-      sizeBytes: size,
+      sizeBytes: sizeCosmic,
       durationSeconds: 609,
       downloadUrl: '/api/audio/pure_cosmic_waves.mp3',
     },
