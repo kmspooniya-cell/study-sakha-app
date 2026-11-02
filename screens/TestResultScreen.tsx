@@ -1,13 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Donut, HBar, SvgLegend } from '../components/Charts';
 import { DetailHeader, useLayout } from '../components/Shell';
 import { Button, Card, EmptyState, ProgressRing, SectionHeader, Tag, Txt } from '../components/ui';
-import { TESTS } from '../lib/data';
+import { getTests } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -16,12 +16,13 @@ export default function TestResultScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { state } = useStore();
+  const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
   const [tab, setTab] = useState<'summary' | 'review'>('summary');
   const headerContext = route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : {};
 
   const result = state.results.find((r) => r.id === route.params?.resultId) ?? state.results[0];
-  const test = result ? TESTS.find((t) => t.id === result.testId) : undefined;
+  const test = result ? tests.find((t) => t.id === result.testId) : undefined;
 
   if (!result || !test) {
     return (

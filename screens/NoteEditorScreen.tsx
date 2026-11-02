@@ -1,12 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DetailHeader, useLayout } from '../components/Shell';
 import { Button, Card, Chip, Field, SectionHeader, Tag, Txt } from '../components/ui';
-import { EXAMS, RESOURCES, SUBJECTS } from '../lib/data';
+import { EXAMS, getResources, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
+import { createStudentContentSignedUrl } from '../lib/supabase';
 import { radii, useTheme } from '../lib/theme';
 import { UserNote } from '../lib/types';
 
@@ -61,9 +62,10 @@ export default function NoteEditorScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { state, dispatch } = useStore();
+  const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
 
-  const resource = route.params?.resourceId ? RESOURCES.find((r) => r.id === route.params.resourceId) : undefined;
+  const resource = route.params?.resourceId ? resources.find((r) => r.id === route.params.resourceId) : undefined;
   const existing = route.params?.noteId ? state.notes.find((n) => n.id === route.params.noteId) : undefined;
   const readOnly = !!resource;
 
@@ -74,6 +76,7 @@ export default function NoteEditorScreen() {
   const [tags, setTags] = useState<string[]>(existing?.tags ?? resource?.tags ?? []);
   const [body, setBody] = useState(existing?.body ?? resource?.body.join('\n\n') ?? '');
   const [saved, setSaved] = useState(false);
+  const [fileError, setFileError] = useState('');
   const [tool, setTool] = useState<'none' | 'summary' | 'cards' | 'quiz'>('none');
   const [quizPick, setQuizPick] = useState<Record<number, number>>({});
 
@@ -82,6 +85,20 @@ export default function NoteEditorScreen() {
   const quiz = useMemo(() => buildQuiz(body, subject), [body, subject]);
 
   const starred = resource ? state.starred.includes(resource.id) : false;
+
+  const openResourceFile = async () => {
+    if (!resource) return;
+    setFileError('');
+    try {
+      const url = resource.fileObjectPath
+        ? await createStudentContentSignedUrl(resource.fileObjectPath)
+        : resource.sourceUrl;
+      if (!url) throw new Error('No file is attached to this resource.');
+      await Linking.openURL(url);
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : 'Unable to open this PDF.');
+    }
+  };
 
   const save = () => {
     const note: UserNote = {
@@ -190,7 +207,11 @@ export default function NoteEditorScreen() {
                     <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
                       <Button label="Mark 50% done" variant="outline" size="sm" onPress={() => markProgress(50)} />
                       <Button label="Mark complete" icon="checkmark-circle-outline" size="sm" onPress={() => markProgress(100)} />
+                      {resource!.fileObjectPath || resource!.sourceUrl ? (
+                        <Button label="Open hosted source" icon="open-outline" size="sm" variant="soft" onPress={openResourceFile} />
+                      ) : null}
                     </View>
+                    {fileError ? <Txt size={12} color={colors.danger}>{fileError}</Txt> : null}
                   </View>
                 ) : (
                   <Field value={body} onChangeText={setBody} placeholder={'Write your revision points here.\n\nUse one line per idea — Sakha turns each line into a flashcard.'} multiline minHeight={260} />

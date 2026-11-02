@@ -2,13 +2,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { CustomStudyPlan } from '../components/DashboardStudyTools';
-import { AppBottomNav, AppHeader } from '../components/Shell';
+import { Shell, useLayout } from '../components/Shell';
 import { ProgressBar, Tag } from '../components/ui';
-import { CURRENT_AFFAIRS, EXAMS, RESOURCES, TESTS, TODAY_PLAN } from '../lib/data';
+import { EXAMS, getCurrentAffairs, getResources, getTests, TODAY_PLAN } from '../lib/data';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
 
@@ -35,9 +35,12 @@ export default function DashboardScreen() {
   const { colors, scheme } = useTheme();
   const nav = useNavigation<any>();
   const { state, streak, todayMinutes, dispatch } = useStore();
-  const { width } = useWindowDimensions();
-  const isTablet = width >= 700;
-  const isWide = width >= 1000;
+  const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
+  const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
+  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
+  const { isTablet, isDesktop } = useLayout();
+  const isTabletOrLarger = isTablet || isDesktop;
+  const isWide = isDesktop;
   const stitch = scheme === 'light' ? stitchLight : stitchDark;
   const styles = useMemo(() => makeStyles(colors, scheme), [colors, scheme]);
 
@@ -72,10 +75,10 @@ export default function DashboardScreen() {
   const continueItems = Object.entries(state.progress)
     .sort((a, b) => (Number(b[1].at) || 0) - (Number(a[1].at) || 0))
     .slice(0, 3)
-    .map(([id, progress]) => ({ id, ...progress, percent: clamp(Number(progress.percent) || 0, 0, 100), res: RESOURCES.find((resource) => resource.id === id) }))
+    .map(([id, progress]) => ({ id, ...progress, percent: clamp(Number(progress.percent) || 0, 0, 100), res: resources.find((resource) => resource.id === id) }))
     .filter((item) => item.res);
-  const liveTests = TESTS.filter((test) => Boolean(test.liveAt));
-  const recent = RESOURCES.filter((resource) => resource.exam === exam.id).slice(0, isWide ? 4 : 3);
+  const liveTests = tests.filter((test) => Boolean(test.liveAt));
+  const recent = resources.filter((resource) => resource.exam === exam.id).slice(0, isWide ? 4 : 3);
   const quickActions = [
     { label: 'Notes', icon: 'document-text' as const, tint: stitch.blue, onPress: () => nav.navigate('NoteEditor', {}) },
     { label: 'Quiz', icon: 'help-circle' as const, tint: stitch.orange, onPress: () => nav.navigate('Tests') },
@@ -88,15 +91,15 @@ export default function DashboardScreen() {
     else if (item.kind === 'ca') nav.navigate('CurrentAffairs');
     else nav.navigate('TestPlayer', { testId: item.refId });
   };
-  const openResource = (resource: (typeof RESOURCES)[number]) => nav.navigate(resource.type === 'book' ? 'BookReader' : 'NoteEditor', { resourceId: resource.id });
+  const openResource = (resource: (typeof resources)[number]) => nav.navigate(resource.type === 'book' ? 'BookReader' : 'NoteEditor', { resourceId: resource.id });
   const radius = 15.9;
   const circumference = 2 * Math.PI * radius;
 
   return (
-    <View style={styles.mainContainer}>
-      <AppHeader />
+    <Shell active="Dashboard" title="" subtitle="" scroll={false} contentPadding={0}>
+      <View style={styles.mainContainer}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={[styles.contentWidth, !isTablet && styles.mobileContentWidth]}>
+        <View style={[styles.contentWidth, !isTabletOrLarger && styles.mobileContentWidth]}>
           <LinearGradient colors={['#1E1B2E', '#2A1D33', '#171224']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
             <View pointerEvents="none" style={styles.heroGlowTop} />
             <View pointerEvents="none" style={styles.heroGlowBottom} />
@@ -127,7 +130,7 @@ export default function DashboardScreen() {
           <SectionHeader icon="grid" title="Quick actions" action="Explore tools" onPress={() => nav.navigate('Library')} styles={styles} />
           <View style={styles.quickActionsGrid}>{quickActions.map((item) => <Pressable accessibilityRole="button" key={item.label} onPress={item.onPress} style={[styles.quickActionCard, styles.card]}><View style={[styles.quickActionIcon, { backgroundColor: item.tint + '22' }]}><Ionicons name={item.icon} size={20} color={item.tint} /></View><Text style={[styles.quickActionText, { color: item.tint }]}>{item.label}</Text></Pressable>)}</View>
 
-          <View style={[styles.layoutFlex, isTablet && styles.tabletLayout]}>
+          <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
             <View style={styles.layoutCol}>
               <View style={styles.plannerWrap}><CustomStudyPlan plan={TODAY_PLAN.filter((task) => task.id !== 'tp4')} planDone={state.planDone} tasks={state.plannerTasks} tasksLoaded={state.plannerTasksLoaded} taskLoadError={state.plannerTaskLoadError} persistenceError={state.plannerPersistenceError} defaultOverrides={state.plannerDefaultOverrides} deletedDefaults={state.plannerDeletedDefaults} dispatch={dispatch} onOpenItem={openPlanItem} onOpenFocus={() => nav.navigate('FocusCenter')} onOpenPlanner={() => nav.navigate('StudyPlanner')} /></View>
 
@@ -149,15 +152,15 @@ export default function DashboardScreen() {
                 {liveTests.length === 0 ? <View style={[styles.card, styles.sectionCard]}><Text style={styles.emptyText}>No live tests scheduled.</Text></View> : liveTests.map((test) => <View key={test.id} style={styles.testCard}><View style={styles.testHeader}><Text style={styles.testTime}>● {test.liveAt}</Text><Tag label={test.kind} color={stitch.blue} /></View><Text style={styles.testTitle}>{test.title}</Text><Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text><Pressable accessibilityRole="button" onPress={() => nav.navigate('TestPlayer', { testId: test.id })} style={styles.primaryBtn}><Text style={styles.primaryBtnText}>Enter test</Text></Pressable></View>)}
               </View>
 
-              <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{CURRENT_AFFAIRS.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
+              <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{currentAffairs.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
 
               <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="library" title="Fresh in library" action="See all" onPress={() => nav.navigate('Library')} styles={styles} />{recent.map((resource) => <Pressable accessibilityRole="button" key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}><View style={[styles.iconBox, { backgroundColor: `${stitch.blue}18` }]}><Ionicons name="book" size={18} color={stitch.blue} /></View><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text><Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}</View>
             </View>
           </View>
         </View>
       </ScrollView>
-      <AppBottomNav active="Dashboard" />
-    </View>
+      </View>
+    </Shell>
   );
 }
 
@@ -174,7 +177,7 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
   const palette = scheme === 'light' ? stitchLight : stitchDark;
   return StyleSheet.create({
     mainContainer: { flex: 1, backgroundColor: palette.bg },
-    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 112 },
+    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
     contentWidth: { width: '100%', maxWidth: 1180, alignSelf: 'center' },
     mobileContentWidth: { maxWidth: 448 },
     card: { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1, borderRadius: 20, ...shadow(colors, 1) },

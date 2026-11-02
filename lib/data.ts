@@ -3,6 +3,7 @@ import {
   CurrentAffair,
   Exam,
   Learner,
+  ManagedContent,
   MockTest,
   PendingContent,
   PYQ,
@@ -777,6 +778,85 @@ export const CURRENT_AFFAIRS: CurrentAffair[] = [
   },
 ];
 
+export function getResources(managedContent: ManagedContent[]): Resource[] {
+  const managed = managedContent
+    .filter((item) => item.published && (item.type === 'note' || item.type === 'book' || item.type === 'pyq-set'))
+    .map((item): Resource => {
+      const body = (item.body ?? '').split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+      return {
+        id: item.id,
+        type: item.type as Resource['type'],
+        title: item.title,
+        subject: item.subject,
+        category: item.type === 'book' ? item.topic : undefined,
+        exam: item.exam,
+        author: 'Study Sakha',
+        pages: Math.max(1, Math.ceil((item.body?.length ?? 0) / 1800)),
+        minutes: Math.max(1, Math.ceil((item.body?.length ?? item.description.length) / 700)),
+        rating: 0,
+        downloads: 0,
+        tags: item.topic ? [item.topic] : [],
+        summary: item.description,
+        folder: item.type === 'book' ? 'Books' : item.topic || item.subject,
+        body: body.length ? body : [item.description],
+        cover: cover(`managed-${item.id}`),
+        updated: new Date(item.updatedAt).toISOString().slice(0, 10),
+        topic: item.topic,
+        sourceUrl: item.sourceUrl,
+        fileObjectPath: item.fileObjectPath,
+      };
+    });
+  return [...RESOURCES, ...managed];
+}
+
+export function getTests(managedContent: ManagedContent[]): MockTest[] {
+  const managed = managedContent
+    .filter((item) => item.published && item.type === 'test' && item.questions?.length)
+    .map((item): MockTest => {
+      const questions = item.questions ?? [];
+      const sectionCounts = new Map<string, number>();
+      questions.forEach((question) => sectionCounts.set(question.section, (sectionCounts.get(question.section) ?? 0) + 1));
+      return {
+        id: item.id,
+        title: item.title,
+        exam: item.exam,
+        kind: 'Full Mock',
+        durationMin: item.durationMin ?? 10,
+        marksPerQ: 1,
+        negative: 0.33,
+        attempts: 0,
+        sections: Array.from(sectionCounts, ([name, count]) => ({ name, count })),
+        questions,
+        subject: item.subject,
+        topic: item.topic,
+        sourceUrl: item.sourceUrl,
+      };
+    });
+  return [...TESTS, ...managed];
+}
+
+export function getCurrentAffairs(managedContent: ManagedContent[]): CurrentAffair[] {
+  const managed = managedContent
+    .filter((item) => item.published && item.type === 'current-affairs')
+    .map((item): CurrentAffair => {
+      const points = item.points?.length ? item.points : [item.description];
+      return {
+        id: item.id,
+        title: item.title,
+        date: item.eventDate || new Date(item.updatedAt).toISOString().slice(0, 10),
+        category: item.topic || item.subject || 'General',
+        summary: item.description,
+        points,
+        exams: [item.exam],
+        readMinutes: Math.max(1, Math.ceil((item.description.length + points.join(' ').length) / 500)),
+        subject: item.subject,
+        topic: item.topic,
+        sourceUrl: item.sourceUrl,
+      };
+    });
+  return [...CURRENT_AFFAIRS, ...managed];
+}
+
 export const LEARNERS: Learner[] = [
   { id: 'l1', name: 'Ananya Deshmukh', email: 'ananya.d@example.in', exam: 'upsc', joined: '2026-02-14', streak: 46, tests: 38, avgScore: 72, plan: 'Elite', status: 'active' },
   { id: 'l2', name: 'Rohit Kumar', email: 'rohit.k@example.in', exam: 'ssc', joined: '2026-04-02', streak: 12, tests: 61, avgScore: 64, plan: 'Pro', status: 'active' },
@@ -801,11 +881,6 @@ export const SEED_NOTIFICATIONS: AppNotification[] = [
   { id: 'n2', title: 'New in your library', body: 'Environment: Conventions, Protocols & Reports was updated with 2026 data.', at: Date.now() - 1000 * 60 * 60 * 5, kind: 'content', read: false },
   { id: 'n3', title: 'Streak milestone unlocked', body: 'You crossed a 7-day streak. Keep going to unlock the Consistency badge.', at: Date.now() - 1000 * 60 * 60 * 26, kind: 'streak', read: true },
   { id: 'n4', title: 'Sakha AI got smarter', body: 'Ask for a recovery plan after any mock and Sakha now builds a 7-day fix list.', at: Date.now() - 1000 * 60 * 60 * 50, kind: 'announcement', read: true },
-];
-
-export const DEMO_ACCOUNTS = [
-  { email: 'aspirant@sakha.in', password: 'sakha123', name: 'Ananya Deshmukh', role: 'learner' as const, exam: 'upsc' as const },
-  { email: 'admin@sakha.in', password: 'admin123', name: 'Sakha Admin', role: 'admin' as const, exam: 'upsc' as const },
 ];
 
 export const BADGES = [

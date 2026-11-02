@@ -1,10 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { FlatList, Linking, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Button, Card, Chip, EmptyState, Field, Tag, Txt } from '../components/ui';
-import { CURRENT_AFFAIRS, EXAMS } from '../lib/data';
+import { EXAMS, getCurrentAffairs } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -12,23 +12,24 @@ export default function CurrentAffairsScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
   const { state, dispatch } = useStore();
+  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
   const { isMobile } = useLayout();
   const [category, setCategory] = useState('all');
   const [exam, setExam] = useState('all');
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState<string | null>(CURRENT_AFFAIRS[0].id);
+  const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const categories = useMemo(() => Array.from(new Set(CURRENT_AFFAIRS.map((c) => c.category))), []);
+  const categories = useMemo(() => Array.from(new Set(currentAffairs.map((c) => c.category))), [currentAffairs]);
 
   const data = useMemo(() => {
-    let list = CURRENT_AFFAIRS;
+    let list = currentAffairs;
     if (category !== 'all') list = list.filter((c) => c.category === category);
     if (exam !== 'all') list = list.filter((c) => c.exams.includes(exam as any));
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) => `${c.title} ${c.summary} ${c.points.join(' ')}`.toLowerCase().includes(q));
     return list;
-  }, [category, exam, query]);
+  }, [currentAffairs, category, exam, query]);
 
   const header = (
     <View style={{ gap: 14, marginBottom: 8 }}>
@@ -42,7 +43,7 @@ export default function CurrentAffairsScreen() {
               Daily digest · {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}
             </Txt>
             <Txt size={12.5} color={colors.textMuted}>
-              {CURRENT_AFFAIRS.length} curated items · prelims-ready bullets · exam tagging
+              {currentAffairs.length} curated items · prelims-ready bullets · exam tagging
             </Txt>
           </View>
         </View>
@@ -136,6 +137,7 @@ export default function CurrentAffairsScreen() {
                         onPress={() => nav.navigate('SakhaAI', { prompt: `Explain the exam relevance of: ${item.title}` })}
                       />
                       <Button label="Save as note" icon="bookmark-outline" size="sm" variant="outline" onPress={() => nav.navigate('NoteEditor', {})} />
+                      {item.sourceUrl ? <Button label="Open source" icon="open-outline" size="sm" variant="outline" onPress={() => Linking.openURL(item.sourceUrl!)} /> : null}
                     </View>
                   </View>
                 ) : (

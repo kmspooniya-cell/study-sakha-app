@@ -22,16 +22,22 @@ export default function SignUpScreen() {
   const [exam, setExam] = useState<ExamId>('upsc');
   const [goal, setGoal] = useState(180);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     setError('');
+    setMessage('');
     setBusy(true);
-    setTimeout(() => {
-      const res = signUp(name, email, password, exam);
-      setBusy(false);
+    try {
+      const res = await signUp(name, email, password, exam);
       if (!res.ok) setError(res.error ?? 'Unable to create the account.');
-    }, 350);
+      else if (res.needsEmailConfirmation) setMessage('Account created. Check your email to confirm it before signing in.');
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Unable to create the account.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -86,6 +92,8 @@ export default function SignUpScreen() {
                   </Txt>
                 </View>
               ) : null}
+
+              {message ? <Txt size={12.5} weight="600" color={colors.success}>{message}</Txt> : null}
 
               <Button label="Create account" icon="arrow-forward" full size="lg" loading={busy} onPress={submit} />
 

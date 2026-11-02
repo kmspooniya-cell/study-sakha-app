@@ -35,12 +35,22 @@ export default function ProfileScreen() {
   const [draftExam, setDraftExam] = useState<ExamId>('upsc');
   const [draftPhotoUri, setDraftPhotoUri] = useState<string | undefined>();
   const [photoError, setPhotoError] = useState('');
+  const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<ProfileTab>('info');
 
   const user = state.user;
   const exam = EXAMS.find((item) => item.id === (user?.exam ?? 'upsc')) ?? EXAMS[0];
   const examFocus = user?.examFocus?.trim() || exam.short;
   const avatarSize = isMobile ? 68 : 78;
+  const handleSignOut = async () => {
+    setAuthError('');
+    try {
+      const result = await signOut();
+      if (!result.ok) setAuthError(result.error ?? 'Unable to sign out.');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -247,7 +257,8 @@ export default function ProfileScreen() {
             {user?.role === 'admin' ? (
               <Button label="Admin portal" icon="shield-checkmark-outline" variant="soft" full onPress={() => nav.navigate('Admin')} />
             ) : null}
-            <Button label="Sign out" icon="log-out-outline" variant="danger" full onPress={signOut} />
+            {authError ? <Txt size={12.5} color={colors.danger}>{authError}</Txt> : null}
+            <Button label="Sign out" icon="log-out-outline" variant="danger" full onPress={handleSignOut} />
           </Card>
         </View>
       ) : null}

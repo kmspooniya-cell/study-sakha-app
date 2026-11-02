@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { FlatList, Image, Modal, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
-import { EXAMS, RESOURCES, SUBJECTS } from '../lib/data';
+import { EXAMS, getResources, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
 import type { State } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
@@ -34,9 +34,10 @@ const BOOK_CATEGORIES = [
 ] as const;
 
 function getSectionResources(section: LibrarySectionKey, state: State): Resource[] {
-  if (section === 'starred') return RESOURCES.filter((resource) => state.starred.includes(resource.id));
+  const resources = getResources(state.managedContent);
+  if (section === 'starred') return resources.filter((resource) => state.starred.includes(resource.id));
   if (section === 'downloads') return [];
-  return RESOURCES.filter((resource) => resource.type === section);
+  return resources.filter((resource) => resource.type === section);
 }
 
 function SectionCount({ section, state }: { section: LibrarySection; state: State }) {
@@ -102,6 +103,16 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
   const { state, dispatch } = useStore();
   const { isMobile, isDesktop, isTablet } = useLayout();
   const section = LIBRARY_SECTIONS.find((item) => item.key === sectionKey)!;
+  const bookCategories = useMemo(
+    () => Array.from(new Set([
+      ...BOOK_CATEGORIES,
+      ...getResources(state.managedContent)
+        .filter((resource) => resource.type === 'book')
+        .map((resource) => resource.category)
+        .filter((category): category is string => Boolean(category)),
+    ])),
+    [state.managedContent]
+  );
 
   const [exam, setExam] = useState<string>(route.params?.exam ?? 'all');
   const [subject, setSubject] = useState<string>(route.params?.subject ?? 'all');
@@ -113,7 +124,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
 
   const sectionResources = useMemo(
     () => getSectionResources(sectionKey, state),
-    [sectionKey, state.starred]
+    [sectionKey, state.managedContent, state.starred]
   );
 
   const subjects = useMemo(() => {
@@ -350,7 +361,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
                   <Ionicons name="close" size={22} color={colors.textMuted} />
                 </Pressable>
               </View>
-              {['all', ...BOOK_CATEGORIES].map((category) => {
+              {['all', ...bookCategories].map((category) => {
                 const active = bookCategory === category;
                 return (
                   <Pressable

@@ -29,9 +29,19 @@ export default function SettingsScreen() {
   const { state, dispatch, signOut } = useStore();
   const lang = state.settings.language;
   const [cleared, setCleared] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
 
   const set = (patch: any) => dispatch({ type: 'settings', patch });
+  const handleSignOut = async () => {
+    setAuthError('');
+    try {
+      const result = await signOut();
+      if (!result.ok) setAuthError(result.error ?? 'Unable to sign out.');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
+  };
 
   const Row = ({ title, body, right }: { title: string; body?: string; right: React.ReactNode }) => (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 }}>
@@ -190,7 +200,8 @@ export default function SettingsScreen() {
             <Button label="Admin portal" icon="shield-checkmark-outline" variant="soft" full onPress={() => nav.navigate('Admin')} />
           ) : null}
           <Button label="View profile" icon="person-outline" variant="outline" full onPress={() => nav.navigate('Profile')} />
-          <Button label={t('signOut', lang)} icon="log-out-outline" variant="danger" full onPress={signOut} />
+            {authError ? <Txt size={12.5} color={colors.danger}>{authError}</Txt> : null}
+            <Button label={t('signOut', lang)} icon="log-out-outline" variant="danger" full onPress={handleSignOut} />
         </View>
       </Card>
     ),

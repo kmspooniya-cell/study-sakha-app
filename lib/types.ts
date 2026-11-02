@@ -24,6 +24,9 @@ export type Resource = {
   cover: string;
   toc?: string[];
   updated: string;
+  topic?: string;
+  sourceUrl?: string;
+  fileObjectPath?: string;
 };
 
 export type PYQ = {
@@ -61,6 +64,9 @@ export type MockTest = {
   liveAt?: string;
   sections: { name: string; count: number }[];
   questions: TestQuestion[];
+  subject?: string;
+  topic?: string;
+  sourceUrl?: string;
 };
 
 export type TestResult = {
@@ -131,6 +137,30 @@ export type CurrentAffair = {
   points: string[];
   exams: ExamId[];
   readMinutes: number;
+  subject?: string;
+  topic?: string;
+  sourceUrl?: string;
+};
+
+export type ManagedContentType = Resource['type'] | 'test' | 'current-affairs';
+
+export type ManagedContent = {
+  id: string;
+  type: ManagedContentType;
+  title: string;
+  description: string;
+  exam: ExamId;
+  subject: string;
+  topic: string;
+  sourceUrl?: string;
+  fileObjectPath?: string;
+  published: boolean;
+  updatedAt: number;
+  body?: string;
+  questions?: TestQuestion[];
+  durationMin?: number;
+  points?: string[];
+  eventDate?: string;
 };
 
 export type Learner = {

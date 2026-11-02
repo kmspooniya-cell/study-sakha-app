@@ -1,12 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer } from 'react';
-import { BADGES, DEMO_ACCOUNTS, LEARNERS, PENDING_CONTENT, SEED_NOTIFICATIONS } from './data';
+import { BADGES, LEARNERS, PENDING_CONTENT, SEED_NOTIFICATIONS } from './data';
+import { STUDENT_CONTENT_BUCKET, supabase, supabaseConfigured } from './supabase';
 import { ThemeMode } from './theme';
-import { AppNotification, ChatMsg, ExamId, Learner, PendingContent, TestResult, UserNote } from './types';
+import { AppNotification, ChatMsg, ExamId, Learner, ManagedContent, ManagedContentType, PendingContent, TestQuestion, TestResult, UserNote } from './types';
 
 const KEY = 'sakha-store-v1';
 
 export type User = {
+  id: string;
   name: string;
   email: string;
   role: 'learner' | 'admin';
@@ -62,6 +65,7 @@ export type PlannerSettings = {
 
 export type State = {
   hydrated: boolean;
+  authReady: boolean;
   user: User | null;
   settings: {
     themeMode: ThemeMode;
@@ -94,6 +98,8 @@ export type State = {
   notifications: AppNotification[];
   learners: Learner[];
   queue: PendingContent[];
+  managedContent: ManagedContent[];
+  managedContentError: string | null;
   announcements: Announcement[];
 };
 
@@ -214,6 +220,7 @@ function seedStudyLog(): Record<string, number> {
 
 const initialState: State = {
   hydrated: false,
+  authReady: false,
   user: null,
   settings: { themeMode: 'system', language: 'en', dailyGoalMin: 180, textScale: 1, notifications: true },
   notes: [
@@ -273,6 +280,8 @@ const initialState: State = {
   notifications: SEED_NOTIFICATIONS,
   learners: LEARNERS,
   queue: PENDING_CONTENT,
+  managedContent: [],
+  managedContentError: null,
   announcements: [
     {
       id: 'a1',
@@ -286,6 +295,7 @@ const initialState: State = {
 
 type Action =
   | { type: 'hydrate'; payload: Partial<State> }
+  | { type: 'authResolved'; user: User | null }
   | { type: 'signIn'; user: User }
   | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>> }
   | { type: 'signOut' }
@@ -331,12 +341,17 @@ type Action =
   | { type: 'notify'; notif: AppNotification }
   | { type: 'learnerStatus'; id: string; status: 'active' | 'suspended' }
   | { type: 'reviewContent'; id: string; status: 'approved' | 'rejected' }
+  | { type: 'saveManagedContent'; content: ManagedContent }
+  | { type: 'deleteManagedContent'; id: string }
+  | { type: 'managedContentLoaded'; content: ManagedContent[]; error: string | null }
   | { type: 'announce'; item: Announcement };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate':
-      return { ...state, ...action.payload, hydrated: true };
+      return { ...state, ...action.payload, user: state.user, authReady: state.authReady, hydrated: true };
+    case 'authResolved':
+      return { ...state, user: action.user, authReady: true };
     case 'signIn':
       return { ...state, user: action.user };
     case 'updateProfile':
@@ -553,6 +568,24 @@ function reducer(state: State, action: Action): State {
       return { ...state, learners: state.learners.map((l) => (l.id === action.id ? { ...l, status: action.status } : l)) };
     case 'reviewContent':
       return { ...state, queue: state.queue.map((c) => (c.id === action.id ? { ...c, status: action.status } : c)) };
+    case 'saveManagedContent': {
+      const exists = state.managedContent.some((item) => item.id === action.content.id);
+      return {
+        ...state,
+        managedContentError: null,
+        managedContent: exists
+          ? state.managedContent.map((item) => item.id === action.content.id ? action.content : item)
+          : [action.content, ...state.managedContent],
+      };
+    }
+    case 'deleteManagedContent':
+      return {
+        ...state,
+        managedContent: state.managedContent.filter((item) => item.id !== action.id),
+        managedContentError: null,
+      };
+    case 'managedContentLoaded':
+      return { ...state, managedContent: action.content, managedContentError: action.error };
     case 'announce':
       return { ...state, announcements: [action.item, ...state.announcements] };
     default:
@@ -567,16 +600,187 @@ type Ctx = {
   todayDone: string[];
   unread: number;
   badges: typeof BADGES;
-  signIn: (email: string, password: string) => { ok: boolean; error?: string };
-  signUp: (name: string, email: string, password: string, exam: ExamId) => { ok: boolean; error?: string };
-  signOut: () => void;
+  signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  signUp: (name: string, email: string, password: string, exam: ExamId) => Promise<{ ok: boolean; error?: string; needsEmailConfirmation?: boolean }>;
+  signOut: () => Promise<{ ok: boolean; error?: string }>;
+  saveManagedContent: (
+    content: ManagedContent,
+    file?: { blob: Blob; name: string; size: number }
+  ) => Promise<{ ok: true; warning?: string } | { ok: false; error: string }>;
+  deleteManagedContent: (id: string) => Promise<{ ok: true; warning?: string } | { ok: false; error: string }>;
   dispatch: React.Dispatch<Action>;
 };
 
 const StoreCtx = createContext<Ctx | null>(null);
 
+const isExamId = (value: unknown): value is ExamId =>
+  value === 'upsc' || value === 'ssc' || value === 'banking' || value === 'neet' || value === 'jee';
+
+const isManagedContentType = (value: unknown): value is ManagedContentType =>
+  value === 'note' || value === 'book' || value === 'pyq-set' || value === 'test' || value === 'current-affairs';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTestQuestion(value: unknown): value is TestQuestion {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && typeof value.section === 'string'
+    && typeof value.subject === 'string'
+    && typeof value.question === 'string'
+    && Array.isArray(value.options)
+    && value.options.every((option) => typeof option === 'string')
+    && typeof value.answer === 'number'
+    && Number.isInteger(value.answer)
+    && value.answer >= 0
+    && value.answer < value.options.length
+    && typeof value.explanation === 'string';
+}
+
+function managedContentFromRow(value: unknown): ManagedContent | null {
+  if (!isRecord(value) || !isRecord(value.payload)) return null;
+  const { id, content_type, title, description, exam_id, subject, topic, source_url, file_object_path, status, payload, updated_at } = value;
+  if (
+    typeof id !== 'string' ||
+    !isManagedContentType(content_type) ||
+    typeof title !== 'string' ||
+    typeof description !== 'string' ||
+    !isExamId(exam_id) ||
+    typeof subject !== 'string' ||
+    typeof topic !== 'string' ||
+    (source_url !== null && typeof source_url !== 'string') ||
+    (file_object_path !== null && typeof file_object_path !== 'string') ||
+    (status !== 'draft' && status !== 'published') ||
+    typeof updated_at !== 'string'
+  ) return null;
+
+  const updatedAt = new Date(updated_at).getTime();
+  if (!Number.isFinite(updatedAt)) return null;
+  const questions = Array.isArray(payload.questions) && payload.questions.every(isTestQuestion)
+    ? payload.questions
+    : undefined;
+  const points = Array.isArray(payload.points) && payload.points.every((point) => typeof point === 'string')
+    ? payload.points
+    : undefined;
+
+  return {
+    id,
+    type: content_type,
+    title,
+    description,
+    exam: exam_id,
+    subject,
+    topic,
+    sourceUrl: typeof source_url === 'string' ? source_url : undefined,
+    fileObjectPath: typeof file_object_path === 'string' ? file_object_path : undefined,
+    published: status === 'published',
+    updatedAt,
+    body: typeof payload.body === 'string' ? payload.body : undefined,
+    questions,
+    durationMin: typeof payload.durationMin === 'number' ? payload.durationMin : undefined,
+    points,
+    eventDate: typeof payload.eventDate === 'string' ? payload.eventDate : undefined,
+  };
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (!isRecord(error)) {
+    return error instanceof Error ? error.message : fallback;
+  }
+
+  const message = typeof error.message === 'string'
+    ? error.message
+    : error instanceof Error
+      ? error.message
+      : null;
+  if (!message) return fallback;
+
+  const code = typeof error.code === 'string' ? ` (${error.code})` : '';
+  const details = typeof error.details === 'string' ? ` Details: ${error.details}` : '';
+  const hint = typeof error.hint === 'string' ? ` Hint: ${error.hint}` : '';
+  return `${message}${code}${details}${hint}`;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+
+  useEffect(() => {
+    if (!supabaseConfigured) {
+      dispatch({ type: 'authResolved', user: null });
+      return;
+    }
+
+    let active = true;
+    let requestId = 0;
+    const resolveSession = async (session: SupabaseSession | null, currentRequestId: number) => {
+      if (!session) {
+        if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user: null });
+        return;
+      }
+
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser(session.access_token);
+        if (authError || !authData.user) throw authError ?? new Error('Unable to verify the current account.');
+
+        const [profileResult, adminResult] = await Promise.all([
+          supabase.from('profiles').select('display_name, exam_id, joined_at').eq('id', authData.user.id).maybeSingle(),
+          supabase.rpc('is_admin'),
+        ]);
+        if (profileResult.error) console.error('Supabase profile lookup failed:', profileResult.error);
+        if (adminResult.error) console.error('Supabase administrator role lookup failed:', adminResult.error);
+        const profile = profileResult.data;
+        const metadata = authData.user.user_metadata ?? {};
+        const examValue = profile?.exam_id ?? metadata.exam_id;
+        const exam: ExamId = isExamId(examValue) ? examValue : 'upsc';
+        const user: User = {
+          id: authData.user.id,
+          name: profile?.display_name || metadata.display_name || authData.user.email || 'Aspirant',
+          email: authData.user.email ?? '',
+          role: !adminResult.error && adminResult.data === true ? 'admin' : 'learner',
+          exam,
+          joined: profile?.joined_at?.slice(0, 10) ?? authData.user.created_at.slice(0, 10),
+        };
+        if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user });
+      } catch (error) {
+        console.error('Supabase session verification failed:', error);
+        if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user: null });
+      }
+    };
+
+    const initialRequestId = ++requestId;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      const currentRequestId = ++requestId;
+      if (!session) {
+        dispatch({ type: 'authResolved', user: null });
+        return;
+      }
+      setTimeout(() => {
+        if (active && currentRequestId === requestId) void resolveSession(session, currentRequestId);
+      }, 0);
+    });
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (initialRequestId !== requestId) return;
+      if (error) {
+        console.error('Supabase session restore failed:', error);
+        dispatch({ type: 'authResolved', user: null });
+        return;
+      }
+      void resolveSession(data.session, initialRequestId);
+    }).catch((error: unknown) => {
+      if (!active || initialRequestId !== requestId) return;
+      console.error('Supabase session restore failed:', error);
+      dispatch({ type: 'authResolved', user: null });
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -585,6 +789,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (raw) {
           const saved = JSON.parse(raw) as Partial<State> & { offlineResources?: string[] };
           delete saved.offlineResources;
+          delete saved.user;
           const plannerMinutesCredited =
             saved.plannerMinutesCredited ??
             Object.fromEntries(
@@ -597,6 +802,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             type: 'hydrate',
             payload: {
               ...saved,
+              user: null,
+              authReady: false,
+              managedContent: [],
+              managedContentError: null,
               settings: { ...initialState.settings, ...saved.settings },
               plannerSelectedDate: todayKey(),
               plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
@@ -634,6 +843,60 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, []);
+
+  const authenticatedUserId = state.user?.id;
+
+  useEffect(() => {
+    if (!state.hydrated || !state.authReady) return;
+    let active = true;
+
+    if (!authenticatedUserId) {
+      dispatch({ type: 'managedContentLoaded', content: [], error: null });
+      return () => { active = false; };
+    }
+
+    if (!supabaseConfigured) {
+      dispatch({
+        type: 'managedContentLoaded',
+        content: [],
+        error: 'Supabase is not configured for loading published content.',
+      });
+      return () => { active = false; };
+    }
+
+    dispatch({ type: 'managedContentLoaded', content: [], error: null });
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('managed_content')
+          .select('id, content_type, title, description, exam_id, subject, topic, source_url, file_object_path, status, payload, updated_at')
+          .order('updated_at', { ascending: false });
+        if (error) throw error;
+        const content = (data ?? []).map((row: unknown) => managedContentFromRow(row));
+        if (content.some((item) => item === null)) {
+          throw new Error('Supabase returned a managed content record with an invalid format.');
+        }
+        if (active) {
+          dispatch({
+            type: 'managedContentLoaded',
+            content: content.filter((item): item is ManagedContent => item !== null),
+            error: null,
+          });
+        }
+      } catch (error) {
+        console.error('Managed content could not be loaded from Supabase:', error);
+        if (active) {
+          dispatch({
+            type: 'managedContentLoaded',
+            content: [],
+            error: errorMessage(error, 'Unable to load published content from Supabase.'),
+          });
+        }
+      }
+    })();
+
+    return () => { active = false; };
+  }, [state.authReady, state.hydrated, authenticatedUserId]);
 
   useEffect(() => {
     if (!state.hydrated || state.plannerTasksLoaded) return;
@@ -698,24 +961,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!state.hydrated || !state.plannerTasksLoaded) return;
-    const {
-      hydrated,
-      plannerTasksLoaded,
-      plannerSelectedDate,
-      plannerTaskLoadError,
-      plannerPersistenceError,
-      ...rest
-    } = state;
-    AsyncStorage.setItem(KEY, JSON.stringify(rest)).then(
+    const persistentState: Partial<State> = { ...state };
+    delete persistentState.hydrated;
+    delete persistentState.authReady;
+    delete persistentState.user;
+    delete persistentState.managedContent;
+    delete persistentState.managedContentError;
+    delete persistentState.plannerTasksLoaded;
+    delete persistentState.plannerSelectedDate;
+    delete persistentState.plannerTaskLoadError;
+    delete persistentState.plannerPersistenceError;
+    const previousPersistenceError = state.plannerPersistenceError;
+    AsyncStorage.setItem(KEY, JSON.stringify(persistentState)).then(
       () => {
-        if (state.plannerPersistenceError) {
+        if (previousPersistenceError) {
           dispatch({ type: 'plannerPersistence', error: null });
         }
       },
       (error: unknown) => {
         console.error('Study Sakha data could not be saved:', error);
         const message = error instanceof Error ? error.message : 'Unable to save changes on this device.';
-        if (plannerPersistenceError !== message) {
+        if (previousPersistenceError !== message) {
           dispatch({ type: 'plannerPersistence', error: message });
         }
       }
@@ -747,33 +1013,155 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [streak, state.results, state.notes.length]);
 
-  const signIn = useCallback((email: string, password: string) => {
-    const acc = DEMO_ACCOUNTS.find((a) => a.email.toLowerCase() === email.trim().toLowerCase());
-    if (!acc) return { ok: false, error: 'No account found with that email.' };
-    if (acc.password !== password) return { ok: false, error: 'Incorrect password. Try again.' };
-    dispatch({
-      type: 'signIn',
-      user: { name: acc.name, email: acc.email, role: acc.role, exam: acc.exam, joined: '2026-02-14' },
-    });
-    return { ok: true };
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!supabaseConfigured) return { ok: false, error: 'Authentication is not configured for this app.' };
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    return error ? { ok: false, error: error.message } : { ok: true };
   }, []);
 
-  const signUp = useCallback((name: string, email: string, password: string, exam: ExamId) => {
+  const signUp = useCallback(async (name: string, email: string, password: string, exam: ExamId) => {
+    if (!supabaseConfigured) return { ok: false, error: 'Authentication is not configured for this app.' };
     if (name.trim().length < 2) return { ok: false, error: 'Please enter your full name.' };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return { ok: false, error: 'Enter a valid email address.' };
     if (password.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
-    dispatch({
-      type: 'signIn',
-      user: { name: name.trim(), email: email.trim(), role: 'learner', exam, joined: todayKey() },
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { display_name: name.trim(), exam_id: exam } },
     });
-    return { ok: true };
+    return error
+      ? { ok: false, error: error.message }
+      : { ok: true, needsEmailConfirmation: !data.session };
   }, []);
 
-  const signOut = useCallback(() => dispatch({ type: 'signOut' }), []);
+  const signOut = useCallback(async () => {
+    if (!supabaseConfigured) return { ok: false, error: 'Authentication is not configured for this app.' };
+    const { error } = await supabase.auth.signOut();
+    return error ? { ok: false, error: error.message } : { ok: true };
+  }, []);
+
+  const saveManagedContent = useCallback(async (
+    content: ManagedContent,
+    file?: { blob: Blob; name: string; size: number }
+  ): Promise<{ ok: true; warning?: string } | { ok: false; error: string }> => {
+    if (!supabaseConfigured) return { ok: false, error: 'Supabase is not configured for content management.' };
+    if (file && (file.size < 1 || file.size > 50 * 1024 * 1024)) {
+      return { ok: false, error: 'PDF files must be smaller than 50 MB.' };
+    }
+    if (file && !file.name.toLowerCase().endsWith('.pdf')) {
+      return { ok: false, error: 'Only PDF files can be uploaded.' };
+    }
+
+    let uploadedPath: string | undefined;
+    let databaseWriteSucceeded = false;
+    const previousPath = state.managedContent.find((item) => item.id === content.id)?.fileObjectPath;
+    let savedContent: ManagedContent;
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData.user) throw userError ?? new Error('Sign in before saving content.');
+
+      let fileObjectPath = content.fileObjectPath ?? null;
+      if (file) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80) || 'document.pdf';
+        uploadedPath = `content/${content.id}/${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(STUDENT_CONTENT_BUCKET)
+          .upload(uploadedPath, file.blob, { contentType: 'application/pdf', upsert: false });
+        if (uploadError) throw uploadError;
+        fileObjectPath = uploadedPath;
+      }
+
+      const row = {
+        id: content.id,
+        content_type: content.type,
+        title: content.title,
+        description: content.description,
+        exam_id: content.exam,
+        subject: content.subject,
+        topic: content.topic,
+        source_url: content.sourceUrl ?? null,
+        file_object_path: fileObjectPath,
+        status: content.published ? 'published' : 'draft',
+        payload: {
+          body: content.body ?? null,
+          questions: content.questions ?? null,
+          durationMin: content.durationMin ?? null,
+          points: content.points ?? null,
+          eventDate: content.eventDate ?? null,
+        },
+        updated_by: userData.user.id,
+      };
+      const result = state.managedContent.some((item) => item.id === content.id)
+        ? await supabase.from('managed_content').update(row).eq('id', content.id).select('*').single()
+        : await supabase.from('managed_content').insert({ ...row, created_by: userData.user.id }).select('*').single();
+      if (result.error) throw result.error;
+      databaseWriteSucceeded = true;
+      const savedContentResult = managedContentFromRow(result.data);
+      if (!savedContentResult) throw new Error('Supabase returned an invalid saved content record.');
+      savedContent = savedContentResult;
+      dispatch({ type: 'saveManagedContent', content: savedContent });
+    } catch (error) {
+      let message = errorMessage(error, 'Unable to save managed content.');
+      if (uploadedPath && !databaseWriteSucceeded) {
+        try {
+          const { error: cleanupError } = await supabase.storage.from(STUDENT_CONTENT_BUCKET).remove([uploadedPath]);
+          if (cleanupError) {
+            console.error('An uploaded PDF could not be removed after the content save failed:', cleanupError);
+            message += ' The uploaded file also could not be cleaned up.';
+          }
+        } catch (cleanupError) {
+          console.error('An uploaded PDF cleanup request failed after the content save failed:', cleanupError);
+          message += ' The uploaded file also could not be cleaned up.';
+        }
+      }
+      return { ok: false, error: message };
+    }
+
+    if (previousPath && previousPath !== savedContent.fileObjectPath) {
+      try {
+        const { error: removeError } = await supabase.storage.from(STUDENT_CONTENT_BUCKET).remove([previousPath]);
+        if (removeError) throw removeError;
+      } catch (error) {
+        console.error('The previous PDF could not be removed from Supabase Storage:', error);
+        return {
+          ok: true,
+          warning: 'Content was saved, but the previous PDF could not be removed from Storage.',
+        };
+      }
+    }
+    return { ok: true };
+  }, [state.managedContent]);
+
+  const deleteManagedContent = useCallback(async (
+    id: string
+  ): Promise<{ ok: true; warning?: string } | { ok: false; error: string }> => {
+    if (!supabaseConfigured) return { ok: false, error: 'Supabase is not configured for content management.' };
+    const content = state.managedContent.find((item) => item.id === id);
+    if (!content) return { ok: false, error: 'This content is no longer available. Reload the page and try again.' };
+    try {
+      const { data, error } = await supabase.from('managed_content').delete().eq('id', id).select('id').maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Supabase did not delete the selected content record.');
+      dispatch({ type: 'deleteManagedContent', id });
+    } catch (error) {
+      return { ok: false, error: errorMessage(error, 'Unable to delete managed content.') };
+    }
+
+    if (content.fileObjectPath) {
+      try {
+        const { error: removeError } = await supabase.storage.from(STUDENT_CONTENT_BUCKET).remove([content.fileObjectPath]);
+        if (removeError) throw removeError;
+      } catch (error) {
+        console.error('The deleted content PDF could not be removed from Supabase Storage:', error);
+        return { ok: true, warning: 'Content was deleted, but its PDF could not be removed from Storage.' };
+      }
+    }
+    return { ok: true };
+  }, [state.managedContent]);
 
   const value = useMemo<Ctx>(
-    () => ({ state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut, dispatch }),
-    [state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut]
+    () => ({ state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut, saveManagedContent, deleteManagedContent, dispatch }),
+    [state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut, saveManagedContent, deleteManagedContent]
   );
 
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;

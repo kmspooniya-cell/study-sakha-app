@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Card, Chip, EmptyState, Field, SectionHeader, Tag, Txt } from '../components/ui';
-import { CURRENT_AFFAIRS, PYQS, RESOURCES, TESTS } from '../lib/data';
+import { getCurrentAffairs, getResources, getTests, PYQS } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -24,6 +24,9 @@ export default function SearchScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
   const { state } = useStore();
+  const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
+  const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
+  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'library' | 'pyq' | 'tests' | 'notes'>('all');
@@ -34,7 +37,7 @@ export default function SearchScreen() {
     const out: Hit[] = [];
 
     if (filter === 'all' || filter === 'library') {
-      RESOURCES.filter((r) => `${r.title} ${r.summary} ${r.tags.join(' ')} ${r.subject}`.toLowerCase().includes(q)).forEach((r) =>
+      resources.filter((r) => `${r.title} ${r.summary} ${r.tags.join(' ')} ${r.subject} ${r.topic ?? ''}`.toLowerCase().includes(q)).forEach((r) =>
         out.push({
           id: r.id,
           kind: r.type === 'book' ? 'Book' : r.type === 'note' ? 'Note' : 'PYQ Set',
@@ -62,7 +65,7 @@ export default function SearchScreen() {
     }
 
     if (filter === 'all' || filter === 'tests') {
-      TESTS.filter((t) => `${t.title} ${t.sections.map((s) => s.name).join(' ')}`.toLowerCase().includes(q)).forEach((t) =>
+      tests.filter((t) => `${t.title} ${t.sections.map((s) => s.name).join(' ')} ${t.subject ?? ''} ${t.topic ?? ''}`.toLowerCase().includes(q)).forEach((t) =>
         out.push({
           id: t.id,
           kind: 'Test',
@@ -92,7 +95,7 @@ export default function SearchScreen() {
     }
 
     if (filter === 'all') {
-      CURRENT_AFFAIRS.filter((c) => `${c.title} ${c.summary}`.toLowerCase().includes(q)).forEach((c) =>
+      currentAffairs.filter((c) => `${c.title} ${c.summary} ${c.topic ?? ''} ${c.subject ?? ''}`.toLowerCase().includes(q)).forEach((c) =>
         out.push({
           id: c.id,
           kind: 'Current affairs',
@@ -106,7 +109,7 @@ export default function SearchScreen() {
     }
 
     return out;
-  }, [query, filter, state.notes, colors, nav]);
+  }, [query, filter, state.notes, colors, nav, resources, tests, currentAffairs]);
 
   return (
     <Shell active="Search" title="Search" subtitle="One query across notes, books, PYQs, tests and current affairs">
@@ -144,7 +147,7 @@ export default function SearchScreen() {
                   .sort((a, b) => b[1].at - a[1].at)
                   .slice(0, 4)
                   .map(([id, v]) => {
-                    const r = RESOURCES.find((x) => x.id === id);
+                    const r = resources.find((x) => x.id === id);
                     if (!r) return null;
                     return (
                       <Pressable

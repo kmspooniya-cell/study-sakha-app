@@ -4,13 +4,17 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell } from '../components/Shell';
 import { Button, Card, EmptyState, SectionHeader, Tag, Txt } from '../components/ui';
-import { EXAMS, TESTS } from '../lib/data';
+import { EXAMS, getTests } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import type { MockTest } from '../lib/types';
 
 const TEST_CATEGORIES = [
   { id: 'upsc', label: 'UPSC', icon: 'school-outline' },
+  { id: 'ssc', label: 'SSC', icon: 'school-outline' },
+  { id: 'banking', label: 'Banking', icon: 'card-outline' },
+  { id: 'neet', label: 'NEET', icon: 'medical-outline' },
+  { id: 'jee', label: 'JEE', icon: 'calculator-outline' },
   { id: 'ras', label: 'RAS', icon: 'map-outline' },
   { id: 'rpsc', label: 'RPSC', icon: 'business-outline' },
   { id: 'rssb', label: 'RSSB', icon: 'business-outline' },
@@ -24,21 +28,20 @@ export default function TestsScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { state } = useStore();
+  const allTests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
   const [selectedCategory, setSelectedCategory] = useState<TestCategory | null>(null);
   const headerContext = route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : {};
 
   const selected = TEST_CATEGORIES.find((category) => category.id === selectedCategory);
   const tests = useMemo(() => {
-    if (selectedCategory === 'upsc') {
-      return TESTS.filter((test) => test.exam === selectedCategory);
-    }
     if (selectedCategory === 'current-affairs-pyq') {
-      return TESTS.filter(
-        (test) => test.kind === 'Daily Quiz' && test.title.toLowerCase().includes('current affairs')
+      return allTests.filter((test) =>
+        (test.kind === 'Daily Quiz' && test.title.toLowerCase().includes('current affairs')) ||
+        test.topic?.toLowerCase().includes('current affairs')
       );
     }
-    return [];
-  }, [selectedCategory]);
+    return allTests.filter((test) => test.exam === selectedCategory);
+  }, [selectedCategory, allTests]);
 
   const renderTest = (test: MockTest) => {
     const exam = EXAMS.find((item) => item.id === test.exam);

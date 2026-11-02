@@ -6,8 +6,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../components/Logo';
 import { useLayout } from '../components/Shell';
-import { Button, Card, Field, Tag, Txt } from '../components/ui';
-import { DEMO_ACCOUNTS } from '../lib/data';
+import { Button, Card, Field, Txt } from '../components/ui';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -27,24 +26,21 @@ export default function SignInScreen() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     setError('');
     if (!email.trim() || !password) {
       setError('Enter both your email and password.');
       return;
     }
     setBusy(true);
-    setTimeout(() => {
-      const res = signIn(email, password);
-      setBusy(false);
+    try {
+      const res = await signIn(email, password);
       if (!res.ok) setError(res.error ?? 'Unable to sign in.');
-    }, 350);
-  };
-
-  const fill = (i: number) => {
-    setEmail(DEMO_ACCOUNTS[i].email);
-    setPassword(DEMO_ACCOUNTS[i].password);
-    setError('');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const form = (
@@ -79,43 +75,8 @@ export default function SignInScreen() {
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-        <Txt size={11.5} color={colors.textFaint} weight="700">
-          DEMO ACCOUNTS
-        </Txt>
+        <Txt size={11.5} color={colors.textFaint} weight="700">SECURE ACCOUNT ACCESS</Txt>
         <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-      </View>
-
-      <View style={{ gap: 10 }}>
-        {DEMO_ACCOUNTS.map((a, i) => (
-          <Pressable
-            key={a.email}
-            onPress={() => fill(i)}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 12,
-              padding: 13,
-              borderRadius: 16,
-              borderWidth: 1,
-              borderColor: colors.borderSubtle,
-              backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
-              transform: [{ scale: pressed ? 0.985 : 1 }],
-            })}
-          >
-            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={a.role === 'admin' ? 'shield-checkmark-outline' : 'school-outline'} size={19} color={colors.blue} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Txt size={13} weight="700">
-                {a.name}
-              </Txt>
-              <Txt size={11.5} color={colors.textMuted}>
-                {a.email} · {a.password}
-              </Txt>
-            </View>
-            <Tag label={a.role === 'admin' ? 'Admin' : 'Learner'} color={a.role === 'admin' ? colors.violet : colors.teal} />
-          </Pressable>
-        ))}
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 4 }}>

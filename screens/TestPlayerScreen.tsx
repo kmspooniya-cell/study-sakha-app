@@ -5,7 +5,7 @@ import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, useLayout } from '../components/Shell';
 import { Button, Card, ProgressBar, Tag, Txt } from '../components/ui';
-import { TESTS } from '../lib/data';
+import { getTests } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { TestResult } from '../lib/types';
@@ -20,9 +20,10 @@ export default function TestPlayerScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const { isMobile, isDesktop } = useLayout();
-  const test = TESTS.find((t) => t.id === route.params?.testId) ?? TESTS[0];
+  const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
+  const test = tests.find((t) => t.id === route.params?.testId) ?? tests[0];
 
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number | null>>({});

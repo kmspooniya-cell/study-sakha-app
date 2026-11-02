@@ -307,6 +307,7 @@ function Navigation() {
   };
 
   if (!state.hydrated) return <Splash />;
+  if (!state.authReady) return <Splash />;
   if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
   return (

@@ -1,12 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DetailHeader, useLayout } from '../components/Shell';
 import { Button, Card, EmptyState, ProgressBar, SectionHeader, Tag, Txt } from '../components/ui';
-import { EXAMS, RESOURCES } from '../lib/data';
+import { EXAMS, getResources } from '../lib/data';
 import { useStore } from '../lib/store';
+import { createStudentContentSignedUrl } from '../lib/supabase';
 import { radii, useTheme } from '../lib/theme';
 
 export default function BookReaderScreen() {
@@ -14,23 +15,38 @@ export default function BookReaderScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { state, dispatch } = useStore();
+  const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
-  const book = RESOURCES.find((r) => r.id === route.params?.resourceId) ?? RESOURCES.find((r) => r.type === 'book')!;
+  const book = resources.find((r) => r.id === route.params?.resourceId) ?? resources.find((r) => r.type === 'book')!;
   const [mode, setMode] = useState<'overview' | 'read'>('overview');
   const [page, setPage] = useState(0);
   const [fontSize, setFontSize] = useState(15.5);
+  const [fileError, setFileError] = useState('');
 
   const pages = book.body;
   const takeaways = useMemo(
     () =>
-      RESOURCES.filter((r) => r.id !== book.id && r.subject === book.subject)
+      resources.filter((r) => r.id !== book.id && r.subject === book.subject)
         .flatMap((r) => r.body.slice(0, 2).map((b) => ({ from: r.title, text: b })))
         .slice(0, 4),
-    [book]
+    [book, resources]
   );
 
   const progress = state.progress[book.id]?.percent ?? 0;
   const starred = state.starred.includes(book.id);
+
+  const openHostedFile = async () => {
+    setFileError('');
+    try {
+      const url = book.fileObjectPath
+        ? await createStudentContentSignedUrl(book.fileObjectPath)
+        : book.sourceUrl;
+      if (!url) throw new Error('No file is attached to this resource.');
+      await Linking.openURL(url);
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : 'Unable to open this PDF.');
+    }
+  };
 
   const turn = (dir: 1 | -1) => {
     const next = Math.max(0, Math.min(pages.length - 1, page + dir));
@@ -88,7 +104,11 @@ export default function BookReaderScreen() {
                 <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
                   <Button label={progress > 0 ? 'Continue reading' : 'Start reading'} icon="book-outline" onPress={() => setMode('read')} />
                   <Button label="Related PYQs" icon="albums-outline" variant="outline" onPress={() => nav.navigate('PYQ', { subject: book.subject, headerBrand: route.params?.headerBrand })} />
+                  {book.fileObjectPath || book.sourceUrl ? (
+                    <Button label="Open hosted file" icon="open-outline" variant="soft" onPress={openHostedFile} />
+                  ) : null}
                 </View>
+                {fileError ? <Txt size={12} color={colors.danger}>{fileError}</Txt> : null}
               </View>
             </View>
           </Card>
