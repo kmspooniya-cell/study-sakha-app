@@ -608,7 +608,7 @@ type Ctx = {
   signOut: () => Promise<{ ok: boolean; error?: string }>;
   saveManagedContent: (
     content: ManagedContent,
-    file?: { blob: Blob; name: string; size: number }
+    file?: { blob: Blob | ArrayBuffer; name: string; size: number }
   ) => Promise<{ ok: true; warning?: string } | { ok: false; error: string }>;
   deleteManagedContent: (id: string) => Promise<{ ok: true; warning?: string } | { ok: false; error: string }>;
   dispatch: React.Dispatch<Action>;
@@ -1050,7 +1050,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const saveManagedContent = useCallback(async (
     content: ManagedContent,
-    file?: { blob: Blob; name: string; size: number }
+    file?: { blob: Blob | ArrayBuffer; name: string; size: number }
   ): Promise<{ ok: true; warning?: string } | { ok: false; error: string }> => {
     if (!supabaseConfigured) return { ok: false, error: 'Supabase is not configured for content management.' };
     if (file && (file.size < 1 || file.size > 50 * 1024 * 1024)) {
@@ -1062,6 +1062,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     let uploadedPath: string | undefined;
     let databaseWriteSucceeded = false;
+    let operation = 'Verifying the signed-in Supabase user';
     const previousPath = state.managedContent.find((item) => item.id === content.id)?.fileObjectPath;
     let savedContent: ManagedContent;
     try {
@@ -1072,11 +1073,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (file) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80) || 'document.pdf';
         const uploadPath = `content/${content.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeName}`;
+        uploadedPath = uploadPath;
+        operation = `Uploading PDF to the ${STUDENT_CONTENT_BUCKET} Storage bucket`;
         const { error: uploadError } = await supabase.storage
           .from(STUDENT_CONTENT_BUCKET)
           .upload(uploadPath, file.blob, { contentType: 'application/pdf', upsert: false });
-        if (uploadError) throw uploadError;
-        uploadedPath = uploadPath;
+        if (uploadError) {
+          const statusCode = Number(uploadError.statusCode);
+          if (Number.isFinite(statusCode) && statusCode < 500) uploadedPath = undefined;
+          throw uploadError;
+        }
         fileObjectPath = uploadPath;
       }
 
@@ -1100,23 +1106,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         },
         updated_by: userData.user.id,
       };
-      const result = state.managedContent.some((item) => item.id === content.id)
+      const updating = state.managedContent.some((item) => item.id === content.id);
+      operation = updating
+        ? 'Updating the managed_content database record'
+        : 'Inserting the managed_content database record';
+      const result = updating
         ? await supabase.from('managed_content').update(row).eq('id', content.id).select('*').single()
         : await supabase.from('managed_content').insert({ ...row, created_by: userData.user.id }).select('*').single();
       if (result.error) throw result.error;
       databaseWriteSucceeded = true;
+      operation = 'Reading the saved managed_content record';
       const savedContentResult = managedContentFromRow(result.data);
       if (!savedContentResult) throw new Error('Supabase returned an invalid saved content record.');
       savedContent = savedContentResult;
       dispatch({ type: 'saveManagedContent', content: savedContent });
     } catch (error) {
-      let message = errorMessage(error, 'Unable to save managed content.');
+      let message = `${operation} failed: ${errorMessage(error, 'Unable to save managed content.')}`;
       if (uploadedPath && !databaseWriteSucceeded) {
         try {
           const { data: referencedFile, error: referenceError } = await supabase
             .from('managed_content')
             .select('id')
-            .eq('id', content.id)
             .eq('file_object_path', uploadedPath)
             .maybeSingle();
           if (referenceError) {

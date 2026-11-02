@@ -86,6 +86,26 @@ function createContentId(existing: ManagedContent[]) {
   return id;
 }
 
+function contentErrorMessage(error: unknown, fallback: string) {
+  if (!error || typeof error !== 'object') return fallback;
+
+  const detail = error as {
+    message?: unknown;
+    code?: unknown;
+    statusCode?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+  if (typeof detail.message !== 'string') return fallback;
+  const code = typeof detail.code === 'string' ? ` (${detail.code})` : '';
+  const status = typeof detail.statusCode === 'string' || typeof detail.statusCode === 'number'
+    ? ` (HTTP ${detail.statusCode})`
+    : '';
+  const details = typeof detail.details === 'string' ? ` Details: ${detail.details}` : '';
+  const hint = typeof detail.hint === 'string' ? ` Hint: ${detail.hint}` : '';
+  return `${detail.message}${code}${status}${details}${hint}`;
+}
+
 export default function AdminScreen() {
   const { colors } = useTheme();
   const nav = useNavigation<any>();
@@ -217,12 +237,14 @@ export default function AdminScreen() {
       setSelectedPdf(asset);
       setRemovePdf(false);
     } catch (error) {
-      setContentError(error instanceof Error ? error.message : 'Unable to select this PDF.');
+      setContentError(contentErrorMessage(error, 'Unable to select this PDF.'));
     }
   };
 
   const saveContent = async () => {
     if (contentBusy) return;
+    setContentError('');
+    setContentMessage('');
     const titleValue = draft.title.trim();
     const description = draft.description.trim();
     const subject = draft.subject.trim();
@@ -290,15 +312,16 @@ export default function AdminScreen() {
         ? Platform.OS === 'web' ? selectedPdf.file : new File(selectedPdf.uri)
         : undefined;
       if (selectedPdf && !selectedFile) throw new Error('Unable to access the selected PDF.');
+      const uploadFile = selectedPdf && selectedFile
+        ? {
+            blob: Platform.OS === 'web' ? selectedFile : await selectedFile.arrayBuffer(),
+            name: selectedPdf.name,
+            size: selectedPdf.size ?? selectedFile.size,
+          }
+        : undefined;
       const result = await saveManagedContent(
         item,
-        selectedPdf && selectedFile
-          ? {
-              blob: selectedFile,
-              name: selectedPdf.name,
-              size: selectedPdf.size ?? selectedFile.size,
-            }
-          : undefined
+        uploadFile
       );
       if (!result.ok) {
         setContentError(result.error);
@@ -311,7 +334,7 @@ export default function AdminScreen() {
       setContentError('');
       setContentMessage(result.warning ?? 'Content saved to Supabase.');
     } catch (error) {
-      setContentError(error instanceof Error ? error.message : 'Unable to save managed content.');
+      setContentError(contentErrorMessage(error, 'Unable to save managed content.'));
     } finally {
       setContentBusy(false);
     }
@@ -336,7 +359,7 @@ export default function AdminScreen() {
       if (!result.ok) setContentError(result.error);
       else setContentMessage(result.warning ?? 'Publication status updated.');
     } catch (error) {
-      setContentError(error instanceof Error ? error.message : 'Unable to update publication status.');
+      setContentError(contentErrorMessage(error, 'Unable to update publication status.'));
     } finally {
       setContentBusy(false);
     }
@@ -395,7 +418,7 @@ export default function AdminScreen() {
           <Txt size={13} color={colors.danger}>{state.managedContentError}</Txt>
         </Card>
       ) : null}
-      {contentError || contentMessage ? (
+      {tab !== 'manage' && (contentError || contentMessage) ? (
         <Card style={{ marginBottom: 14 }}>
           <Txt size={13} color={contentError ? colors.danger : colors.success}>{contentError || contentMessage}</Txt>
         </Card>
@@ -548,8 +571,8 @@ export default function AdminScreen() {
       ) : null}
 
       {tab === 'manage' ? (
-        <View style={{ flexDirection: isDesktop ? 'row' : 'column', alignItems: 'flex-start', gap: 16 }}>
-          <Card style={{ flex: 1.1, width: isDesktop ? undefined : '100%', gap: 14 }}>
+        <View style={{ flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'flex-start' : 'stretch', gap: 16 }}>
+          <Card style={{ flex: isDesktop ? 1.1 : undefined, width: isDesktop ? undefined : '100%', gap: 14 }}>
             <SectionHeader title={editingContentId ? 'Edit content' : 'Add educational content'} icon="document-attach-outline" />
             <Field label="Title" value={draft.title} onChangeText={(value) => updateDraft('title', value)} placeholder="Content title" icon="text-outline" />
             <Field label="Description" value={draft.description} onChangeText={(value) => updateDraft('description', value)} placeholder="What will students learn?" multiline minHeight={92} />
@@ -657,13 +680,20 @@ export default function AdminScreen() {
                 <Chip label="Published" icon="globe-outline" active={draft.published} onPress={() => updateDraft('published', true)} />
               </View>
             </View>
+            {contentError || contentMessage ? (
+              <Card style={{ borderColor: contentError ? colors.danger : colors.success }}>
+                <Txt size={13} color={contentError ? colors.danger : colors.success}>
+                  {contentError || contentMessage}
+                </Txt>
+              </Card>
+            ) : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
               <Button label={editingContentId ? 'Save changes' : 'Save content'} icon="save-outline" loading={contentBusy} onPress={saveContent} />
               {editingContentId ? <Button label="Cancel edit" variant="outline" onPress={cancelEdit} /> : null}
             </View>
           </Card>
 
-          <View style={{ flex: 1, width: isDesktop ? undefined : '100%', gap: 12 }}>
+          <View style={{ flex: isDesktop ? 1 : undefined, width: isDesktop ? undefined : '100%', gap: 16 }}>
             <Card style={{ gap: 12 }}>
               <SectionHeader title="Managed content" icon="library-outline" action={`${state.managedContent.length} total`} />
               <Field value={contentSearch} onChangeText={setContentSearch} placeholder="Search title, subject or topic" icon="search-outline" returnKeyType="search" />
