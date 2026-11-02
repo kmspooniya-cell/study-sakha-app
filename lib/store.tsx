@@ -296,6 +296,7 @@ const initialState: State = {
 type Action =
   | { type: 'hydrate'; payload: Partial<State> }
   | { type: 'authResolved'; user: User | null }
+  | { type: 'authCheckFailed' }
   | { type: 'signIn'; user: User }
   | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>> }
   | { type: 'signOut' }
@@ -352,6 +353,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, ...action.payload, user: state.user, authReady: state.authReady, hydrated: true };
     case 'authResolved':
       return { ...state, user: action.user, authReady: true };
+    case 'authCheckFailed':
+      return { ...state, authReady: true };
     case 'signIn':
       return { ...state, user: action.user };
     case 'updateProfile':
@@ -699,7 +702,10 @@ function errorMessage(error: unknown, fallback: string) {
   const code = typeof error.code === 'string' ? ` (${error.code})` : '';
   const details = typeof error.details === 'string' ? ` Details: ${error.details}` : '';
   const hint = typeof error.hint === 'string' ? ` Hint: ${error.hint}` : '';
-  return `${message}${code}${details}${hint}`;
+  const statusCode = typeof error.statusCode === 'string' || typeof error.statusCode === 'number'
+    ? ` (HTTP ${error.statusCode})`
+    : '';
+  return `${message}${code}${statusCode}${details}${hint}`;
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -744,16 +750,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user });
       } catch (error) {
         console.error('Supabase session verification failed:', error);
-        if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user: null });
+        if (active && currentRequestId === requestId) dispatch({ type: 'authCheckFailed' });
       }
     };
 
     const initialRequestId = ++requestId;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
       const currentRequestId = ++requestId;
       if (!session) {
-        dispatch({ type: 'authResolved', user: null });
+        if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+          dispatch({ type: 'authResolved', user: null });
+        }
         return;
       }
       setTimeout(() => {
@@ -766,14 +774,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (initialRequestId !== requestId) return;
       if (error) {
         console.error('Supabase session restore failed:', error);
-        dispatch({ type: 'authResolved', user: null });
+        dispatch({ type: 'authCheckFailed' });
         return;
       }
       void resolveSession(data.session, initialRequestId);
     }).catch((error: unknown) => {
       if (!active || initialRequestId !== requestId) return;
       console.error('Supabase session restore failed:', error);
-      dispatch({ type: 'authResolved', user: null });
+      dispatch({ type: 'authCheckFailed' });
     });
 
     return () => {
@@ -1063,12 +1071,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       let fileObjectPath = content.fileObjectPath ?? null;
       if (file) {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80) || 'document.pdf';
-        uploadedPath = `content/${content.id}/${Date.now()}-${safeName}`;
+        const uploadPath = `content/${content.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeName}`;
         const { error: uploadError } = await supabase.storage
           .from(STUDENT_CONTENT_BUCKET)
-          .upload(uploadedPath, file.blob, { contentType: 'application/pdf', upsert: false });
+          .upload(uploadPath, file.blob, { contentType: 'application/pdf', upsert: false });
         if (uploadError) throw uploadError;
-        fileObjectPath = uploadedPath;
+        uploadedPath = uploadPath;
+        fileObjectPath = uploadPath;
       }
 
       const row = {
@@ -1104,14 +1113,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       let message = errorMessage(error, 'Unable to save managed content.');
       if (uploadedPath && !databaseWriteSucceeded) {
         try {
-          const { error: cleanupError } = await supabase.storage.from(STUDENT_CONTENT_BUCKET).remove([uploadedPath]);
-          if (cleanupError) {
-            console.error('An uploaded PDF could not be removed after the content save failed:', cleanupError);
-            message += ' The uploaded file also could not be cleaned up.';
+          const { data: referencedFile, error: referenceError } = await supabase
+            .from('managed_content')
+            .select('id')
+            .eq('id', content.id)
+            .eq('file_object_path', uploadedPath)
+            .maybeSingle();
+          if (referenceError) {
+            console.error('The uploaded PDF could not be checked for a managed content reference:', referenceError);
+            message += ' Cleanup was skipped because the file reference could not be verified.';
+          } else if (!referencedFile) {
+            const { error: cleanupError } = await supabase.storage.from(STUDENT_CONTENT_BUCKET).remove([uploadedPath]);
+            if (cleanupError) {
+              console.error('An uploaded PDF could not be removed after the content save failed:', cleanupError);
+              message += ' The uploaded file also could not be cleaned up.';
+            }
           }
         } catch (cleanupError) {
           console.error('An uploaded PDF cleanup request failed after the content save failed:', cleanupError);
-          message += ' The uploaded file also could not be cleaned up.';
+          message += ' The uploaded file could not be safely checked or cleaned up.';
         }
       }
       return { ok: false, error: message };
