@@ -5,12 +5,12 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect } from 'react';
-import { ActivityIndicator, Alert, Platform, Share, View, Text, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Easing, Image, Platform, Share, View, Text, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
-import { StoreProvider, useStore } from './lib/store';
+import { getDisplayName, StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
 import {
   LibraryBooksScreen,
@@ -50,6 +50,7 @@ import TestsScreen from './screens/TestsScreen';
 const Stack = createNativeStackNavigator();
 const AppStack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
+const MASCOT_SPLASH = require('./assets/mascot/study-sakha-mascot.png');
 
 const linking = {
   prefixes: [],
@@ -103,9 +104,42 @@ function Splash() {
   const { colors } = useTheme();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 22 }}>
-      <Logo size={44} />
+      <Image source={MASCOT_SPLASH} resizeMode="contain" accessibilityLabel="Study Sakha mascot" style={{ width: 150, height: 150 }} />
       <ActivityIndicator color={colors.blue} />
     </View>
+  );
+}
+
+function BrandIntro({ onFinished }: { onFinished: () => void }) {
+  const mascotOpacity = useRef(new Animated.Value(0)).current;
+  const mascotScale = useRef(new Animated.Value(0.9)).current;
+  const mascotY = useRef(new Animated.Value(14)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(mascotOpacity, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.timing(mascotScale, { toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(mascotY, { toValue: -8, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(glowOpacity, { toValue: 1, duration: 900, delay: 180, useNativeDriver: true }),
+      Animated.timing(titleOpacity, { toValue: 1, duration: 520, delay: 520, useNativeDriver: true }),
+    ]).start();
+
+    const timer = setTimeout(onFinished, 1500);
+    return () => clearTimeout(timer);
+  }, [glowOpacity, mascotOpacity, mascotScale, mascotY, onFinished, titleOpacity]);
+
+  return (
+    <LinearGradient colors={['#111A3B', '#241747', '#100D28']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <StatusBar style="light" />
+      <Animated.View style={{ position: 'absolute', width: 260, height: 260, borderRadius: 130, backgroundColor: '#F5A524', opacity: glowOpacity.interpolate({ inputRange: [0, 1], outputRange: [0, 0.08] }), transform: [{ scale: mascotScale }] }} />
+      <Animated.View style={{ alignItems: 'center', opacity: mascotOpacity, transform: [{ translateY: mascotY }, { scale: mascotScale }] }}>
+        <Animated.View style={{ opacity: titleOpacity }}>
+          <Logo size={280} wordmarkSize={28} direction="column" compact wordmark="Study Sakha" wordmarkColor="#FFFFFF" accentColor="#F5C65B" />
+        </Animated.View>
+      </Animated.View>
+    </LinearGradient>
   );
 }
 
@@ -115,7 +149,7 @@ function Splash() {
 function CustomDrawerContent(props: any) {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
-  const first = (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
+  const first = getDisplayName(state.user).split(/\s+/)[0];
   const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
   const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
 
@@ -140,7 +174,7 @@ function CustomDrawerContent(props: any) {
               <Text style={{ color: colors.brandPrimary, fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
             </View>
             <View>
-              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{state.user?.name || 'Aspirant'}</Text>
+              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{getDisplayName(state.user)}</Text>
               <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
             </View>
           </Pressable>
@@ -151,7 +185,8 @@ function CustomDrawerContent(props: any) {
           {[
             { label: 'Offline downloads', icon: 'cloud-download-outline', route: 'LibraryDownloads' },
             { label: 'How to use the app', icon: 'help-circle-outline', route: 'AppGuide' },
-            { label: 'Privacy policy', icon: 'shield-checkmark-outline', route: 'Settings' },
+            { label: 'Settings', icon: 'settings-outline', route: 'Settings' },
+            { label: 'Student Testimonials', icon: 'chatbubbles-outline', route: 'StudentTestimonials' },
           ].map((item) => (
             <Pressable
               key={item.label}
@@ -256,6 +291,8 @@ function MainDrawerNavigator() {
 function Navigation() {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
+  const [showBrandIntro, setShowBrandIntro] = useState(true);
+  const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
 
   const navTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
@@ -270,6 +307,7 @@ function Navigation() {
   };
 
   if (!state.hydrated) return <Splash />;
+  if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
   return (
     <NavigationContainer theme={navTheme} linking={linking as any} fallback={<Splash />}>

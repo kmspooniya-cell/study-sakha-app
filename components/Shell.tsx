@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
@@ -30,8 +29,6 @@ export type NavKey =
   | 'FocusCenter';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
-
-const STITCH_LOGO_PATH = 'M12 3C7.03 3 3 7.03 3 12v7a2 2 0 002 2h4.5a2 2 0 002-2v-4a2 2 0 00-2-2H5c0-3.86 3.14-7 7-7s7 3.14 7 7h-2.5a2 2 0 00-2 2v4a2 2 0 002 2H19a2 2 0 002-2v-7c0-4.97-4.03-9-9-9z';
 
 export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
@@ -139,7 +136,7 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
 
   return (
     <View style={{ backgroundColor: glassBackground, borderBottomWidth: 1, borderBottomColor: `${colors.border}CC`, paddingTop: safeAreaTop ? insets.top : 0 }}>
-      <View style={{ width: '108%', maxWidth: width < 768 ? 518 : 743, minHeight: 56, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 }}>
+      <View style={{ width: '100%', minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: width < 768 ? 16 : 24 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Pressable onPress={openMenu} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Open menu">
             <Ionicons name="menu-outline" size={22} color={colors.text} />
@@ -151,18 +148,7 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
             accessibilityLabel={!isHome && !isSakhaAI ? 'Go to Home' : undefined}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
           >
-            <LinearGradient colors={['#FF9500', '#FF5E3A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', ...shadow(colors, 1) }}>
-              <Svg width={17} height={17} viewBox="0 0 24 24" accessibilityLabel="Study Sakha logo">
-                <Path d={STITCH_LOGO_PATH} fill="#FFFFFF" />
-              </Svg>
-            </LinearGradient>
-            <Text style={{ color: colors.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.35 }}>
-              {isSakhaAI ? (
-                <>Sakha <Text style={{ color: colors.blue, fontWeight: '700' }}>AI</Text></>
-              ) : (
-                <>Study <Text style={{ color: colors.blue, fontWeight: '700' }}>Sakha</Text></>
-              )}
-            </Text>
+            <Logo size={30} compact wordmark={isSakhaAI ? 'Sakha AI' : 'Study Sakha'} />
           </Pressable>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
@@ -227,12 +213,12 @@ export function AppBottomNav({ active }: { active: NavKey }) {
             </Pressable>
           );
         })}
-        <Pressable onPress={() => go('More')} accessibilityRole="button" accessibilityState={{ selected: active === 'More' }} style={({ pressed }) => ({ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2, opacity: pressed ? 0.6 : 1 })}>
+        <Pressable onPress={() => go('Profile')} accessibilityRole="button" accessibilityState={{ selected: active === 'Profile' }} style={({ pressed }) => ({ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2, opacity: pressed ? 0.6 : 1 })}>
           <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="grid" size={20} color={active === 'More' ? colors.blue : inactive} />
+            <Ionicons name={active === 'Profile' ? 'person' : 'person-outline'} size={20} color={active === 'Profile' ? colors.blue : inactive} />
           </View>
-          <Txt size={10} weight={active === 'More' ? '700' : '500'} color={active === 'More' ? colors.blue : inactive} style={{ marginTop: 2 }}>
-            More
+          <Txt size={10} weight={active === 'Profile' ? '700' : '500'} color={active === 'Profile' ? colors.blue : inactive} style={{ marginTop: 2 }}>
+            Profile
           </Txt>
         </Pressable>
       </View>
@@ -545,16 +531,21 @@ export function MoreOptionsGrid({
   active,
   isAdmin,
   unread,
+  onlyKeys,
 }: {
   onGo: (k: NavKey) => void;
   active: NavKey;
   isAdmin: boolean;
   unread: number;
+  onlyKeys?: NavKey[];
 }) {
   const { colors } = useTheme();
+  const groups = onlyKeys
+    ? [{ title: 'More', items: NAV_GROUPS.flatMap((group) => group.items).filter((item) => onlyKeys.includes(item.key)) }]
+    : [...NAV_GROUPS].sort((a, b) => (a.title === 'Account' ? -1 : b.title === 'Account' ? 1 : 0));
   return (
     <View style={{ gap: 16 }}>
-      {NAV_GROUPS.map((g) => {
+      {groups.map((g) => {
         const items = g.items.filter((i) => !i.adminOnly || isAdmin);
         if (!items.length) return null;
         return (

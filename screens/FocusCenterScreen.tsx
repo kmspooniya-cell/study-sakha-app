@@ -3,6 +3,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import {
+  BackHandler,
   Modal,
   Pressable,
   ScrollView,
@@ -125,6 +126,26 @@ export default function FocusCenterScreen() {
       setFullScreenMeditationActive(false);
     });
   }, [navigation]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (fullScreenMeditationActive) {
+        setFullScreenMeditationActive(false);
+        setShowMeditationConfig(true);
+        return true;
+      }
+      if (showMeditationConfig) {
+        setShowMeditationConfig(false);
+        return true;
+      }
+      if (activity) {
+        setActivity(null);
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [activity, fullScreenMeditationActive, showMeditationConfig]);
 
   const handleCardPress = (id: FocusActivity | 'hobbies') => {
     if (id === 'meditation') {
@@ -293,7 +314,6 @@ export default function FocusCenterScreen() {
                   </View>
                   <View>
                     <Txt size={18} weight="800">Meditation Studio</Txt>
-                    <Txt size={12} color={colors.textMuted}>Select animation preset & calming audio</Txt>
                   </View>
                 </View>
                 <Pressable

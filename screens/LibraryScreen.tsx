@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, View } from 'react-native';
+import { FlatList, Image, Modal, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
 import { EXAMS, RESOURCES, SUBJECTS } from '../lib/data';
@@ -20,6 +20,18 @@ const LIBRARY_SECTIONS = [
 
 type LibrarySection = (typeof LIBRARY_SECTIONS)[number];
 type LibrarySectionKey = LibrarySection['key'];
+
+const BOOK_CATEGORIES = [
+  'Spirituality',
+  'Culture',
+  'History',
+  'Science & Technology',
+  'Polity',
+  'Economics',
+  'Geography',
+  'Hindi Literature',
+  'English Literature',
+] as const;
 
 function getSectionResources(section: LibrarySectionKey, state: State): Resource[] {
   if (section === 'starred') return RESOURCES.filter((resource) => state.starred.includes(resource.id));
@@ -93,6 +105,8 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
 
   const [exam, setExam] = useState<string>(route.params?.exam ?? 'all');
   const [subject, setSubject] = useState<string>(route.params?.subject ?? 'all');
+  const [bookCategory, setBookCategory] = useState<string>(route.params?.category ?? 'all');
+  const [bookCategoryOpen, setBookCategoryOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -108,8 +122,13 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
 
   const data = useMemo(() => {
     let list = sectionResources;
-    if (exam !== 'all') list = list.filter((resource) => resource.exam === exam);
-    if (subject !== 'all') list = list.filter((resource) => resource.subject === subject);
+    if (sectionKey === 'book' && bookCategory !== 'all') {
+      list = list.filter((resource) => resource.category === bookCategory);
+    }
+    if (sectionKey !== 'book') {
+      if (exam !== 'all') list = list.filter((resource) => resource.exam === exam);
+      if (subject !== 'all') list = list.filter((resource) => resource.subject === subject);
+    }
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((resource) =>
@@ -117,7 +136,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
       );
     }
     return list;
-  }, [sectionResources, exam, subject, query]);
+  }, [sectionResources, sectionKey, bookCategory, exam, subject, query]);
 
   const refresh = () => {
     setRefreshing(true);
@@ -214,25 +233,57 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
         <Ionicons name="chevron-back" size={17} color={colors.blue} />
         <Txt size={12.5} weight="800" color={colors.blue}>Library categories</Txt>
       </Pressable>
+      {sectionKey === 'book' ? (
+        <View style={{ gap: 8 }}>
+          <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>CATEGORY</Txt>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Select Books and PDFs category"
+            accessibilityState={{ expanded: bookCategoryOpen }}
+            onPress={() => setBookCategoryOpen(true)}
+            style={({ pressed }) => ({
+              minHeight: 48,
+              paddingHorizontal: 14,
+              borderRadius: radii.md,
+              borderWidth: 1,
+              borderColor: colors.borderSubtle,
+              backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            })}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+              <Ionicons name="filter-outline" size={17} color={colors.blue} />
+              <Txt size={13.5} weight="800">{bookCategory === 'all' ? 'All categories' : bookCategory}</Txt>
+            </View>
+            <Ionicons name="chevron-down" size={17} color={colors.textMuted} />
+          </Pressable>
+        </View>
+      ) : null}
       <Field value={query} onChangeText={setQuery} placeholder={`Search ${section.label.toLowerCase()}…`} icon="search-outline" returnKeyType="search" />
-      <View style={{ gap: 8 }}>
-        <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>EXAM</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Chip label="All exams" active={exam === 'all'} onPress={() => applyExam('all')} />
-          {EXAMS.map((item) => (
-            <Chip key={item.id} label={item.short} tone={item.color} active={exam === item.id} onPress={() => applyExam(item.id)} />
-          ))}
-        </View>
-      </View>
-      <View style={{ gap: 8 }}>
-        <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>SUBJECT</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Chip label="All subjects" active={subject === 'all'} onPress={() => setSubject('all')} />
-          {subjects.map((item) => (
-            <Chip key={item.id} label={item.name} tone={item.color} active={subject === item.name} onPress={() => setSubject(item.name)} />
-          ))}
-        </View>
-      </View>
+      {sectionKey !== 'book' ? (
+        <>
+          <View style={{ gap: 8 }}>
+            <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>EXAM</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <Chip label="All exams" active={exam === 'all'} onPress={() => applyExam('all')} />
+              {EXAMS.map((item) => (
+                <Chip key={item.id} label={item.short} tone={item.color} active={exam === item.id} onPress={() => applyExam(item.id)} />
+              ))}
+            </View>
+          </View>
+          <View style={{ gap: 8 }}>
+            <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>SUBJECT</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <Chip label="All subjects" active={subject === 'all'} onPress={() => setSubject('all')} />
+              {subjects.map((item) => (
+                <Chip key={item.id} label={item.name} tone={item.color} active={subject === item.name} onPress={() => setSubject(item.name)} />
+              ))}
+            </View>
+          </View>
+        </>
+      ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
         <Txt size={12.5} weight="700" color={colors.textMuted}>{data.length} resource{data.length === 1 ? '' : 's'}</Txt>
         <Pressable onPress={() => nav.navigate('NoteEditor', {})} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: pressed ? 0.6 : 1 })}>
@@ -277,12 +328,50 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
                 }
                 setExam('all');
                 setSubject('all');
+                setBookCategory('all');
                 setQuery('');
               }}
             />
           }
         />
       )}
+      {sectionKey === 'book' ? (
+        <Modal visible={bookCategoryOpen} transparent animationType="fade" onRequestClose={() => setBookCategoryOpen(false)}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close category selector"
+            onPress={() => setBookCategoryOpen(false)}
+            style={{ flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.45)' }}
+          >
+            <Pressable onPress={() => undefined} style={{ maxHeight: '86%', borderRadius: radii.lg, padding: 18, backgroundColor: colors.surface, gap: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Txt size={17} weight="800">Books & PDFs category</Txt>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close category selector" onPress={() => setBookCategoryOpen(false)} hitSlop={10}>
+                  <Ionicons name="close" size={22} color={colors.textMuted} />
+                </Pressable>
+              </View>
+              {['all', ...BOOK_CATEGORIES].map((category) => {
+                const active = bookCategory === category;
+                return (
+                  <Pressable
+                    key={category}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      setBookCategory(category);
+                      setBookCategoryOpen(false);
+                    }}
+                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 11, borderRadius: radii.md, backgroundColor: active ? colors.tint : pressed ? colors.surfaceAlt : 'transparent' })}
+                  >
+                    <Txt size={13.5} weight={active ? '800' : '600'} color={active ? colors.blue : colors.text}>{category === 'all' ? 'All categories' : category}</Txt>
+                    {active ? <Ionicons name="checkmark-circle" size={18} color={colors.blue} /> : null}
+                  </Pressable>
+                );
+              })}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
     </Shell>
   );
 }

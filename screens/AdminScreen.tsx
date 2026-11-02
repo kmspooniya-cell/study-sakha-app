@@ -6,7 +6,7 @@ import { BarChart, Donut, HBar, SvgLegend } from '../components/Charts';
 import { Shell, useLayout } from '../components/Shell';
 import { Avatar, Button, Card, Chip, EmptyState, Field, SectionHeader, Tag, Txt } from '../components/ui';
 import { EXAMS, RESOURCES, PYQS, TESTS } from '../lib/data';
-import { useStore } from '../lib/store';
+import { dayKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
 type Tab = 'overview' | 'learners' | 'content' | 'announce';
@@ -48,15 +48,16 @@ export default function AdminScreen() {
     [state.learners]
   );
 
-  const weekly = [
-    { label: 'Mon', value: 1240 },
-    { label: 'Tue', value: 1580 },
-    { label: 'Wed', value: 1410 },
-    { label: 'Thu', value: 1760 },
-    { label: 'Fri', value: 1930 },
-    { label: 'Sat', value: 2240 },
-    { label: 'Sun', value: 1690 },
-  ];
+  const weekly = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      return {
+        label: date.toLocaleDateString('en-IN', { weekday: 'short' }),
+        value: Math.round(state.studyLog[dayKey(date)] ?? 0),
+      };
+    });
+  }, [state.studyLog]);
 
   if (!isAdmin) {
     return (

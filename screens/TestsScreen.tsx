@@ -2,7 +2,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { LineChart } from '../components/Charts';
 import { Shell } from '../components/Shell';
 import { Button, Card, EmptyState, SectionHeader, Tag, Txt } from '../components/ui';
 import { EXAMS, TESTS } from '../lib/data';
@@ -12,13 +11,10 @@ import type { MockTest } from '../lib/types';
 
 const TEST_CATEGORIES = [
   { id: 'upsc', label: 'UPSC', icon: 'school-outline' },
-  { id: 'ssc', label: 'SSC', icon: 'briefcase-outline' },
   { id: 'ras', label: 'RAS', icon: 'map-outline' },
+  { id: 'rpsc', label: 'RPSC', icon: 'business-outline' },
   { id: 'rssb', label: 'RSSB', icon: 'business-outline' },
-  { id: 'other-state-pcs', label: 'Other State PCS', icon: 'earth-outline' },
-  { id: 'live', label: 'Live', icon: 'radio-outline' },
-  { id: 'daily-current-affairs', label: 'Daily Current Affairs', icon: 'newspaper-outline' },
-  { id: 'recent-attempts', label: 'Recent Attempts', icon: 'time-outline' },
+  { id: 'current-affairs-pyq', label: 'Current Affairs PYQ', icon: 'newspaper-outline' },
 ] as const;
 
 type TestCategory = (typeof TEST_CATEGORIES)[number]['id'];
@@ -33,25 +29,16 @@ export default function TestsScreen() {
 
   const selected = TEST_CATEGORIES.find((category) => category.id === selectedCategory);
   const tests = useMemo(() => {
-    if (selectedCategory === 'upsc' || selectedCategory === 'ssc') {
+    if (selectedCategory === 'upsc') {
       return TESTS.filter((test) => test.exam === selectedCategory);
     }
-    if (selectedCategory === 'live') return TESTS.filter((test) => test.kind === 'Live');
-    if (selectedCategory === 'daily-current-affairs') {
+    if (selectedCategory === 'current-affairs-pyq') {
       return TESTS.filter(
         (test) => test.kind === 'Daily Quiz' && test.title.toLowerCase().includes('current affairs')
       );
     }
     return [];
   }, [selectedCategory]);
-
-  const trend = state.results
-    .slice(0, 6)
-    .reverse()
-    .map((result, index) => ({
-      label: `#${index + 1}`,
-      value: Math.round((result.score / result.maxScore) * 100),
-    }));
 
   const renderTest = (test: MockTest) => {
     const exam = EXAMS.find((item) => item.id === test.exam);
@@ -168,60 +155,7 @@ export default function TestsScreen() {
 
       {selectedCategory && selected ? (
         <View style={{ gap: 16, marginTop: 20 }}>
-          {selectedCategory === 'recent-attempts' ? (
-            <>
-              <Card>
-                <SectionHeader title="Your score trend" icon="trending-up-outline" />
-                {trend.length >= 2 ? (
-                  <LineChart data={trend} />
-                ) : (
-                  <Txt size={13} color={colors.textMuted}>
-                    Attempt at least two tests to unlock your score trend.
-                  </Txt>
-                )}
-              </Card>
-              <Card>
-                <SectionHeader
-                  title="Recent Attempts"
-                  icon="time-outline"
-                  action={state.results.length ? 'Profile' : undefined}
-                  onAction={() => nav.navigate('Profile', headerContext)}
-                />
-                {state.results.length ? (
-                  <View style={{ gap: 12 }}>
-                    {state.results.slice(0, 5).map((result) => (
-                      <Pressable
-                        key={result.id}
-                        onPress={() => nav.navigate('TestResult', { resultId: result.id, ...headerContext })}
-                        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, opacity: pressed ? 0.75 : 1 })}
-                      >
-                        <View style={{ width: 44, height: 44, borderRadius: 13, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-                          <Txt size={13} weight="800" color={colors.blue}>
-                            {Math.round((result.score / result.maxScore) * 100)}%
-                          </Txt>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Txt size={13} weight="700" numberOfLines={1}>{result.title}</Txt>
-                          <Txt size={11.5} color={colors.textMuted}>
-                            {new Date(result.takenAt).toLocaleDateString('en-IN')} · {result.percentile.toFixed(1)} percentile · {result.correct}/{result.correct + result.wrong + result.skipped} correct
-                          </Txt>
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : (
-                  <EmptyState
-                    icon="documents-outline"
-                    title="No attempts yet"
-                    body="Your completed tests and results will appear here."
-                    action="Browse UPSC tests"
-                    onAction={() => setSelectedCategory('upsc')}
-                  />
-                )}
-              </Card>
-            </>
-          ) : tests.length ? (
+          {tests.length ? (
             <>
               <SectionHeader title={selected.label} icon={selected.icon} />
               {tests.map(renderTest)}
