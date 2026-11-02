@@ -6,7 +6,23 @@ import { AppNotification, ChatMsg, ExamId, Learner, PendingContent, TestResult, 
 
 const KEY = 'sakha-store-v1';
 
-export type User = { name: string; email: string; role: 'learner' | 'admin'; exam: ExamId; joined: string; photoUri?: string };
+export type User = {
+  name: string;
+  email: string;
+  role: 'learner' | 'admin';
+  exam: ExamId;
+  joined: string;
+  photoUri?: string;
+  birthday?: string;
+  phoneNumber?: string;
+  currentCity?: string;
+  examFocus?: string;
+};
+
+export function getDisplayName(user: User | null) {
+  const name = user?.name?.trim();
+  return name || 'Aspirant';
+}
 
 export type Announcement = { id: string; title: string; body: string; audience: string; at: number };
 
@@ -271,7 +287,7 @@ const initialState: State = {
 type Action =
   | { type: 'hydrate'; payload: Partial<State> }
   | { type: 'signIn'; user: User }
-  | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'exam' | 'photoUri'>> }
+  | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>> }
   | { type: 'signOut' }
   | { type: 'settings'; patch: Partial<State['settings']> }
   | { type: 'saveNote'; note: UserNote }

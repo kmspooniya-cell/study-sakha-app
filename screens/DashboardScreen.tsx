@@ -9,7 +9,7 @@ import { CustomStudyPlan } from '../components/DashboardStudyTools';
 import { AppBottomNav, AppHeader } from '../components/Shell';
 import { ProgressBar, Tag } from '../components/ui';
 import { CURRENT_AFFAIRS, EXAMS, RESOURCES, TESTS, TODAY_PLAN } from '../lib/data';
-import { dayKey, useStore } from '../lib/store';
+import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
 
 const greeting = () => {
@@ -57,7 +57,7 @@ export default function DashboardScreen() {
   }, [target]);
 
   const exam = EXAMS.find((item) => item.id === (state.user?.exam ?? 'upsc')) ?? EXAMS[0];
-  const first = (state.user?.name ?? 'Aspirant').trim().split(/\s+/)[0] || 'Aspirant';
+  const first = getDisplayName(state.user).split(/\s+/)[0];
   const week = useMemo(() => {
     const out: { label: string; value: number }[] = [];
     for (let i = 6; i >= 0; i -= 1) {

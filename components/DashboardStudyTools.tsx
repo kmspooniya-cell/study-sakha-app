@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AppState,
   Alert,
+  BackHandler,
   Modal,
   Pressable,
   ScrollView,
@@ -675,6 +676,31 @@ export function FocusActivityTimer({
     setVisible(false);
     onClose();
   }
+
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSoundPicker) {
+        setShowSoundPicker(false);
+        return true;
+      }
+      if (taskEditorOpen) {
+        setTaskEditorOpen(false);
+        return true;
+      }
+      if (tasksModalOpen) {
+        setTasksModalOpen(false);
+        return true;
+      }
+      if (deleteTask) {
+        setDeleteTask(null);
+        return true;
+      }
+      closeActivity();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [deleteTask, showSoundPicker, taskEditorOpen, tasksModalOpen, visible]);
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;

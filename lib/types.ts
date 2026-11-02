@@ -9,6 +9,8 @@ export type Resource = {
   type: 'note' | 'book' | 'pyq-set';
   title: string;
   subject: string;
+  /** Optional editorial metadata used by the Books & PDFs category filter. */
+  category?: string;
   exam: ExamId;
   author: string;
   pages: number;

@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Animated,
   AppState,
+  BackHandler,
   Modal,
   Pressable,
   TextInput,
@@ -13,6 +14,7 @@ import {
 import { Shell } from '../components/Shell';
 import { Button, Card, Chip, Txt } from '../components/ui';
 import { useTheme } from '../lib/theme';
+import { useStore } from '../lib/store';
 
 const SESSION_STORAGE_KEY = 'study-sakha-focus-lock-session-v1';
 const PRESET_DURATIONS = [25, 45, 60, 90];
@@ -82,6 +84,7 @@ function formatEndTime(timestamp: number) {
 
 export default function FocusLockScreen() {
   const { colors, scheme } = useTheme();
+  const { dispatch } = useStore();
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -97,10 +100,22 @@ export default function FocusLockScreen() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showStopConfirmation, setShowStopConfirmation] = useState(false);
   const heroOpacity = useRef(new Animated.Value(0)).current;
+  const creditedSessionId = useRef<string | null>(null);
 
   useEffect(() => {
     Animated.timing(heroOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
   }, [heroOpacity]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showStopConfirmation) {
+        setShowStopConfirmation(false);
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [showStopConfirmation]);
 
   useEffect(() => {
     let mounted = true;
@@ -111,6 +126,10 @@ export default function FocusLockScreen() {
         let saved = parseSavedSession(raw);
         if (saved?.status === 'active' && saved.endsAt <= Date.now()) {
           saved = { ...saved, status: 'completed' };
+          if (creditedSessionId.current !== saved.id) {
+            creditedSessionId.current = saved.id;
+            dispatch({ type: 'study', minutes: saved.durationMinutes });
+          }
           await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(saved));
         }
         if (mounted) {
@@ -136,6 +155,10 @@ export default function FocusLockScreen() {
       if (session?.status === 'active' && current >= session.endsAt) {
         const completed = { ...session, status: 'completed' as const };
         setSession(completed);
+        if (creditedSessionId.current !== session.id) {
+          creditedSessionId.current = session.id;
+          dispatch({ type: 'study', minutes: session.durationMinutes });
+        }
         AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(completed)).catch(() => {
           setStorageError('The timer ended, but its completed state could not be saved.');
         });
@@ -149,7 +172,7 @@ export default function FocusLockScreen() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [session]);
+  }, [dispatch, session]);
 
   const durationMinutes = useMemo(() => {
     if (durationMode === 'preset') return selectedPreset;

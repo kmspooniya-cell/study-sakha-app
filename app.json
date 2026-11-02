@@ -1,10 +1,15 @@
 {
   "expo": {
-    "name": "Agon Preview",
+    "name": "Study Sakha",
     "slug": "agon-preview",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/mascot/study-sakha-mascot.png",
+    "splash": {
+      "image": "./assets/mascot/study-sakha-mascot.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#111A3B"
+    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -12,9 +17,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#243B80",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/mascot/study-sakha-mascot.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
