@@ -34,16 +34,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "552f0665-e30d-4f11-9ea9-97bc22a22809"
+        "projectId": "98343d0d-4c2d-40f0-931d-0e0a877aeb65"
       }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/552f0665-e30d-4f11-9ea9-97bc22a22809"
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "arcadalabs",
+    "owner": "study-sakha",
     "platforms": [
       "ios",
       "android",
