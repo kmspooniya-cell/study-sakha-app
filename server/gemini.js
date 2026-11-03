@@ -1,5 +1,6 @@
 const { GoogleGenAI } = require('@google/genai');
 const GEMINI_MODELS = require('../lib/geminiModels.json');
+const { getTimeoutMs, withAbortTimeout } = require('./requestTimeout');
 const {
   APP_INFO,
   APP_SCREENS,
@@ -10,6 +11,9 @@ const {
   EXAMS_SUPPORTED,
   RESOURCE_REGISTRY,
 } = require('./appKnowledge');
+
+const GEMINI_REQUEST_TIMEOUT_MS = getTimeoutMs(process.env.GEMINI_REQUEST_TIMEOUT_MS, 30_000);
+const GEMINI_TIMEOUT_CODE = 'GEMINI_REQUEST_TIMEOUT';
 
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -564,13 +568,18 @@ async function callModelWithFallback(ai, contents, requestedModel, systemInstruc
   for (const model of uniqueModels) {
     try {
       console.log(`[Sakha AI] Querying model: ${model}...`);
-      const response = await ai.models.generateContent({
-        model,
-        contents,
-        config: {
-          systemInstruction,
-        },
-      });
+      const response = await withAbortTimeout(
+        (abortSignal) => ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction,
+            abortSignal,
+          },
+        }),
+        GEMINI_REQUEST_TIMEOUT_MS,
+        GEMINI_TIMEOUT_CODE,
+      );
 
       if (response && response.text) {
         console.log(`[Sakha AI] Model ${model} responded successfully.`);
@@ -582,6 +591,7 @@ async function callModelWithFallback(ai, contents, requestedModel, systemInstruc
       }
     } catch (err) {
       lastError = err;
+      if (err?.code === GEMINI_TIMEOUT_CODE) throw err;
       const status = err?.status || err?.code;
       const msg = err?.message || '';
 
@@ -774,6 +784,9 @@ async function handleChat(req, res) {
       timestamp: Date.now(),
     });
   } catch (error) {
+    if (error?.code === GEMINI_TIMEOUT_CODE) {
+      return res.status(504).json({ error: 'The AI service took too long to respond. Please try again.' });
+    }
     const errorMessage = error?.message || 'An error occurred while communicating with Gemini.';
     const status = error?.status || error?.code;
     console.error('[Sakha AI] Request failed with status:', status || 'unknown');

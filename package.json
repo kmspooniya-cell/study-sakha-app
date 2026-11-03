@@ -40,9 +40,13 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^13.3.0",
     "@types/express": "^5.0.6",
     "@types/http-proxy": "^1.17.17",
+    "@types/jest": "^29.5.14",
     "@types/react": "~19.2.2",
+    "jest-expo": "^57.0.6",
+    "react-test-renderer": "^19.2.3",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -50,6 +54,7 @@
     "start": "node server.js",
     "build": "expo export --platform web",
     "lint": "tsc --noEmit",
+    "test": "jest",
     "expo:web": "expo start --web --port 3000",
     "android": "expo run:android",
     "ios": "expo run:ios",

@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 const GEMINI_MODELS = require('./lib/geminiModels.json');
+const { createTimeoutFetch, getTimeoutMs } = require('./server/requestTimeout');
 
 // Load local server-side environment variables if .env exists (never exposed to client)
 try {
@@ -22,6 +23,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const METRO_PORT = 8081;
 const isDev = process.env.NODE_ENV !== 'production';
+const SUPABASE_AUTH_TIMEOUT_MS = getTimeoutMs(process.env.SUPABASE_AUTH_TIMEOUT_MS, 10_000);
+const SUPABASE_AUTH_TIMEOUT_CODE = 'SUPABASE_AUTH_TIMEOUT';
 
 // Global CORS & preflight middleware
 app.use((req, res, next) => {
@@ -65,6 +68,9 @@ function getSupabaseAuthClient() {
         persistSession: false,
         detectSessionInUrl: false,
       },
+      global: {
+        fetch: createTimeoutFetch(SUPABASE_AUTH_TIMEOUT_MS, SUPABASE_AUTH_TIMEOUT_CODE),
+      },
     });
   }
   return supabaseAuthClient;
@@ -84,7 +90,10 @@ async function authenticateChatRequest(req, res, next) {
     if (error || !data.user) return res.status(401).json({ error: 'Your session is invalid or expired.' });
     req.authenticatedUser = data.user;
     return next();
-  } catch {
+  } catch (error) {
+    if (error?.message?.includes(SUPABASE_AUTH_TIMEOUT_CODE)) {
+      return res.status(504).json({ error: 'Session verification took too long. Please try again.' });
+    }
     return res.status(503).json({ error: 'Sakha AI could not verify your session.' });
   }
 }
