@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -15,33 +16,31 @@ import { LogoMark } from '../components/Logo';
 import { Shell, useLayout } from '../components/Shell';
 import { Avatar, Button, Card, Chip, ConfirmDialog, InlineBanner, Txt } from '../components/ui';
 import { STARTER_PROMPTS } from '../lib/ai';
-import { askGemini } from '../lib/geminiChat';
+import { askGemini, GEMINI_MODEL_OPTIONS, GeminiModelId } from '../lib/geminiChat';
 import { useStore } from '../lib/store';
 import { fonts, radii, spacing, useTheme } from '../lib/theme';
 import { ChatMsg } from '../lib/types';
 
-const MODELS = [
-  { id: 'gemini-3.1-flash-lite', label: '⚡ Fast Mentor', shortName: 'Flash-Lite' },
-  { id: 'gemini-3.8-flash', label: '✨ Standard', shortName: 'Gemini 3.8' },
-  { id: 'gemini-3.5-flash', label: '🧠 Flash 3.5', shortName: 'Flash 3.5' },
-];
-
 export default function SakhaAIScreen() {
   const { colors, scheme } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'SakhaAI'>>();
   const { state, streak, todayMinutes, dispatch } = useStore();
   const { isMobile, isTablet, isDesktop } = useLayout();
 
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-flash-lite');
+  const [selectedModel, setSelectedModel] = useState<GeminiModelId>(GEMINI_MODEL_OPTIONS[0].id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState<boolean>(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const handledPrompt = useRef(false);
+  const activeRequest = useRef<{ requestId: string; controller: AbortController } | null>(null);
+  const requestGeneration = useRef(0);
+  const requestInFlight = useRef(false);
+  const mounted = useRef(true);
 
   const hasCustomName = Boolean(state.user?.name && state.user.name !== 'Guest User' && state.user.name !== 'Aspirant');
 
@@ -84,7 +83,10 @@ export default function SakhaAIScreen() {
           accuracy: latestResult.accuracy,
           score: latestResult.score,
           maxScore: latestResult.maxScore,
-          percentile: latestResult.percentile,
+          comparisonStatus: latestResult.comparisonStatus ?? 'estimated',
+          ...(latestResult.comparisonStatus === 'unavailable'
+            ? {}
+            : { percentile: latestResult.percentile }),
           weakestSubject,
         }
       : null,
@@ -95,66 +97,123 @@ export default function SakhaAIScreen() {
   const send = useCallback(
     async (text: string, isRetry = false, originalMsgId?: string) => {
       const clean = text.trim();
-      if (!clean || typing) return;
+      if (!clean || requestInFlight.current) return;
 
-      setErrorMessage(null);
-      setNeedsKey(false);
+      requestInFlight.current = true;
+      const previousUserMessage = isRetry
+        ? [...state.chat].reverse().find((item) => item.role === 'user' && item.text === clean)
+        : undefined;
+      const requestId = originalMsgId ?? previousUserMessage?.id ?? `u-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      const responseId = `a-${requestId}`;
+      const generation = requestGeneration.current;
+      const controller = new AbortController();
+      activeRequest.current = { requestId, controller };
 
-      const userMsgId = originalMsgId || `u-${Date.now()}`;
-      if (!isRetry) {
-        const userMsg: ChatMsg = {
-          id: userMsgId,
-          role: 'user',
-          text: clean,
-          at: Date.now(),
-          status: 'sent',
-        };
-        dispatch({ type: 'chat', msg: userMsg });
-        setInput('');
+      if (mounted.current) {
+        setErrorMessage(null);
+        setNeedsKey(false);
       }
 
-      setTyping(true);
+      dispatch({
+        type: 'chat',
+        msg: {
+          id: requestId,
+          role: 'user',
+          requestId,
+          text: clean,
+          at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
+          status: 'sending',
+        },
+      });
+      if (!isRetry) {
+        setInput('');
+      } else {
+        dispatch({
+          type: 'chat',
+          msg: {
+            id: responseId,
+            role: 'sakha',
+            requestId,
+            text: 'Retrying your request…',
+            at: Date.now(),
+            status: 'sending',
+          },
+        });
+      }
 
-      // Auto scroll to bottom
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+      if (mounted.current) setTyping(true);
+
+      if (mounted.current) {
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+      }
 
       try {
         const reply = await askGemini({
           message: clean,
-          history: state.chat,
+          history: state.chat.filter(
+            (item) => item.id !== requestId && item.requestId !== requestId && item.status !== 'error'
+          ),
           model: selectedModel,
+          signal: controller.signal,
           examContext,
         });
 
+        if (generation !== requestGeneration.current) return;
+        dispatch({
+          type: 'chat',
+          msg: {
+            id: requestId,
+            role: 'user',
+            requestId,
+            text: clean,
+            at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
+            status: 'sent',
+          },
+        });
         const sakhaMsg: ChatMsg = {
-          id: `s-${Date.now()}`,
+          id: responseId,
           role: 'sakha',
+          requestId,
           text: reply.text,
           at: Date.now(),
           action: reply.action || undefined,
           sources: reply.sources && reply.sources.length > 0 ? reply.sources : undefined,
           chips: reply.chips,
           modelUsed: reply.modelUsed,
+          fallbackUsed: reply.fallbackUsed,
           status: 'sent',
         };
 
         dispatch({ type: 'chat', msg: sakhaMsg });
-      } catch (err: any) {
-        console.error('Failed to get Gemini response:', err);
-        const isKeyMissing = err?.needsKey || err?.status === 401 || err?.status === 403;
-        setNeedsKey(isKeyMissing);
-
-        const errorDesc =
-          err?.message ||
-          'Unable to reach Gemini AI mentor. Please check your connection or API key setup.';
-        setErrorMessage(errorDesc);
-
-        // Add error message in thread so user can see what failed and retry
+      } catch (err: unknown) {
+        if (generation !== requestGeneration.current) return;
+        const error = err instanceof Error ? err : new Error('Unable to reach Sakha AI.');
+        const requestError = error as Error & { needsKey?: boolean; status?: number };
+        const isKeyMissing = requestError.needsKey || requestError.status === 401 || requestError.status === 403;
+        const errorDesc = controller.signal.aborted
+          ? 'Request cancelled. Your prompt is saved; retry when you are ready.'
+          : error.message;
+        if (mounted.current) {
+          setNeedsKey(Boolean(isKeyMissing));
+          setErrorMessage(errorDesc);
+        }
+        dispatch({
+          type: 'chat',
+          msg: {
+            id: requestId,
+            role: 'user',
+            requestId,
+            text: clean,
+            at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
+            status: 'error',
+          },
+        });
         const errorMsg: ChatMsg = {
-          id: `err-${Date.now()}`,
+          id: responseId,
           role: 'sakha',
+          requestId,
           text: isKeyMissing
-            ? '⚠️ Gemini API key setup is required.\n\nPlease configure your Gemini API key in Google AI Studio (under Settings > Secrets) to enable real-time AI mentoring.'
+            ? 'Your session or AI service configuration needs attention. Sign in again or contact support.'
             : `⚠️ ${errorDesc}`,
           at: Date.now(),
           status: 'error',
@@ -163,12 +222,24 @@ export default function SakhaAIScreen() {
         };
         dispatch({ type: 'chat', msg: errorMsg });
       } finally {
-        setTyping(false);
-        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        if (activeRequest.current?.requestId === requestId) activeRequest.current = null;
+        requestInFlight.current = false;
+        if (mounted.current) {
+          setTyping(false);
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+        }
       }
     },
-    [dispatch, examContext, selectedModel, state.chat, typing]
+    [dispatch, examContext, selectedModel, state.chat]
   );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      activeRequest.current?.controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const p = route.params?.prompt;
@@ -331,7 +402,7 @@ export default function SakhaAIScreen() {
             <Txt size={12} weight="700" color={colors.textMuted}>
               Model:
             </Txt>
-            {MODELS.map((m) => {
+            {GEMINI_MODEL_OPTIONS.map((m) => {
               const active = selectedModel === m.id;
               return (
                 <Pressable
@@ -390,6 +461,10 @@ export default function SakhaAIScreen() {
             />
           </View>
         )}
+
+        <Txt size={11} color={colors.textFaint} style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+          Chat history is saved on this device until you clear it. Up to 12 recent messages are sent with each request.
+        </Txt>
 
         {/* Message Thread */}
         <ScrollView
@@ -628,7 +703,7 @@ export default function SakhaAIScreen() {
                             }}
                           >
                             <Txt size={10.5} weight="700" color={colors.blue}>
-                              {m.modelUsed.replace('gemini-', '').replace('-preview', '')}
+                              {m.fallbackUsed ? 'Fallback · ' : ''}{m.modelUsed.replace('gemini-', '').replace('-preview', '')}
                             </Txt>
                           </View>
                         )}
@@ -707,10 +782,12 @@ export default function SakhaAIScreen() {
                               <Pressable
                                 key={`${src.id}-${srcIdx}`}
                                 onPress={() =>
-                                  nav.navigate(src.route, {
-                                    ...(src.params || {}),
-                                    headerBrand: 'SakhaAI',
-                                  })
+                                  nav.dispatch(
+                                    CommonActions.navigate({
+                                      name: src.route,
+                                      params: { ...(src.params || {}), headerBrand: 'SakhaAI' },
+                                    })
+                                  )
                                 }
                                 accessibilityRole="button"
                                 accessibilityLabel={`Open source ${src.type}: ${src.title}`}
@@ -775,7 +852,7 @@ export default function SakhaAIScreen() {
                           icon="refresh"
                           size="sm"
                           variant="danger"
-                          onPress={() => send(m.retryText!, true, m.id)}
+                          onPress={() => send(m.retryText!, true, m.requestId)}
                         />
                       </View>
                     )}
@@ -789,10 +866,12 @@ export default function SakhaAIScreen() {
                       size="sm"
                       variant="soft"
                       onPress={() =>
-                        nav.navigate(m.action!.route, {
-                          ...(m.action!.params ?? {}),
-                          headerBrand: 'SakhaAI',
-                        })
+                        nav.dispatch(
+                          CommonActions.navigate({
+                            name: m.action!.route,
+                            params: { ...(m.action!.params ?? {}), headerBrand: 'SakhaAI' },
+                          })
+                        )
                       }
                     />
                   ) : null}
@@ -953,6 +1032,10 @@ export default function SakhaAIScreen() {
           cancelLabel="Keep History"
           danger
           onConfirm={() => {
+            requestGeneration.current += 1;
+            activeRequest.current?.controller.abort();
+            activeRequest.current = null;
+            requestInFlight.current = false;
             dispatch({ type: 'clearChat' });
             setClearDialogOpen(false);
           }}

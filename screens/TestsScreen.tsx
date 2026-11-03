@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell } from '../components/Shell';
@@ -25,8 +26,8 @@ type TestCategory = (typeof TEST_CATEGORIES)[number]['id'];
 
 export default function TestsScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'Tests'>>();
   const { state } = useStore();
   const allTests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
   const [selectedCategory, setSelectedCategory] = useState<TestCategory | null>(null);

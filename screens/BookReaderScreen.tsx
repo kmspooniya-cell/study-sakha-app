@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { Image, Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,8 +13,8 @@ import { radii, useTheme } from '../lib/theme';
 
 export default function BookReaderScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'BookReader'>>();
   const { state, dispatch } = useStore();
   const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();

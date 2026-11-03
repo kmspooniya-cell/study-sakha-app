@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import * as DocumentPicker from 'expo-document-picker';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 import { File } from 'expo-file-system';
@@ -108,7 +109,7 @@ function contentErrorMessage(error: unknown, fallback: string) {
 
 export default function AdminScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state, dispatch, saveManagedContent, deleteManagedContent: removeManagedContent } = useStore();
   const { isMobile, isDesktop } = useLayout();
   const [tab, setTab] = useState<Tab>('overview');
@@ -762,7 +763,7 @@ export default function AdminScreen() {
                   <Button label="Reject" icon="close" size="sm" variant="outline" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'rejected' })} />
                 </View>
               ) : (
-                <Button label="Move back to pending" size="sm" variant="ghost" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'pending' as any })} />
+                <Button label="Move back to pending" size="sm" variant="ghost" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'pending' })} />
               )}
             </Card>
           ))}

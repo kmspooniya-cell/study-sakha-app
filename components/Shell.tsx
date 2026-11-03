@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { CommonActions, DrawerActions, useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
@@ -8,6 +8,7 @@ import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
 import { Divider, IconButton, Txt } from './ui';
+import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
 
 export type NavKey =
   | 'Dashboard'
@@ -86,19 +87,21 @@ export function useLayout() {
 }
 
 export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppHeaderRoute>();
   const insets = useSafeAreaInsets();
   const { mode, scheme, colors } = useTheme();
   const { state, unread, dispatch } = useStore();
   const { width } = useWindowDimensions();
   const parentState = nav.getParent?.()?.getState?.();
   const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
+  const parentHeaderBrand =
+    parentRoute?.params && 'headerBrand' in parentRoute.params ? parentRoute.params.headerBrand : undefined;
   const isSakhaAI =
     route.name === 'SakhaAI' ||
     route.params?.headerBrand === 'SakhaAI' ||
-    parentRoute?.params?.headerBrand === 'SakhaAI';
-  const isHome = route.name === 'DashboardRoot' || route.name === 'Dashboard';
+    parentHeaderBrand === 'SakhaAI';
+  const isHome = route.name === 'DashboardRoot';
   const first = (state.user?.name ?? 'Guest User').trim().split(/\s+/)[0] || 'Guest';
 
   const cycleTheme = () => {
@@ -106,28 +109,9 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
     dispatch({ type: 'settings', patch: { themeMode: next } });
   };
 
-  const navigate = (name: string) => {
-    let target: any = nav;
-    while (target) {
-      const routeNames = target.getState?.().routeNames ?? [];
-      if (routeNames.includes(name)) {
-        target.navigate(name);
-        return;
-      }
-      target = target.getParent?.();
-    }
-  };
+  const navigate = (name: AppStackRouteName) => nav.dispatch(CommonActions.navigate(name));
 
-  const openMenu = () => {
-    let target: any = nav;
-    while (target) {
-      if (typeof target.openDrawer === 'function') {
-        target.openDrawer();
-        return;
-      }
-      target = target.getParent?.();
-    }
-  };
+  const openMenu = () => nav.dispatch(DrawerActions.openDrawer());
 
   const goHome = () => navigate('DashboardRoot');
 
@@ -177,22 +161,14 @@ export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
 }
 
 export function AppBottomNav({ active }: { active: NavKey }) {
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
 
   const go = (key: NavKey) => {
     const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-    let target: any = nav;
-    while (target) {
-      const routeNames = target.getState?.().routeNames ?? [];
-      if (routeNames.includes(routeName)) {
-        target.navigate(routeName);
-        return;
-      }
-      target = target.getParent?.();
-    }
+    nav.dispatch(CommonActions.navigate(routeName));
   };
 
   const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
@@ -246,7 +222,7 @@ export function Shell({
   contentPadding?: number;
 }) {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { isMobile, isTablet, isDesktop } = useLayout();
   const insets = useSafeAreaInsets();
   const { state, unread } = useStore();
@@ -259,15 +235,7 @@ export function Shell({
 
   const go = (key: NavKey) => {
     const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-    let target: any = nav;
-    while (target) {
-      const routeNames = target.getState?.().routeNames ?? [];
-      if (routeNames.includes(routeName)) {
-        target.navigate(routeName);
-        return;
-      }
-      target = target.getParent?.();
-    }
+    nav.dispatch(CommonActions.navigate(routeName));
   };
 
   const Sidebar = (

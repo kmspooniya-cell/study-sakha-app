@@ -4,6 +4,8 @@ const httpProxy = require('http-proxy');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
+const GEMINI_MODELS = require('./lib/geminiModels.json');
 
 // Load local server-side environment variables if .env exists (never exposed to client)
 try {
@@ -32,7 +34,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '128kb' }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -48,8 +50,98 @@ app.get('/healthz', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Gemini Chat API endpoint (server-side only)
-app.post('/api/chat', handleChat);
+const chatModelIds = new Set(GEMINI_MODELS.map((model) => model.id));
+const chatRateWindows = new Map();
+let supabaseAuthClient;
+
+function getSupabaseAuthClient() {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  if (!url || !key) return null;
+  if (!supabaseAuthClient) {
+    supabaseAuthClient = createClient(url, key, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    });
+  }
+  return supabaseAuthClient;
+}
+
+async function authenticateChatRequest(req, res, next) {
+  const match = /^Bearer\s+([^\s]+)$/i.exec(req.get('authorization') ?? '');
+  if (!match || match[1].length > 4096) {
+    return res.status(401).json({ error: 'Sign in to use Sakha AI.' });
+  }
+  const authClient = getSupabaseAuthClient();
+  if (!authClient) {
+    return res.status(503).json({ error: 'Sakha AI authentication is not configured on this server.' });
+  }
+  try {
+    const { data, error } = await authClient.auth.getUser(match[1]);
+    if (error || !data.user) return res.status(401).json({ error: 'Your session is invalid or expired.' });
+    req.authenticatedUser = data.user;
+    return next();
+  } catch {
+    return res.status(503).json({ error: 'Sakha AI could not verify your session.' });
+  }
+}
+
+function validateChatRequest(req, res, next) {
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'Invalid chat request.' });
+  }
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > 96 * 1024) {
+    return res.status(413).json({ error: 'Chat request is too large.' });
+  }
+  if (typeof body.message !== 'string' || !body.message.trim() || body.message.length > 4000) {
+    return res.status(400).json({ error: 'Message text must be between 1 and 4000 characters.' });
+  }
+  if (!Array.isArray(body.history) || body.history.length > 12) {
+    return res.status(400).json({ error: 'Chat history must contain no more than 12 messages.' });
+  }
+  if (body.history.some((item) =>
+    !item ||
+    typeof item !== 'object' ||
+    !['user', 'sakha', 'assistant', 'model'].includes(item.role) ||
+    typeof item.text !== 'string' ||
+    item.text.length > 4000
+  )) {
+    return res.status(400).json({ error: 'Chat history contains an invalid message.' });
+  }
+  if (body.model !== undefined && !chatModelIds.has(body.model)) {
+    return res.status(400).json({ error: 'The selected Gemini model is not supported.' });
+  }
+  return next();
+}
+
+function rateLimitChat(req, res, next) {
+  const now = Date.now();
+  const windowMs = 60_000;
+  const limit = 20;
+  const userId = req.authenticatedUser.id;
+  let window = chatRateWindows.get(userId);
+  if (!window || now - window.startedAt >= windowMs) {
+    window = { startedAt: now, count: 0 };
+    chatRateWindows.set(userId, window);
+  }
+  if (window.count >= limit) {
+    return res.status(429).json({ error: 'Sakha AI request limit reached. Wait a minute and try again.' });
+  }
+  window.count += 1;
+  if (chatRateWindows.size > 10_000) {
+    for (const [id, entry] of chatRateWindows) {
+      if (now - entry.startedAt >= windowMs) chatRateWindows.delete(id);
+    }
+  }
+  return next();
+}
+
+// Gemini credentials stay on the server; chat requests require a verified account.
+app.post('/api/chat', authenticateChatRequest, validateChatRequest, rateLimitChat, handleChat);
 
 // Audio Library catalog endpoint
 app.get('/api/audio-catalog', (req, res) => {

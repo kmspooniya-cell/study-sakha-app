@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
@@ -22,7 +23,7 @@ const SUGGESTIONS = ['Fundamental Rights', 'Monsoon', 'Inflation targeting', 'Ro
 
 export default function SearchScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state } = useStore();
   const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);

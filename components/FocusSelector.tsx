@@ -1,4 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
@@ -9,7 +10,7 @@ import { Card, SectionHeader, Txt } from './ui';
 
 export function FocusSelector() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state } = useStore();
   const selectedExam = state.user?.exam ?? 'upsc';
 

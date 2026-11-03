@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AuthNavigation } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
@@ -18,7 +19,7 @@ const HIGHLIGHTS = [
 
 export default function SignInScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AuthNavigation>();
   const { signIn } = useStore();
   const { isMobile } = useLayout();
   const [email, setEmail] = useState('');

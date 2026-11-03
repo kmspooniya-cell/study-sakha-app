@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useEffect, useState } from 'react';
 import {
   BackHandler,
@@ -45,7 +46,7 @@ const MEDITATION_DURATIONS = [5, 10, 15, 20, 30];
 
 export default function FocusCenterScreen() {
   const { colors, scheme } = useTheme();
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<AppNavigation>();
   const { dispatch } = useStore();
   const isDark = scheme === 'dark';
 

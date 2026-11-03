@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AuthNavigation } from '../lib/navigation';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,7 +14,7 @@ import { ExamId } from '../lib/types';
 
 export default function SignUpScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AuthNavigation>();
   const { signUp } = useStore();
   const { isMobile } = useLayout();
   const [name, setName] = useState('');

@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, TextInput, View } from 'react-native';
 
 import { Shell } from '../components/Shell';
 import { Button, Card, Chip, SectionHeader, Txt } from '../components/ui';
-import { useStore } from '../lib/store';
+import { getUserScopedStorageKey, useStore } from '../lib/store';
+import { appendFocusHistory } from '../lib/focusHistory';
 import { radii, useTheme } from '../lib/theme';
 
 const HOBBY_HISTORY_KEY = 'study-sakha-hobby-history-v1';
@@ -40,8 +42,9 @@ function categoryLabel(id: HobbyId) {
 
 export default function HobbiesScreen() {
   const { colors } = useTheme();
-  const navigation = useNavigation<any>();
-  const { dispatch } = useStore();
+  const navigation = useNavigation<AppNavigation>();
+  const { state, dispatch } = useStore();
+  const historyKey = getUserScopedStorageKey(HOBBY_HISTORY_KEY, state.user?.id);
   const [selectedHobby, setSelectedHobby] = useState<HobbyId | null>(null);
   const [durationMinutes, setDurationMinutes] = useState(15);
   const [customDuration, setCustomDuration] = useState('15');
@@ -61,14 +64,14 @@ export default function HobbiesScreen() {
   };
 
   useEffect(() => {
-    AsyncStorage.getItem(HOBBY_HISTORY_KEY)
+    AsyncStorage.getItem(historyKey)
       .then((raw) => {
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) setSessions(parsed);
       })
       .catch(() => setMessage('Saved hobby history could not be loaded.'));
-  }, []);
+  }, [historyKey]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -108,13 +111,11 @@ export default function HobbiesScreen() {
   const completeSession = async () => {
     if (!selectedHobby) return;
     const session: HobbySession = {
-      id: `hobby-${Date.now()}`,
+      id: `hobby-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`,
       category: selectedHobby,
       durationMinutes,
       completedAt: new Date().toISOString(),
     };
-    const nextSessions = [session, ...sessions];
-    setSessions(nextSessions);
     setMessage(`${categoryLabel(selectedHobby)} session complete. Nice work!`);
     dispatch({
       type: 'notify',
@@ -128,7 +129,8 @@ export default function HobbiesScreen() {
       },
     });
     try {
-      await AsyncStorage.setItem(HOBBY_HISTORY_KEY, JSON.stringify(nextSessions));
+      const nextSessions = await appendFocusHistory(historyKey, session);
+      setSessions(nextSessions);
     } catch {
       setMessage('Session completed, but history could not be saved.');
     }

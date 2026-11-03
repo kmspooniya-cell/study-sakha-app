@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import { PlannerDashboardAction, CustomStudyPlan } from '../components/DashboardStudyTools';
@@ -21,7 +22,7 @@ function isValidTime(value: string) {
 
 export default function StudyPlannerScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
   const settings = state.plannerSettings;
   const [panel, setPanel] = useState<SettingsPanel | null>(null);

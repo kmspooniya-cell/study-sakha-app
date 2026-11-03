@@ -1,10 +1,11 @@
 import React from 'react';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import { Shell } from '../components/Shell';
 import { EmptyState } from '../components/ui';
 
 export default function StudentTestimonialsScreen() {
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
 
   return (
     <Shell active="StudentTestimonials" title="Student Testimonials" subtitle="Stories from the Study Sakha community">

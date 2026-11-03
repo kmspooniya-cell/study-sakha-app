@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -13,8 +14,8 @@ import { radii, useTheme } from '../lib/theme';
 
 export default function TestResultScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'TestResult'>>();
   const { state } = useStore();
   const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
@@ -23,6 +24,7 @@ export default function TestResultScreen() {
 
   const result = state.results.find((r) => r.id === route.params?.resultId) ?? state.results[0];
   const test = result ? tests.find((t) => t.id === result.testId) : undefined;
+  const comparisonStatus = result?.comparisonStatus ?? 'estimated';
 
   if (!result || !test) {
     return (
@@ -70,12 +72,28 @@ export default function TestResultScreen() {
             </ProgressRing>
             <View style={{ flex: 1, gap: 10 }}>
               <Txt size={isMobile ? 19 : 23} weight="800" display color="#fff" style={{ letterSpacing: -0.5 }}>
-                {result.percentile >= 85 ? 'Excellent attempt' : result.percentile >= 60 ? 'Solid attempt — fixable gaps' : 'Recoverable. Here is the plan.'}
+                {result.accuracy >= 85 ? 'Excellent attempt' : result.accuracy >= 60 ? 'Solid attempt — fixable gaps' : 'Recoverable. Here is the plan.'}
               </Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {[
-                  { l: 'Percentile', v: result.percentile.toFixed(1) },
-                  { l: 'Rank', v: `${result.rank.toLocaleString('en-IN')} / ${(result.totalAspirants / 1000).toFixed(0)}k` },
+                  {
+                    l: comparisonStatus === 'estimated' ? 'Estimated percentile' : 'Percentile',
+                    v: comparisonStatus === 'measured'
+                      ? result.percentile.toFixed(1)
+                      : comparisonStatus === 'estimated'
+                        ? `Estimate ${result.percentile.toFixed(1)}`
+                        : 'Unavailable',
+                  },
+                  {
+                    l: comparisonStatus === 'estimated' ? 'Estimated rank' : 'Rank',
+                    v: comparisonStatus === 'measured'
+                      ? `${result.rank.toLocaleString('en-IN')} / ${result.totalAspirants.toLocaleString('en-IN')}`
+                      : comparisonStatus === 'estimated' && result.totalAspirants > 0
+                        ? `Estimate ${result.rank.toLocaleString('en-IN')}`
+                        : comparisonStatus === 'estimated'
+                          ? 'Estimate'
+                          : 'Unavailable',
+                  },
                   { l: 'Accuracy', v: `${Math.round(result.accuracy)}%` },
                   { l: 'Time', v: `${Math.round(result.timeTakenSec / 60)}m` },
                 ].map((s) => (
@@ -196,29 +214,33 @@ export default function TestResultScreen() {
               </Card>
 
               <Card>
-                <SectionHeader title="Percentile ranking" icon="podium-outline" />
-                <View style={{ gap: 12 }}>
-                  {[
-                    { label: 'You', value: result.percentile, color: colors.blue },
-                    { label: 'Topper band', value: 97.5, color: colors.success },
-                    { label: 'Average aspirant', value: 50, color: colors.textFaint },
-                    { label: 'Cut-off estimate', value: 72, color: colors.warning },
-                  ].map((row) => (
-                    <View key={row.label} style={{ gap: 6 }}>
+                <SectionHeader title="Score comparison" icon="podium-outline" />
+                {comparisonStatus === 'unavailable' ? (
+                  <Txt size={13} color={colors.textMuted}>
+                    Percentile and rank are unavailable because no verified cohort results are available for this test. Your score and accuracy above are calculated from your answers.
+                  </Txt>
+                ) : comparisonStatus === 'estimated' ? (
+                  <Txt size={13} color={colors.textMuted}>
+                    The historical percentile and rank are estimates from an earlier scoring formula, not official or cohort-verified results.
+                  </Txt>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    <Txt size={13} color={colors.textMuted}>
+                      Based on verified comparison data from {result.totalAspirants.toLocaleString('en-IN')} attempts.
+                    </Txt>
+                    <View style={{ gap: 6 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Txt size={13} weight="600">
-                          {row.label}
-                        </Txt>
-                        <Txt size={12.5} weight="800" color={row.color}>
-                          {row.value.toFixed(1)}
+                        <Txt size={13} weight="600">Your measured percentile</Txt>
+                        <Txt size={12.5} weight="800" color={colors.blue}>
+                          {result.percentile.toFixed(1)}
                         </Txt>
                       </View>
                       <View style={{ height: 8, borderRadius: 8, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
-                        <View style={{ width: `${row.value}%`, height: 8, backgroundColor: row.color, borderRadius: 8 }} />
+                        <View style={{ width: `${Math.max(0, Math.min(100, result.percentile))}%`, height: 8, backgroundColor: colors.blue, borderRadius: 8 }} />
                       </View>
                     </View>
-                  ))}
-                </View>
+                  </View>
+                )}
               </Card>
             </View>
           </View>

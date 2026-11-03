@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
+import type { AppNavigation, AppNavigationRouteName } from '../lib/navigation';
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell } from '../components/Shell';
@@ -39,7 +40,9 @@ const GUIDE_SECTIONS = [
   },
 ] as const;
 
-export function AppGuideContent({ onOpen }: { onOpen: (route: string) => void }) {
+type GuideRouteName = Extract<AppNavigationRouteName, 'Dashboard' | 'Library' | 'Tests' | 'SakhaAI' | 'Settings'>;
+
+export function AppGuideContent({ onOpen }: { onOpen: (route: GuideRouteName) => void }) {
   const { colors } = useTheme();
 
   return (
@@ -74,12 +77,12 @@ export function AppGuideContent({ onOpen }: { onOpen: (route: string) => void })
 }
 
 export default function AppGuideScreen() {
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
 
   return (
     <Shell active="AppGuide" title="How to Use the App" subtitle="A quick guide to the main Study Sakha sections">
       <View style={{ gap: 12 }}>
-        <AppGuideContent onOpen={(route) => nav.navigate(route)} />
+        <AppGuideContent onOpen={(route) => nav.dispatch(CommonActions.navigate(route))} />
         <Button label="Back to Settings" icon="settings-outline" variant="outline" onPress={() => nav.navigate('Settings')} />
       </View>
     </Shell>

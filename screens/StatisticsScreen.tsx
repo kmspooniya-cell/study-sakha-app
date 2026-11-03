@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, TextInput, View } from 'react-native';
 
@@ -13,7 +14,7 @@ import {
   normalizeFocusSessions,
   NormalizedFocusSession,
 } from '../lib/statistics';
-import { useStore } from '../lib/store';
+import { getUserScopedStorageKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
 const HISTORY_KEY = 'study-sakha-focus-history-v1';
@@ -80,8 +81,9 @@ function dayLabel(value: number): string {
 
 export default function StatisticsScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state } = useStore();
+  const historyKey = getUserScopedStorageKey(HISTORY_KEY, state.user?.id);
   const { isMobile, isDesktop } = useLayout();
   const [sessions, setSessions] = useState<NormalizedFocusSession[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -95,7 +97,11 @@ export default function StatisticsScreen() {
   const [customRangeError, setCustomRangeError] = useState<string | null>(null);
 
   const percentileTrend = useMemo(
-    () => state.results.slice(0, 8).reverse().map((result, index) => ({
+    () => state.results
+      .filter((result) => result.comparisonStatus === 'measured')
+      .slice(0, 8)
+      .reverse()
+      .map((result, index) => ({
       label: `M${index + 1}`,
       value: Math.round(result.percentile),
     })),
@@ -107,7 +113,7 @@ export default function StatisticsScreen() {
     setLoaded(false);
     setLoadError(null);
 
-    AsyncStorage.getItem(HISTORY_KEY)
+    AsyncStorage.getItem(historyKey)
       .then((raw) => {
         if (!active) return;
         try {
@@ -130,7 +136,7 @@ export default function StatisticsScreen() {
     return () => {
       active = false;
     };
-  }, []));
+  }, [historyKey]));
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -393,8 +399,8 @@ export default function StatisticsScreen() {
 
             <Card>
               <SectionHeader title="Academic Performance" icon="ribbon-outline" action="Tests" onAction={() => nav.navigate('Tests')} />
-              {percentileTrend.length >= 2 ? <LineChart data={percentileTrend} color={colors.violet} /> : <Txt size={13} color={colors.textMuted}>Attempt two or more mocks to plot your percentile trajectory.</Txt>}
-              <View style={{ gap: 10, marginTop: 16 }}><Txt size={13} weight="800">Recent test results</Txt>{state.results.length ? state.results.slice(0, 6).map((result) => <Pressable key={result.id} onPress={() => nav.navigate('TestResult', { resultId: result.id })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, opacity: pressed ? 0.75 : 1 })}><View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}><Txt size={12} weight="800" color={colors.blue}>{result.percentile.toFixed(0)}</Txt></View><View style={{ flex: 1 }}><Txt size={13} weight="700" numberOfLines={1}>{result.title}</Txt><Txt size={11.5} color={colors.textMuted}>{result.score.toFixed(1)}/{result.maxScore} · {Math.round(result.accuracy)}% accuracy</Txt></View><Ionicons name="chevron-forward" size={16} color={colors.textFaint} /></Pressable>) : <EmptyState icon="ribbon-outline" title="No results yet" body="Your mock results will appear here." action="Take a test" onAction={() => nav.navigate('Tests')} />}</View>
+              {percentileTrend.length >= 2 ? <LineChart data={percentileTrend} color={colors.violet} /> : <Txt size={13} color={colors.textMuted}>Percentile trends require verified cohort data. Current attempts have no such comparison data.</Txt>}
+              <View style={{ gap: 10, marginTop: 16 }}><Txt size={13} weight="800">Recent test results</Txt>{state.results.length ? state.results.slice(0, 6).map((result) => { const comparison = result.comparisonStatus ?? 'estimated'; const comparisonValue = comparison === 'measured' ? result.percentile.toFixed(0) : comparison === 'estimated' ? `~${result.percentile.toFixed(0)}` : '—'; return <Pressable key={result.id} onPress={() => nav.navigate('TestResult', { resultId: result.id })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, opacity: pressed ? 0.75 : 1 })}><View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}><Txt size={12} weight="800" color={colors.blue}>{comparisonValue}</Txt></View><View style={{ flex: 1 }}><Txt size={13} weight="700" numberOfLines={1}>{result.title}</Txt><Txt size={11.5} color={colors.textMuted}>{result.score.toFixed(1)}/{result.maxScore} · {Math.round(result.accuracy)}% accuracy · {comparison === 'measured' ? 'verified percentile' : comparison === 'estimated' ? 'historical estimate' : 'no percentile data'}</Txt></View><Ionicons name="chevron-forward" size={16} color={colors.textFaint} /></Pressable>; }) : <EmptyState icon="ribbon-outline" title="No results yet" body="Your mock results will appear here." action="Take a test" onAction={() => nav.navigate('Tests')} />}</View>
             </Card>
           </>
         )}

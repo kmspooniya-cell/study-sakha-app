@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import { useTheme, radii } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { ProgressRing, Txt } from './ui';
@@ -22,7 +23,7 @@ export function StitchDashboardHero({
   dailyGoalMinutes = 60,
   streak = 0,
 }: Props) {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<AppNavigation>();
   const { colors } = useTheme();
   const { state } = useStore();
   const firstName = String(state.user?.name || 'Learner').trim().split(' ')[0];

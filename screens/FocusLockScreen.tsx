@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -14,7 +14,8 @@ import {
 import { Shell } from '../components/Shell';
 import { Button, Card, Chip, Txt } from '../components/ui';
 import { useTheme } from '../lib/theme';
-import { useStore } from '../lib/store';
+import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
+import { appendFocusHistory } from '../lib/focusHistory';
 
 const SESSION_STORAGE_KEY = 'study-sakha-focus-lock-session-v1';
 const PRESET_DURATIONS = [25, 45, 60, 90];
@@ -37,6 +38,7 @@ type FocusSession = {
   endsAt: number;
   durationMinutes: number;
   categories: string[];
+  stoppedAt?: number;
 };
 
 function parseSavedSession(raw: string | null): FocusSession | null {
@@ -49,7 +51,8 @@ function parseSavedSession(raw: string | null): FocusSession | null {
     !Number.isFinite(parsed.endsAt) ||
     !Number.isFinite(parsed.durationMinutes) ||
     !Array.isArray(parsed.categories) ||
-    !parsed.categories.every((category) => typeof category === 'string')
+    !parsed.categories.every((category) => typeof category === 'string') ||
+    (parsed.stoppedAt !== undefined && !Number.isFinite(parsed.stoppedAt))
   ) {
     throw new Error('The saved focus session could not be read.');
   }
@@ -84,7 +87,15 @@ function formatEndTime(timestamp: number) {
 
 export default function FocusLockScreen() {
   const { colors, scheme } = useTheme();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
+  const storageKey = useMemo(
+    () => getUserScopedStorageKey(SESSION_STORAGE_KEY, state.user?.id),
+    [state.user?.id]
+  );
+  const historyKey = useMemo(
+    () => getUserScopedStorageKey('study-sakha-focus-history-v1', state.user?.id),
+    [state.user?.id]
+  );
   const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -101,6 +112,39 @@ export default function FocusLockScreen() {
   const [showStopConfirmation, setShowStopConfirmation] = useState(false);
   const heroOpacity = useRef(new Animated.Value(0)).current;
   const creditedSessionId = useRef<string | null>(null);
+
+  const creditSession = useCallback((completedSession: FocusSession, endedAt: number) => {
+    if (creditedSessionId.current === completedSession.id) return;
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((Math.min(endedAt, completedSession.endsAt) - completedSession.startedAt) / 1000)
+    );
+    if (elapsedSeconds <= 0) return;
+    creditedSessionId.current = completedSession.id;
+    dispatch({
+      type: 'recordFocusStudy',
+      id: completedSession.id,
+      date: dayKey(new Date(completedSession.startedAt)),
+      taskId: null,
+      seconds: elapsedSeconds,
+      category: 'Focus Lock',
+    });
+    const completedAt = new Date(endedAt).toISOString();
+    void appendFocusHistory(historyKey, {
+      id: completedSession.id,
+      subject: 'Focus Lock',
+      topic: completedSession.categories.join(', '),
+      minutes: elapsedSeconds / 60,
+      completedAt,
+      startedAt: new Date(completedSession.startedAt).toISOString(),
+      endedAt: completedAt,
+      actualSeconds: elapsedSeconds,
+      plannedMinutes: completedSession.durationMinutes,
+    }).catch((error: unknown) => {
+      console.error('Focus Lock history could not be saved:', error);
+      setStorageError('The session was recorded in your study totals, but focus history could not be saved.');
+    });
+  }, [dispatch, historyKey]);
 
   useEffect(() => {
     Animated.timing(heroOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -121,16 +165,17 @@ export default function FocusLockScreen() {
     let mounted = true;
     setLoadStatus('loading');
     setStorageError(null);
-    AsyncStorage.getItem(SESSION_STORAGE_KEY)
+    AsyncStorage.getItem(storageKey)
       .then(async (raw) => {
         let saved = parseSavedSession(raw);
         if (saved?.status === 'active' && saved.endsAt <= Date.now()) {
           saved = { ...saved, status: 'completed' };
-          if (creditedSessionId.current !== saved.id) {
-            creditedSessionId.current = saved.id;
-            dispatch({ type: 'study', minutes: saved.durationMinutes });
-          }
-          await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(saved));
+          await AsyncStorage.setItem(storageKey, JSON.stringify(saved));
+        }
+        if (saved?.status === 'completed') {
+          creditSession(saved, saved.endsAt);
+        } else if (saved?.status === 'stopped' && saved.stoppedAt) {
+          creditSession(saved, saved.stoppedAt);
         }
         if (mounted) {
           setSession(saved);
@@ -146,7 +191,7 @@ export default function FocusLockScreen() {
     return () => {
       mounted = false;
     };
-  }, [loadAttempt]);
+  }, [creditSession, loadAttempt, storageKey]);
 
   useEffect(() => {
     const updateClock = () => {
@@ -155,11 +200,8 @@ export default function FocusLockScreen() {
       if (session?.status === 'active' && current >= session.endsAt) {
         const completed = { ...session, status: 'completed' as const };
         setSession(completed);
-        if (creditedSessionId.current !== session.id) {
-          creditedSessionId.current = session.id;
-          dispatch({ type: 'study', minutes: session.durationMinutes });
-        }
-        AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(completed)).catch(() => {
+        creditSession(completed, completed.endsAt);
+        AsyncStorage.setItem(storageKey, JSON.stringify(completed)).catch(() => {
           setStorageError('The timer ended, but its completed state could not be saved.');
         });
       }
@@ -172,7 +214,7 @@ export default function FocusLockScreen() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [dispatch, session]);
+  }, [creditSession, session, storageKey]);
 
   const durationMinutes = useMemo(() => {
     if (durationMode === 'preset') return selectedPreset;
@@ -204,7 +246,7 @@ export default function FocusLockScreen() {
 
   const saveSession = async (next: FocusSession) => {
     try {
-      await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(storageKey, JSON.stringify(next));
       setSession(next);
       setStorageError(null);
     } catch {
@@ -224,7 +266,7 @@ export default function FocusLockScreen() {
     if (!durationMinutes || selectedCategories.length === 0 || loadStatus !== 'ready' || storageError) return;
     const startedAt = Date.now();
     void saveSession({
-      id: `focus-${startedAt}`,
+      id: `focus-${startedAt}-${Math.floor(Math.random() * 1_000_000)}`,
       status: 'active',
       startedAt,
       endsAt: startedAt + durationMinutes * 60000,
@@ -235,11 +277,13 @@ export default function FocusLockScreen() {
 
   const stopTimer = async () => {
     if (!activeSession) return;
-    const stopped = { ...activeSession, status: 'stopped' as const };
+    const stoppedAt = Date.now();
+    const stopped = { ...activeSession, status: 'stopped' as const, stoppedAt };
     setShowStopConfirmation(false);
     setSession(stopped);
+    creditSession(stopped, stoppedAt);
     try {
-      await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(stopped));
+      await AsyncStorage.setItem(storageKey, JSON.stringify(stopped));
       setStorageError(null);
     } catch {
       setStorageError('The timer stopped, but its state could not be saved.');
@@ -248,7 +292,7 @@ export default function FocusLockScreen() {
 
   const clearSession = async () => {
     try {
-      await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+      await AsyncStorage.removeItem(storageKey);
       setSession(null);
       setSelectedCategories([]);
       setStorageError(null);

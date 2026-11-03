@@ -1,5 +1,11 @@
 import { Platform } from 'react-native';
+import type { AppNavigationTarget } from './navigation';
 import { ChatMsg, ExamId, SourceRef } from './types';
+import GEMINI_MODELS from './geminiModels.json';
+import { supabase, supabaseConfigured } from './supabase';
+
+export const GEMINI_MODEL_OPTIONS = GEMINI_MODELS;
+export type GeminiModelId = (typeof GEMINI_MODEL_OPTIONS)[number]['id'];
 
 export type ExamContext = {
   name?: string | null;
@@ -15,7 +21,8 @@ export type ExamContext = {
     accuracy: number;
     score: number;
     maxScore: number;
-    percentile: number;
+    percentile?: number;
+    comparisonStatus?: 'unavailable' | 'estimated' | 'measured';
     weakestSubject?: string;
   } | null;
   activeReading?: Array<{
@@ -33,7 +40,7 @@ export type ExamContext = {
 
 export type GeminiChatResponse = {
   text: string;
-  action?: { label: string; route: string; params?: any } | null;
+  action?: ({ label: string } & AppNavigationTarget) | null;
   sources?: SourceRef[];
   chips?: string[];
   modelUsed?: string;
@@ -105,10 +112,15 @@ export async function checkApiHealth(): Promise<ApiHealthStatus> {
 export async function askGemini(params: {
   message: string;
   history: ChatMsg[];
-  model?: string;
+  model?: GeminiModelId;
+  signal?: AbortSignal;
   examContext?: ExamContext;
 }): Promise<GeminiChatResponse> {
-  const { message, history, model, examContext } = params;
+  const { message, history, model, signal, examContext } = params;
+  if (!supabaseConfigured) throw new Error('Sign in is required to use Sakha AI.');
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!sessionData.session) throw new Error('Your session expired. Sign in again to continue chatting.');
 
   // Resolve base URL (handles native Android/iOS and web)
   const baseUrl = getApiBaseUrl();
@@ -117,6 +129,7 @@ export async function askGemini(params: {
   // Format history for server endpoint
   const formattedHistory = history
     .filter((m) => m.status !== 'error')
+    .slice(-12)
     .map((m) => ({
       role: m.role,
       text: m.text,
@@ -127,7 +140,9 @@ export async function askGemini(params: {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      Authorization: `Bearer ${sessionData.session.access_token}`,
     },
+    signal,
     body: JSON.stringify({
       message,
       history: formattedHistory,

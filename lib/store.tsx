@@ -1,12 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { BADGES, LEARNERS, PENDING_CONTENT, SEED_NOTIFICATIONS } from './data';
 import { STUDENT_CONTENT_BUCKET, supabase, supabaseConfigured } from './supabase';
 import { ThemeMode } from './theme';
 import { AppNotification, ChatMsg, ExamId, Learner, ManagedContent, ManagedContentType, PendingContent, TestQuestion, TestResult, UserNote } from './types';
 
 const KEY = 'sakha-store-v1';
+const LEGACY_IMPORT_KEY = 'study-sakha-legacy-import-v1';
+export const getUserScopedStorageKey = (key: string, userId: string | null | undefined) =>
+  userId ? `${key}:user:${encodeURIComponent(userId)}` : key;
 
 export type User = {
   id: string;
@@ -65,6 +69,7 @@ export type PlannerSettings = {
 
 export type State = {
   hydrated: boolean;
+  storageReady: boolean;
   authReady: boolean;
   user: User | null;
   settings: {
@@ -103,9 +108,41 @@ export type State = {
   announcements: Announcement[];
 };
 
+type LegacyLearningData = Pick<
+  State,
+  | 'notes'
+  | 'starred'
+  | 'bookmarks'
+  | 'progress'
+  | 'planDone'
+  | 'plannerTasks'
+  | 'plannerDefaultOverrides'
+  | 'plannerDeletedDefaults'
+  | 'plannerCompletions'
+  | 'plannerMinutesCredited'
+  | 'plannerTaskStudySeconds'
+  | 'recordedFocusSessionIds'
+  | 'studyLog'
+  | 'results'
+>;
+
 const todayKey = () => new Date().toISOString().slice(0, 10);
 export const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 const LEGACY_PLANNER_KEY = 'study-sakha-custom-tasks-v1';
+const LEGACY_SCOPED_STORAGE_KEYS = [
+  'study-sakha-focus-history-v1',
+  'study-sakha-meditation-history-v1',
+  'study-sakha-break-history-v1',
+  'study-sakha-hobby-history-v1',
+  'study-sakha-focus-lock-session-v1',
+] as const;
+const LEGACY_HISTORY_STORAGE_KEYS = new Set([
+  'study-sakha-focus-history-v1',
+  'study-sakha-meditation-history-v1',
+  'study-sakha-break-history-v1',
+  'study-sakha-hobby-history-v1',
+]);
+const LEGACY_TEST_ATTEMPT_PREFIX = 'study-sakha-test-attempt-v1-';
 
 function isPlannerDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -220,6 +257,7 @@ function seedStudyLog(): Record<string, number> {
 
 const initialState: State = {
   hydrated: false,
+  storageReady: false,
   authReady: false,
   user: null,
   settings: { themeMode: 'system', language: 'en', dailyGoalMin: 180, textScale: 1, notifications: true },
@@ -295,6 +333,12 @@ const initialState: State = {
 
 type Action =
   | { type: 'hydrate'; payload: Partial<State> }
+  | { type: 'restore'; payload: Partial<State>; tasks: PlannerTask[]; pendingActions: Action[]; profile?: Partial<User> }
+  | { type: 'importLegacyLearningData'; payload: LegacyLearningData }
+  | { type: 'recoveryStar'; id: string; starred: boolean }
+  | { type: 'recoveryBookmark'; id: string; bookmarked: boolean }
+  | { type: 'recoveryPlan'; id: string; date: string; completed: boolean }
+  | { type: 'reconcilePlannerTasks'; tasks: PlannerTask[]; deletedIds: string[] }
   | { type: 'authResolved'; user: User | null }
   | { type: 'authCheckFailed' }
   | { type: 'signIn'; user: User }
@@ -341,18 +385,206 @@ type Action =
   | { type: 'readNotif'; id?: string }
   | { type: 'notify'; notif: AppNotification }
   | { type: 'learnerStatus'; id: string; status: 'active' | 'suspended' }
-  | { type: 'reviewContent'; id: string; status: 'approved' | 'rejected' }
+  | { type: 'reviewContent'; id: string; status: 'pending' | 'approved' | 'rejected' }
   | { type: 'saveManagedContent'; content: ManagedContent }
   | { type: 'deleteManagedContent'; id: string }
   | { type: 'managedContentLoaded'; content: ManagedContent[]; error: string | null }
   | { type: 'announce'; item: Announcement };
 
+const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
+  'updateProfile',
+  'settings',
+  'saveNote',
+  'deleteNote',
+  'toggleStar',
+  'toggleBookmark',
+  'progress',
+  'togglePlan',
+  'setPlannerTaskCompletion',
+  'savePlannerTasks',
+  'plannerDefaultOverride',
+  'deletePlannerDefault',
+  'plannerSettings',
+  'creditPlanMinutes',
+  'recordFocusStudy',
+  'plannerCompletion',
+  'study',
+  'result',
+  'chat',
+  'clearChat',
+  'importLegacyLearningData',
+  'readNotif',
+  'notify',
+  'learnerStatus',
+  'reviewContent',
+  'announce',
+]);
+
+function isPersistedAction(action: Action) {
+  return PERSISTED_ACTION_TYPES.has(action.type);
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate':
       return { ...state, ...action.payload, user: state.user, authReady: state.authReady, hydrated: true };
-    case 'authResolved':
-      return { ...state, user: action.user, authReady: true };
+    case 'restore': {
+      let restored = reducer(state, {
+        type: 'hydrate',
+        payload: { ...action.payload, plannerTasksLoaded: false, storageReady: false },
+      });
+      restored = reducer(restored, {
+        type: 'plannerTasksLoaded',
+        tasks: action.tasks,
+        migrationSucceeded: true,
+      });
+      restored = { ...restored, storageReady: true };
+      const currentUser = restored.user;
+      if (action.profile && currentUser && currentUser.id === action.profile.id) {
+        restored = {
+          ...restored,
+          user: {
+            ...currentUser,
+            ...action.profile,
+            id: currentUser.id,
+            name: action.profile.name ?? currentUser.name,
+            email: action.profile.email ?? currentUser.email,
+            role: action.profile.role ?? currentUser.role,
+            exam: action.profile.exam ?? currentUser.exam,
+            joined: action.profile.joined ?? currentUser.joined,
+          },
+        };
+      }
+      return action.pendingActions.reduce((current, pendingAction) => reducer(current, pendingAction), restored);
+    }
+    case 'importLegacyLearningData': {
+      const imported = action.payload;
+      const mergeById = <T extends { id: string }>(current: T[], legacy: T[]) => {
+        const currentIds = new Set(current.map((item) => item.id));
+        return [...current, ...legacy.filter((item) => !currentIds.has(item.id))];
+      };
+      const completionDates = new Set([
+        ...Object.keys(imported.plannerCompletions),
+        ...Object.keys(state.plannerCompletions),
+      ]);
+      const plannerCompletions = Object.fromEntries(
+        [...completionDates].map((date) => {
+          const current = state.plannerCompletions[date] ?? [];
+          const existingIds = new Set(current.map((item) => item.taskId));
+          const legacy = imported.plannerCompletions[date] ?? [];
+          return [date, [...current, ...legacy.filter((item) => !existingIds.has(item.taskId))]];
+        })
+      );
+      const planDates = new Set([...Object.keys(imported.planDone), ...Object.keys(state.planDone)]);
+      const creditedDates = new Set([
+        ...Object.keys(imported.plannerMinutesCredited),
+        ...Object.keys(state.plannerMinutesCredited),
+      ]);
+      return {
+        ...state,
+        notes: mergeById(state.notes, imported.notes),
+        starred: Array.from(new Set([...state.starred, ...imported.starred])),
+        bookmarks: Array.from(new Set([...state.bookmarks, ...imported.bookmarks])),
+        progress: { ...imported.progress, ...state.progress },
+        planDone: Object.fromEntries(
+          [...planDates].map((date) => [
+            date,
+            Array.from(new Set([...(state.planDone[date] ?? []), ...(imported.planDone[date] ?? [])])),
+          ])
+        ),
+        plannerTasks: mergeById(state.plannerTasks, imported.plannerTasks),
+        plannerDefaultOverrides: { ...imported.plannerDefaultOverrides, ...state.plannerDefaultOverrides },
+        plannerDeletedDefaults: Array.from(new Set([...state.plannerDeletedDefaults, ...imported.plannerDeletedDefaults])),
+        plannerCompletions,
+        plannerMinutesCredited: Object.fromEntries(
+          [...creditedDates].map((date) => [
+            date,
+            Array.from(new Set([...(state.plannerMinutesCredited[date] ?? []), ...(imported.plannerMinutesCredited[date] ?? [])])),
+          ])
+        ),
+        plannerTaskStudySeconds: { ...imported.plannerTaskStudySeconds, ...state.plannerTaskStudySeconds },
+        recordedFocusSessionIds: Array.from(new Set([...state.recordedFocusSessionIds, ...imported.recordedFocusSessionIds])),
+        studyLog: { ...imported.studyLog, ...state.studyLog },
+        results: mergeById(state.results, imported.results),
+      };
+    }
+    case 'recoveryStar':
+      return {
+        ...state,
+        starred: action.starred
+          ? state.starred.includes(action.id) ? state.starred : [action.id, ...state.starred]
+          : state.starred.filter((id) => id !== action.id),
+      };
+    case 'recoveryBookmark':
+      return {
+        ...state,
+        bookmarks: action.bookmarked
+          ? state.bookmarks.includes(action.id) ? state.bookmarks : [action.id, ...state.bookmarks]
+          : state.bookmarks.filter((id) => id !== action.id),
+      };
+    case 'recoveryPlan': {
+      const current = state.planDone[action.date] ?? [];
+      const completed = action.completed
+        ? current.includes(action.id) ? current : [...current, action.id]
+        : current.filter((id) => id !== action.id);
+      return { ...state, planDone: { ...state.planDone, [action.date]: completed } };
+    }
+    case 'reconcilePlannerTasks': {
+      const tasks = new Map(state.plannerTasks.map((task) => [task.id, task]));
+      action.deletedIds.forEach((id) => tasks.delete(id));
+      action.tasks.forEach((task) => tasks.set(task.id, task));
+      return { ...state, plannerTasks: Array.from(tasks.values()) };
+    }
+    case 'authResolved': {
+      if (state.user?.id === action.user?.id) {
+        const user = action.user && state.user
+          ? {
+              ...action.user,
+              birthday: state.user.birthday,
+              phoneNumber: state.user.phoneNumber,
+              currentCity: state.user.currentCity,
+              examFocus: state.user.examFocus,
+              photoUri: state.user.photoUri,
+            }
+          : action.user;
+        return { ...state, user, authReady: true };
+      }
+      return {
+        ...state,
+        user: action.user,
+        authReady: true,
+        hydrated: false,
+        storageReady: false,
+        settings: {
+          ...state.settings,
+          dailyGoalMin: initialState.settings.dailyGoalMin,
+          notifications: initialState.settings.notifications,
+        },
+        notes: initialState.notes,
+        starred: initialState.starred,
+        bookmarks: initialState.bookmarks,
+        progress: initialState.progress,
+        planDone: initialState.planDone,
+        plannerTasks: [],
+        plannerTasksLoaded: false,
+        plannerLegacyMigrated: false,
+        plannerTaskLoadError: null,
+        plannerPersistenceError: null,
+        plannerDefaultOverrides: {},
+        plannerDeletedDefaults: [],
+        plannerSettings: initialState.plannerSettings,
+        plannerCompletions: {},
+        plannerMinutesCredited: {},
+        plannerTaskStudySeconds: {},
+        recordedFocusSessionIds: [],
+        studyLog: {},
+        results: [],
+        chat: [],
+        notifications: initialState.notifications,
+        managedContent: [],
+        managedContentError: null,
+      };
+    }
     case 'authCheckFailed':
       return { ...state, authReady: true };
     case 'signIn':
@@ -557,7 +789,12 @@ function reducer(state: State, action: Action): State {
     case 'result':
       return { ...state, results: [action.result, ...state.results] };
     case 'chat':
-      return { ...state, chat: [...state.chat, action.msg] };
+      return {
+        ...state,
+        chat: state.chat.some((item) => item.id === action.msg.id)
+          ? state.chat.map((item) => item.id === action.msg.id ? action.msg : item)
+          : [...state.chat, action.msg],
+      };
     case 'clearChat':
       return { ...state, chat: [] };
     case 'readNotif':
@@ -566,6 +803,7 @@ function reducer(state: State, action: Action): State {
         notifications: state.notifications.map((n) => (!action.id || n.id === action.id ? { ...n, read: true } : n)),
       };
     case 'notify':
+      if (!state.settings.notifications) return state;
       return { ...state, notifications: [action.notif, ...state.notifications] };
     case 'learnerStatus':
       return { ...state, learners: state.learners.map((l) => (l.id === action.id ? { ...l, status: action.status } : l)) };
@@ -598,6 +836,14 @@ function reducer(state: State, action: Action): State {
 
 type Ctx = {
   state: State;
+  hydrationError: string | null;
+  retryHydration: () => void;
+  legacyMigrationAvailable: boolean;
+  legacyMigrationError: string | null;
+  importingLegacyData: boolean;
+  importLegacyData: () => Promise<{ ok: boolean; error?: string }>;
+  keepLegacyDataSeparate: () => Promise<{ ok: boolean; error?: string }>;
+  retryLegacyScan: () => void;
   streak: number;
   todayMinutes: number;
   todayDone: string[];
@@ -606,6 +852,9 @@ type Ctx = {
   signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   signUp: (name: string, email: string, password: string, exam: ExamId) => Promise<{ ok: boolean; error?: string; needsEmailConfirmation?: boolean }>;
   signOut: () => Promise<{ ok: boolean; error?: string }>;
+  saveProfile: (
+    patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>>
+  ) => Promise<{ ok: true; emailChangePending?: boolean } | { ok: false; error: string }>;
   saveManagedContent: (
     content: ManagedContent,
     file?: { blob: Blob | ArrayBuffer; name: string; size: number }
@@ -708,8 +957,438 @@ function errorMessage(error: unknown, fallback: string) {
   return `${message}${code}${statusCode}${details}${hint}`;
 }
 
+type RecoverySnapshot = {
+  payload: Partial<State>;
+  tasks: PlannerTask[];
+  profile?: Partial<User>;
+};
+
+async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnapshot> {
+  const raw = await AsyncStorage.getItem(getUserScopedStorageKey(KEY, userId));
+  let saved: Partial<State> & { offlineResources?: string[] } = {};
+  if (raw) {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) throw new Error('Saved Study Sakha data has an invalid format.');
+    saved = parsed as Partial<State> & { offlineResources?: string[] };
+    delete saved.offlineResources;
+  }
+  const savedUser = isRecord(saved.user) && userId && saved.user.id === userId
+    ? saved.user
+    : null;
+  const profile: Partial<User> | undefined = savedUser
+    ? {
+        id: userId!,
+        ...(typeof savedUser.name === 'string' ? { name: savedUser.name } : {}),
+        ...(typeof savedUser.email === 'string' ? { email: savedUser.email } : {}),
+        ...(isExamId(savedUser.exam) ? { exam: savedUser.exam } : {}),
+        ...(typeof savedUser.joined === 'string' ? { joined: savedUser.joined } : {}),
+        ...(typeof savedUser.photoUri === 'string' ? { photoUri: savedUser.photoUri } : {}),
+        ...(typeof savedUser.birthday === 'string' ? { birthday: savedUser.birthday } : {}),
+        ...(typeof savedUser.phoneNumber === 'string' ? { phoneNumber: savedUser.phoneNumber } : {}),
+        ...(typeof savedUser.currentCity === 'string' ? { currentCity: savedUser.currentCity } : {}),
+        ...(typeof savedUser.examFocus === 'string' ? { examFocus: savedUser.examFocus } : {}),
+      }
+    : undefined;
+  delete saved.user;
+
+  const existing = Array.isArray(saved.plannerTasks) ? saved.plannerTasks : [];
+  const normalizedExisting = existing.map(migratePlannerTask);
+  if (normalizedExisting.some((task) => task === null)) {
+    throw new Error('Saved planner tasks have an invalid format.');
+  }
+  const validExisting = normalizedExisting.filter((task): task is PlannerTask => task !== null);
+  let tasks: PlannerTask[];
+
+  if (saved.plannerLegacyMigrated === true || userId !== null) {
+    tasks = Array.from(new Map(validExisting.map((task) => [task.id, task])).values());
+  } else {
+    const legacyRaw = await AsyncStorage.getItem(LEGACY_PLANNER_KEY);
+    const legacy: unknown = legacyRaw ? JSON.parse(legacyRaw) : [];
+    if (!Array.isArray(legacy)) throw new Error('Legacy planner tasks have an invalid format.');
+
+    const merged = new Map<string, PlannerTask>();
+    validExisting.forEach((task) => merged.set(task.id, task));
+    legacy.forEach((value) => {
+      const task = migratePlannerTask(value);
+      if (!task) throw new Error('A saved planner task has an invalid format.');
+      if (!merged.has(task.id)) merged.set(task.id, task);
+    });
+    tasks = Array.from(merged.values());
+  }
+
+  const plannerMinutesCredited =
+    saved.plannerMinutesCredited ??
+    Object.fromEntries(
+      Object.entries(saved.planDone ?? {}).map(([date, ids]) => [
+        date,
+        Array.isArray(ids) ? ids : [],
+      ])
+    );
+
+  return {
+    tasks,
+    profile,
+    payload: {
+      ...saved,
+      user: null,
+      authReady: false,
+      managedContent: [],
+      managedContentError: null,
+      settings: { ...initialState.settings, ...saved.settings },
+      plannerSelectedDate: todayKey(),
+      plannerTasks: tasks,
+      plannerTasksLoaded: false,
+      plannerLegacyMigrated: true,
+      plannerTaskLoadError: null,
+      plannerPersistenceError: null,
+      plannerDefaultOverrides: saved.plannerDefaultOverrides ?? {},
+      plannerDeletedDefaults: saved.plannerDeletedDefaults ?? [],
+      plannerCompletions: saved.plannerCompletions ?? {},
+      plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
+      plannerMinutesCredited,
+      plannerTaskStudySeconds: isRecord(saved.plannerTaskStudySeconds)
+        ? saved.plannerTaskStudySeconds as Record<string, number>
+        : {},
+      recordedFocusSessionIds: Array.isArray(saved.recordedFocusSessionIds)
+        ? Array.from(new Set(saved.recordedFocusSessionIds.filter((id): id is string => typeof id === 'string')))
+        : [],
+      storageReady: false,
+    },
+  };
+}
+
+function legacyLearningDataFrom(snapshot: RecoverySnapshot): LegacyLearningData {
+  const saved = snapshot.payload;
+  const requireStringArray = (value: unknown, label: string) => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+      throw new Error(`Legacy ${label} have an invalid format.`);
+    }
+    return value;
+  };
+  const notes = saved.notes ?? [];
+  if (!Array.isArray(notes) || notes.some((note) =>
+    !isRecord(note) ||
+    typeof note.id !== 'string' ||
+    typeof note.title !== 'string' ||
+    typeof note.folder !== 'string' ||
+    !Array.isArray(note.tags) ||
+    !note.tags.every((tag) => typeof tag === 'string') ||
+    typeof note.body !== 'string' ||
+    !isExamId(note.exam) ||
+    typeof note.subject !== 'string' ||
+    typeof note.updatedAt !== 'number' ||
+    !Number.isFinite(note.updatedAt) ||
+    (note.aiSummary !== undefined && typeof note.aiSummary !== 'string') ||
+    (note.flashcards !== undefined && (!Array.isArray(note.flashcards) || note.flashcards.some((card) =>
+      !isRecord(card) || typeof card.front !== 'string' || typeof card.back !== 'string'
+    ))) ||
+    (note.quiz !== undefined && (!Array.isArray(note.quiz) || note.quiz.some((question) =>
+      !isRecord(question) ||
+      typeof question.q !== 'string' ||
+      !Array.isArray(question.options) ||
+      !question.options.every((option) => typeof option === 'string') ||
+      typeof question.answer !== 'number' ||
+      !Number.isInteger(question.answer) ||
+      question.answer < 0 ||
+      question.answer >= question.options.length
+    )))
+  )) throw new Error('Legacy notes have an invalid format.');
+
+  const progress = saved.progress ?? {};
+  if (!isRecord(progress)) throw new Error('Legacy reading progress has an invalid format.');
+  const normalizedProgress: State['progress'] = {};
+  Object.entries(progress).forEach(([id, value]) => {
+    if (
+      !isRecord(value) ||
+      typeof value.percent !== 'number' ||
+      !Number.isFinite(value.percent) ||
+      value.percent < 0 ||
+      value.percent > 100 ||
+      typeof value.at !== 'number' ||
+      !Number.isFinite(value.at) ||
+      typeof value.title !== 'string'
+    ) throw new Error('Legacy reading progress has an invalid format.');
+    normalizedProgress[id] = { percent: value.percent, at: value.at, title: value.title };
+  });
+
+  const planDoneValue = saved.planDone ?? {};
+  if (!isRecord(planDoneValue)) throw new Error('Legacy planner completion data has an invalid format.');
+  const planDone: State['planDone'] = {};
+  Object.entries(planDoneValue).forEach(([date, ids]) => {
+    if (!isPlannerDate(date) || !Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+      throw new Error('Legacy planner completion data has an invalid format.');
+    }
+    planDone[date] = ids;
+  });
+
+  const results = saved.results ?? [];
+  if (!Array.isArray(results) || results.some((result) =>
+    !isRecord(result) ||
+    typeof result.id !== 'string' ||
+    typeof result.testId !== 'string' ||
+    typeof result.title !== 'string' ||
+    !isExamId(result.exam) ||
+    typeof result.takenAt !== 'number' ||
+    !Number.isFinite(result.takenAt) ||
+    !(['score', 'maxScore', 'correct', 'wrong', 'skipped', 'accuracy', 'percentile', 'rank', 'totalAspirants', 'timeTakenSec'] as const)
+      .every((key) => typeof result[key] === 'number' && Number.isFinite(result[key])) ||
+    !Array.isArray(result.bySubject) ||
+    result.bySubject.some((subject) =>
+      !isRecord(subject) ||
+      typeof subject.subject !== 'string' ||
+      typeof subject.correct !== 'number' ||
+      !Number.isFinite(subject.correct) ||
+      typeof subject.total !== 'number' ||
+      !Number.isFinite(subject.total)
+    ) ||
+    (result.comparisonStatus !== undefined &&
+      !['unavailable', 'estimated', 'measured'].includes(result.comparisonStatus)) ||
+    !isRecord(result.answers) ||
+    Object.values(result.answers).some((answer) =>
+      answer !== null && (typeof answer !== 'number' || !Number.isInteger(answer) || answer < 0)
+    )
+  )) throw new Error('Legacy test history has an invalid format.');
+
+  const stringMap = (value: unknown, label: string): Record<string, string[]> => {
+    if (value === undefined) return {};
+    if (!isRecord(value)) throw new Error(`Legacy ${label} have an invalid format.`);
+    const result: Record<string, string[]> = {};
+    Object.entries(value).forEach(([key, entries]) => {
+      if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string')) {
+        throw new Error(`Legacy ${label} have an invalid format.`);
+      }
+      result[key] = entries;
+    });
+    return result;
+  };
+  const overridesValue = saved.plannerDefaultOverrides ?? {};
+  if (!isRecord(overridesValue)) throw new Error('Legacy planner defaults have an invalid format.');
+  const plannerDefaultOverrides: State['plannerDefaultOverrides'] = {};
+  Object.entries(overridesValue).forEach(([id, value]) => {
+    if (!isRecord(value)) throw new Error('Legacy planner defaults have an invalid format.');
+    const patch: State['plannerDefaultOverrides'][string] = {};
+    if (value.label !== undefined) {
+      if (typeof value.label !== 'string') throw new Error('Legacy planner defaults have an invalid format.');
+      patch.label = value.label;
+    }
+    if (value.minutes !== undefined) {
+      if (typeof value.minutes !== 'number' || !Number.isInteger(value.minutes) || value.minutes < 1 || value.minutes > 600) {
+        throw new Error('Legacy planner defaults have an invalid format.');
+      }
+      patch.minutes = value.minutes;
+    }
+    if (value.category !== undefined) {
+      if (typeof value.category !== 'string') throw new Error('Legacy planner defaults have an invalid format.');
+      patch.category = value.category;
+    }
+    if (value.taskType !== undefined) {
+      if (!['Study', 'Revision', 'PYQ', 'Test', 'Current Affairs'].includes(value.taskType as PlannerTaskType)) {
+        throw new Error('Legacy planner defaults have an invalid format.');
+      }
+      patch.taskType = value.taskType as PlannerTaskType;
+    }
+    if (value.priority !== undefined) {
+      if (!['High', 'Medium', 'Low'].includes(value.priority as PlannerPriority)) {
+        throw new Error('Legacy planner defaults have an invalid format.');
+      }
+      patch.priority = value.priority as PlannerPriority;
+    }
+    if (value.targetDate !== undefined) {
+      if (!isPlannerDate(value.targetDate)) throw new Error('Legacy planner defaults have an invalid format.');
+      patch.targetDate = value.targetDate;
+    }
+    plannerDefaultOverrides[id] = patch;
+  });
+
+  const completionsValue = saved.plannerCompletions ?? {};
+  if (!isRecord(completionsValue)) throw new Error('Legacy planner completion details have an invalid format.');
+  const plannerCompletions: State['plannerCompletions'] = {};
+  Object.entries(completionsValue).forEach(([date, completions]) => {
+    if (!isPlannerDate(date) || !Array.isArray(completions)) {
+      throw new Error('Legacy planner completion details have an invalid format.');
+    }
+    const parsed: PlannerCompletion[] = [];
+    for (const item of completions) {
+      if (
+        !isRecord(item) ||
+        typeof item.taskId !== 'string' ||
+        typeof item.label !== 'string' ||
+        typeof item.minutes !== 'number' ||
+        !Number.isFinite(item.minutes) ||
+        typeof item.category !== 'string' ||
+        typeof item.taskType !== 'string'
+      ) throw new Error('Legacy planner completion details have an invalid format.');
+      parsed.push({
+        taskId: item.taskId,
+        label: item.label,
+        minutes: item.minutes,
+        category: item.category,
+        taskType: item.taskType,
+      });
+    }
+    plannerCompletions[date] = parsed;
+  });
+  const secondsMap = (value: unknown): Record<string, number> => {
+    if (value === undefined) return {};
+    if (!isRecord(value)) throw new Error('Legacy focus time has an invalid format.');
+    const result: Record<string, number> = {};
+    Object.entries(value).forEach(([key, seconds]) => {
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+        throw new Error('Legacy focus time has an invalid format.');
+      }
+      result[key] = seconds;
+    });
+    return result;
+  };
+
+  return {
+    notes,
+    starred: requireStringArray(saved.starred, 'starred resources'),
+    bookmarks: requireStringArray(saved.bookmarks, 'bookmarks'),
+    progress: normalizedProgress,
+    planDone,
+    plannerTasks: snapshot.tasks,
+    plannerDefaultOverrides,
+    plannerDeletedDefaults: requireStringArray(saved.plannerDeletedDefaults, 'planner defaults'),
+    plannerCompletions,
+    plannerMinutesCredited: stringMap(saved.plannerMinutesCredited, 'credited planner minutes'),
+    plannerTaskStudySeconds: secondsMap(saved.plannerTaskStudySeconds),
+    recordedFocusSessionIds: requireStringArray(saved.recordedFocusSessionIds, 'focus history'),
+    studyLog: secondsMap(saved.studyLog),
+    results,
+  };
+}
+
+function serializePersistentState(state: State) {
+  const persistentState: Partial<State> = { ...state };
+  delete persistentState.hydrated;
+  delete persistentState.authReady;
+  delete persistentState.managedContent;
+  delete persistentState.managedContentError;
+  delete persistentState.plannerTasksLoaded;
+  delete persistentState.plannerSelectedDate;
+  delete persistentState.plannerTaskLoadError;
+  delete persistentState.plannerPersistenceError;
+  delete persistentState.storageReady;
+  return JSON.stringify(persistentState);
+}
+
+async function findLegacyScopedStorageKeys() {
+  const keys = await AsyncStorage.getAllKeys();
+  const legacyKeys = new Set<string>(LEGACY_SCOPED_STORAGE_KEYS);
+  return keys.filter((key) =>
+    legacyKeys.has(key) ||
+    (key.startsWith(LEGACY_TEST_ATTEMPT_PREFIX) && !key.includes(':user:'))
+  );
+}
+
+async function importLegacyScopedStorage(userId: string, legacyKeys: string[]) {
+  for (const legacyKey of legacyKeys) {
+    const scopedKey = getUserScopedStorageKey(legacyKey, userId);
+    const [legacyRaw, scopedRaw] = await Promise.all([
+      AsyncStorage.getItem(legacyKey),
+      AsyncStorage.getItem(scopedKey),
+    ]);
+    if (legacyRaw === null) continue;
+    if (!LEGACY_HISTORY_STORAGE_KEYS.has(legacyKey)) {
+      if (scopedRaw === null) await AsyncStorage.setItem(scopedKey, legacyRaw);
+      continue;
+    }
+
+    const parseHistory = (raw: string | null) => {
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed) || parsed.some((record) =>
+        !isRecord(record) ||
+        typeof record.id !== 'string' ||
+        typeof record.completedAt !== 'string'
+      )) throw new Error('Previous focus history has an invalid format.');
+      return parsed as Record<string, unknown>[];
+    };
+    const current = parseHistory(scopedRaw);
+    const currentIds = new Set(current.map((record) => record.id));
+    const legacy = parseHistory(legacyRaw);
+    const merged = [...current, ...legacy.filter((record) => !currentIds.has(record.id as string))];
+    if (merged.length !== current.length) await AsyncStorage.setItem(scopedKey, JSON.stringify(merged));
+  }
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [hydrationStatus, setHydrationStatus] = useState<'loading' | 'ready' | 'failed' | 'recovering'>('loading');
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [legacyMigrationUserId, setLegacyMigrationUserId] = useState<string | null>(null);
+  const [legacyMigrationError, setLegacyMigrationError] = useState<string | null>(null);
+  const [importingLegacyData, setImportingLegacyData] = useState(false);
+  const [legacyScanRetry, setLegacyScanRetry] = useState(0);
+  const hydrationStatusRef = React.useRef(hydrationStatus);
+  const hydrationAttempted = React.useRef(false);
+  const recoveryInFlight = React.useRef(false);
+  const activeRecoveryScope = React.useRef<string | null>(null);
+  const recoveryGeneration = React.useRef(0);
+  const pendingActions = React.useRef(new Map<string, Action[]>());
+  const pendingPlannerTasks = React.useRef(new Map<string, PlannerTask[]>());
+  const writeQueue = React.useRef<Promise<void>>(Promise.resolve());
+  const lastEnqueuedSnapshot = React.useRef<string | null>(null);
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+  const dispatchAction = useCallback((action: Action) => {
+    if (hydrationStatusRef.current !== 'ready' && isPersistedAction(action)) {
+      const currentState = stateRef.current;
+      const scope = currentState.user?.id ?? '__local__';
+      const actions = pendingActions.current.get(scope) ?? [];
+      pendingActions.current.set(scope, actions);
+      let replayAction = action;
+      if (action.type === 'toggleStar') {
+        const previous = [...actions].reverse().find(
+          (pending): pending is Extract<Action, { type: 'recoveryStar' }> =>
+            pending.type === 'recoveryStar' && pending.id === action.id
+        );
+        replayAction = {
+          type: 'recoveryStar',
+          id: action.id,
+          starred: !(previous?.starred ?? currentState.starred.includes(action.id)),
+        };
+      } else if (action.type === 'toggleBookmark') {
+        const previous = [...actions].reverse().find(
+          (pending): pending is Extract<Action, { type: 'recoveryBookmark' }> =>
+            pending.type === 'recoveryBookmark' && pending.id === action.id
+        );
+        replayAction = {
+          type: 'recoveryBookmark',
+          id: action.id,
+          bookmarked: !(previous?.bookmarked ?? currentState.bookmarks.includes(action.id)),
+        };
+      } else if (action.type === 'togglePlan') {
+        const date = action.date ?? todayKey();
+        const previous = [...actions].reverse().find(
+          (pending): pending is Extract<Action, { type: 'recoveryPlan' }> =>
+            pending.type === 'recoveryPlan' && pending.id === action.id && pending.date === date
+        );
+        replayAction = {
+          type: 'recoveryPlan',
+          id: action.id,
+          date,
+          completed: !(previous?.completed ?? (currentState.planDone[date] ?? []).includes(action.id)),
+        };
+      } else if (action.type === 'savePlannerTasks') {
+        const before = pendingPlannerTasks.current.get(scope) ?? currentState.plannerTasks;
+        const beforeById = new Map(before.map((task) => [task.id, task]));
+        const afterById = new Map(action.tasks.map((task) => [task.id, task]));
+        const changedTasks = action.tasks.filter(
+          (task) => JSON.stringify(beforeById.get(task.id)) !== JSON.stringify(task)
+        );
+        replayAction = {
+          type: 'reconcilePlannerTasks',
+          tasks: changedTasks,
+          deletedIds: before.filter((task) => !afterById.has(task.id)).map((task) => task.id),
+        };
+        pendingPlannerTasks.current.set(scope, action.tasks);
+      }
+      actions.push(replayAction);
+    }
+    dispatch(action);
+  }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -746,6 +1425,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           role: !adminResult.error && adminResult.data === true ? 'admin' : 'learner',
           exam,
           joined: profile?.joined_at?.slice(0, 10) ?? authData.user.created_at.slice(0, 10),
+          birthday: typeof metadata.birthday === 'string' ? metadata.birthday : undefined,
+          phoneNumber: typeof metadata.phone_number === 'string' ? metadata.phone_number : undefined,
+          currentCity: typeof metadata.current_city === 'string' ? metadata.current_city : undefined,
+          examFocus: typeof metadata.exam_focus === 'string' ? metadata.exam_focus : undefined,
         };
         if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user });
       } catch (error) {
@@ -790,67 +1473,158 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(KEY);
-        if (raw) {
-          const saved = JSON.parse(raw) as Partial<State> & { offlineResources?: string[] };
-          delete saved.offlineResources;
-          delete saved.user;
-          const plannerMinutesCredited =
-            saved.plannerMinutesCredited ??
-            Object.fromEntries(
-              Object.entries(saved.planDone ?? {}).map(([date, ids]) => [
-                date,
-                Array.isArray(ids) ? ids : [],
-              ])
-            );
-          dispatch({
-            type: 'hydrate',
-            payload: {
-              ...saved,
-              user: null,
-              authReady: false,
-              managedContent: [],
-              managedContentError: null,
-              settings: { ...initialState.settings, ...saved.settings },
-              plannerSelectedDate: todayKey(),
-              plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
-              plannerTasks: Array.isArray(saved.plannerTasks) ? saved.plannerTasks : [],
-              plannerTasksLoaded: false,
-              plannerLegacyMigrated: saved.plannerLegacyMigrated === true,
-              plannerTaskLoadError: null,
-              plannerPersistenceError: null,
-              plannerDefaultOverrides: saved.plannerDefaultOverrides ?? {},
-              plannerDeletedDefaults: saved.plannerDeletedDefaults ?? [],
-              plannerCompletions: saved.plannerCompletions ?? {},
-              plannerMinutesCredited,
-              plannerTaskStudySeconds:
-                saved.plannerTaskStudySeconds &&
-                typeof saved.plannerTaskStudySeconds === 'object'
-                  ? saved.plannerTaskStudySeconds
-                  : {},
-              recordedFocusSessionIds: Array.isArray(saved.recordedFocusSessionIds)
-                ? Array.from(
-                    new Set(
-                      saved.recordedFocusSessionIds.filter(
-                        (id): id is string => typeof id === 'string',
-                      ),
-                    ),
-                  )
-                : [],
-              hydrated: true,
-            },
-          });
-        } else {
-          dispatch({ type: 'hydrate', payload: {} });
-        }
-      } catch {
-        dispatch({ type: 'hydrate', payload: {} });
+  const recoverSnapshot = useCallback(async (userId: string | null) => {
+    const scope = userId ?? '__local__';
+    if (recoveryInFlight.current && activeRecoveryScope.current === scope) return;
+    const generation = ++recoveryGeneration.current;
+    recoveryInFlight.current = true;
+    activeRecoveryScope.current = scope;
+    hydrationStatusRef.current = hydrationAttempted.current ? 'recovering' : 'loading';
+    setHydrationStatus(hydrationStatusRef.current);
+    try {
+      const snapshot = await readRecoverySnapshot(userId);
+      if (generation !== recoveryGeneration.current) return;
+      const actions = [...(pendingActions.current.get(scope) ?? [])];
+      hydrationStatusRef.current = 'ready';
+      dispatch({
+        type: 'restore',
+        payload: snapshot.payload,
+        tasks: snapshot.tasks,
+        pendingActions: actions,
+        profile: snapshot.profile,
+      });
+      pendingActions.current.delete(scope);
+      pendingPlannerTasks.current.delete(scope);
+      setHydrationError(null);
+      setHydrationStatus('ready');
+    } catch (error) {
+      if (generation !== recoveryGeneration.current) return;
+      console.error('Study Sakha data could not be loaded; persistence is disabled to protect saved data:', error);
+      dispatch({ type: 'hydrate', payload: {} });
+      setHydrationError(errorMessage(error, 'Saved data could not be loaded. Your changes are being held until recovery succeeds.'));
+      hydrationStatusRef.current = 'failed';
+      setHydrationStatus('failed');
+    } finally {
+      if (generation === recoveryGeneration.current) {
+        hydrationAttempted.current = true;
+        recoveryInFlight.current = false;
+        activeRecoveryScope.current = null;
       }
-    })();
+    }
   }, []);
+
+  const retryHydration = useCallback(() => {
+    void recoverSnapshot(state.user?.id ?? null);
+  }, [recoverSnapshot, state.user?.id]);
+
+  useEffect(() => {
+    if (state.authReady) void recoverSnapshot(state.user?.id ?? null);
+  }, [recoverSnapshot, state.authReady, state.user?.id]);
+
+  useEffect(() => {
+    const userId = state.user?.id;
+    if (!userId || hydrationStatus !== 'ready' || !state.storageReady) {
+      setLegacyMigrationUserId(null);
+      setLegacyMigrationError(null);
+      return;
+    }
+
+    let active = true;
+    setLegacyMigrationUserId(null);
+    setLegacyMigrationError(null);
+    const statusKey = getUserScopedStorageKey(LEGACY_IMPORT_KEY, userId);
+    Promise.all([
+      AsyncStorage.getItem(statusKey),
+      AsyncStorage.getItem(KEY),
+      AsyncStorage.getItem(LEGACY_PLANNER_KEY),
+      findLegacyScopedStorageKeys(),
+    ]).then(([status, legacySnapshot, legacyPlanner, legacyScopedKeys]) => {
+      if (!active) return;
+      if (status === 'imported' || status === 'kept-separate') return;
+      if (status !== null) throw new Error('The previous-data migration choice has an invalid format.');
+      if (legacySnapshot !== null || legacyPlanner !== null || legacyScopedKeys.length > 0) {
+        setLegacyMigrationUserId(userId);
+      }
+    }).catch((error: unknown) => {
+      if (!active) return;
+      console.error('Previous local Study Sakha data could not be checked:', error);
+      setLegacyMigrationUserId(userId);
+      setLegacyMigrationError(errorMessage(error, 'Previous local data could not be checked.'));
+    });
+    return () => {
+      active = false;
+    };
+  }, [hydrationStatus, legacyScanRetry, state.storageReady, state.user?.id]);
+
+  const importLegacyData = useCallback(async () => {
+    const userId = stateRef.current.user?.id;
+    if (!userId || hydrationStatusRef.current !== 'ready' || !stateRef.current.storageReady) {
+      return { ok: false, error: 'Wait until saved data has finished loading before importing.' };
+    }
+    setImportingLegacyData(true);
+    setLegacyMigrationError(null);
+    try {
+      const [legacySnapshot, legacyPlanner, legacyScopedKeys] = await Promise.all([
+        AsyncStorage.getItem(KEY),
+        AsyncStorage.getItem(LEGACY_PLANNER_KEY),
+        findLegacyScopedStorageKeys(),
+      ]);
+      if (legacySnapshot === null && legacyPlanner === null && legacyScopedKeys.length === 0) {
+        throw new Error('No previous local Study Sakha data was found.');
+      }
+      const snapshot = await readRecoverySnapshot(null);
+      if (stateRef.current.user?.id !== userId || hydrationStatusRef.current !== 'ready') {
+        throw new Error('Your account changed before previous data could be imported. Try again on the current account.');
+      }
+      const action: Action = {
+        type: 'importLegacyLearningData',
+        payload: legacyLearningDataFrom(snapshot),
+      };
+      const nextState = reducer(stateRef.current, action);
+      const storageKey = getUserScopedStorageKey(KEY, userId);
+      const serialized = serializePersistentState(nextState);
+      const keyedSnapshot = `${storageKey}:${serialized}`;
+      const write = writeQueue.current.catch(() => {}).then(() => AsyncStorage.setItem(storageKey, serialized));
+      writeQueue.current = write.then(() => undefined, () => undefined);
+      lastEnqueuedSnapshot.current = keyedSnapshot;
+      dispatchAction(action);
+      await write;
+      await importLegacyScopedStorage(userId, legacyScopedKeys);
+      await AsyncStorage.setItem(getUserScopedStorageKey(LEGACY_IMPORT_KEY, userId), 'imported');
+      setLegacyMigrationUserId(null);
+      return { ok: true };
+    } catch (error) {
+      lastEnqueuedSnapshot.current = null;
+      const message = errorMessage(error, 'Previous local data could not be imported.');
+      setLegacyMigrationError(message);
+      return { ok: false, error: message };
+    } finally {
+      setImportingLegacyData(false);
+    }
+  }, [dispatchAction]);
+
+  const keepLegacyDataSeparate = useCallback(async () => {
+    const userId = stateRef.current.user?.id;
+    if (!userId) return { ok: false, error: 'Sign in before choosing how to handle previous local data.' };
+    try {
+      await AsyncStorage.setItem(getUserScopedStorageKey(LEGACY_IMPORT_KEY, userId), 'kept-separate');
+      setLegacyMigrationUserId(null);
+      setLegacyMigrationError(null);
+      return { ok: true };
+    } catch (error) {
+      const message = errorMessage(error, 'Your choice could not be saved.');
+      setLegacyMigrationError(message);
+      return { ok: false, error: message };
+    }
+  }, []);
+
+  const retryLegacyScan = useCallback(() => {
+    setLegacyScanRetry((retry) => retry + 1);
+  }, []);
+
+  const legacyMigrationAvailable = Boolean(
+    state.user?.id && legacyMigrationUserId === state.user.id
+  );
 
   const authenticatedUserId = state.user?.id;
 
@@ -907,93 +1681,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.authReady, state.hydrated, authenticatedUserId]);
 
   useEffect(() => {
-    if (!state.hydrated || state.plannerTasksLoaded) return;
-    let active = true;
-
-    (async () => {
-      try {
-        const existing = state.plannerTasks;
-        const normalizedExisting = existing.map(migratePlannerTask);
-        if (normalizedExisting.some((task) => task === null)) {
-          throw new Error('Saved planner tasks have an invalid format.');
-        }
-        const validExisting = normalizedExisting.filter(
-          (task): task is PlannerTask => task !== null
-        );
-        if (state.plannerLegacyMigrated) {
-          if (active) {
-            dispatch({
-              type: 'plannerTasksLoaded',
-              tasks: Array.from(new Map(validExisting.map((task) => [task.id, task])).values()),
-              migrationSucceeded: true,
-            });
-          }
-          return;
-        }
-
-        const raw = await AsyncStorage.getItem(LEGACY_PLANNER_KEY);
-        const legacy: unknown = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(legacy)) throw new Error('Legacy planner tasks have an invalid format.');
-
-        const merged = new Map<string, PlannerTask>();
-        validExisting.forEach((task) => merged.set(task.id, task));
-        legacy.forEach((value) => {
-          const task = migratePlannerTask(value);
-          if (!task) throw new Error('A saved planner task has an invalid format.');
-          if (!merged.has(task.id)) merged.set(task.id, task);
-        });
-
-        if (active) {
-          dispatch({
-            type: 'plannerTasksLoaded',
-            tasks: Array.from(merged.values()),
-            migrationSucceeded: true,
-          });
-        }
-      } catch (error) {
-        if (active) {
-          dispatch({
-            type: 'plannerTasksLoaded',
-            tasks: state.plannerTasks,
-            migrationSucceeded: false,
-            error: error instanceof Error ? error.message : 'Could not migrate saved planner tasks.',
-          });
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [state.hydrated, state.plannerTasksLoaded, state.plannerLegacyMigrated, state.plannerTasks]);
-
-  useEffect(() => {
-    if (!state.hydrated || !state.plannerTasksLoaded) return;
-    const persistentState: Partial<State> = { ...state };
-    delete persistentState.hydrated;
-    delete persistentState.authReady;
-    delete persistentState.user;
-    delete persistentState.managedContent;
-    delete persistentState.managedContentError;
-    delete persistentState.plannerTasksLoaded;
-    delete persistentState.plannerSelectedDate;
-    delete persistentState.plannerTaskLoadError;
-    delete persistentState.plannerPersistenceError;
+    if (
+      !state.storageReady ||
+      !state.hydrated ||
+      !state.plannerTasksLoaded ||
+      state.plannerTaskLoadError
+    ) return;
     const previousPersistenceError = state.plannerPersistenceError;
-    AsyncStorage.setItem(KEY, JSON.stringify(persistentState)).then(
-      () => {
-        if (previousPersistenceError) {
-          dispatch({ type: 'plannerPersistence', error: null });
-        }
-      },
-      (error: unknown) => {
+    const serialized = serializePersistentState(state);
+    const storageKey = getUserScopedStorageKey(KEY, state.user?.id);
+    const keyedSnapshot = `${storageKey}:${serialized}`;
+    if (keyedSnapshot === lastEnqueuedSnapshot.current) return;
+    lastEnqueuedSnapshot.current = keyedSnapshot;
+    writeQueue.current = writeQueue.current.then(async () => {
+      try {
+        await AsyncStorage.setItem(storageKey, serialized);
+        if (previousPersistenceError) dispatch({ type: 'plannerPersistence', error: null });
+      } catch (error) {
+        if (lastEnqueuedSnapshot.current === keyedSnapshot) lastEnqueuedSnapshot.current = null;
         console.error('Study Sakha data could not be saved:', error);
-        const message = error instanceof Error ? error.message : 'Unable to save changes on this device.';
-        if (previousPersistenceError !== message) {
-          dispatch({ type: 'plannerPersistence', error: message });
-        }
+        const message = errorMessage(error, 'Unable to save changes on this device.');
+        if (previousPersistenceError !== message) dispatch({ type: 'plannerPersistence', error: message });
       }
-    );
+    });
   }, [state]);
 
   const streak = useMemo(() => {
@@ -1047,6 +1757,66 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signOut();
     return error ? { ok: false, error: error.message } : { ok: true };
   }, []);
+
+  const saveProfile = useCallback(async (
+    patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>>
+  ): Promise<{ ok: true; emailChangePending?: boolean } | { ok: false; error: string }> => {
+    if (!state.user || !supabaseConfigured) {
+      return { ok: false, error: 'Sign in to save profile changes.' };
+    }
+
+    let profileRowSaved = false;
+    try {
+      const { data: current, error: currentError } = await supabase.auth.getUser();
+      if (currentError) throw currentError;
+      if (!current.user || current.user.id !== state.user.id) {
+        throw new Error('Your account changed. Reload your profile and try again.');
+      }
+
+      const nextName = patch.name ?? state.user.name;
+      const nextExam = patch.exam ?? state.user.exam;
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert(
+          { id: current.user.id, display_name: nextName, exam_id: nextExam },
+          { onConflict: 'id' }
+        );
+      if (profileError) throw profileError;
+        profileRowSaved = true;
+
+      const metadata = {
+        display_name: nextName,
+        exam_id: nextExam,
+        birthday: patch.birthday ?? state.user.birthday ?? '',
+        phone_number: patch.phoneNumber ?? state.user.phoneNumber ?? '',
+        current_city: patch.currentCity ?? state.user.currentCity ?? '',
+        exam_focus: patch.examFocus ?? state.user.examFocus ?? '',
+      };
+      const emailChanged = Boolean(patch.email && patch.email !== state.user.email);
+      const { data, error } = await supabase.auth.updateUser({
+        data: metadata,
+        ...(emailChanged ? { email: patch.email } : {}),
+      });
+      if (error) throw error;
+
+      dispatch({
+        type: 'updateProfile',
+        patch: {
+          ...patch,
+          email: data.user.email ?? state.user.email,
+        },
+      });
+      return { ok: true, emailChangePending: emailChanged };
+    } catch (error) {
+      const message = errorMessage(error, 'Unable to save profile changes.');
+      return {
+        ok: false,
+        error: profileRowSaved
+          ? `Your name and exam were saved, but the remaining profile changes could not be saved: ${message} Try saving again to finish the update.`
+          : message,
+      };
+    }
+  }, [dispatch, state.user]);
 
   const saveManagedContent = useCallback(async (
     content: ManagedContent,
@@ -1190,11 +1960,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.managedContent]);
 
   const value = useMemo<Ctx>(
-    () => ({ state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut, saveManagedContent, deleteManagedContent, dispatch }),
-    [state, streak, todayMinutes, todayDone, unread, badges, signIn, signUp, signOut, saveManagedContent, deleteManagedContent]
+    () => ({
+      state,
+      hydrationError,
+      retryHydration,
+      legacyMigrationAvailable,
+      legacyMigrationError,
+      importingLegacyData,
+      importLegacyData,
+      keepLegacyDataSeparate,
+      retryLegacyScan,
+      streak,
+      todayMinutes,
+      todayDone,
+      unread,
+      badges,
+      signIn,
+      signUp,
+      signOut,
+      saveManagedContent,
+      deleteManagedContent,
+      saveProfile,
+      dispatch: dispatchAction,
+    }),
+    [
+      state,
+      hydrationError,
+      retryHydration,
+      legacyMigrationAvailable,
+      legacyMigrationError,
+      importingLegacyData,
+      importLegacyData,
+      keepLegacyDataSeparate,
+      retryLegacyScan,
+      streak,
+      todayMinutes,
+      todayDone,
+      unread,
+      badges,
+      signIn,
+      signUp,
+      signOut,
+      saveManagedContent,
+      deleteManagedContent,
+      saveProfile,
+      dispatchAction,
+    ]
   );
 
-  return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
+  return (
+    <StoreCtx.Provider value={value}>
+      {hydrationStatus === 'failed' && (
+        <View accessibilityRole="alert" style={{ backgroundColor: '#7f1d1d', padding: 12 }}>
+          <Text style={{ color: '#ffffff', marginBottom: 8 }}>
+            {hydrationError ?? 'Saved data could not be loaded. Your changes are being held until recovery succeeds.'}
+          </Text>
+          <Pressable accessibilityRole="button" onPress={retryHydration}>
+            <Text style={{ color: '#ffffff', fontWeight: '700' }}>Retry data recovery</Text>
+          </Pressable>
+        </View>
+      )}
+      {legacyMigrationAvailable && (
+        <View accessibilityRole="alert" style={{ backgroundColor: '#17335f', padding: 14, gap: 8 }}>
+          <Text style={{ color: '#ffffff', fontWeight: '700' }}>
+            Previous local study data is available on this device.
+          </Text>
+          <Text style={{ color: '#e5e7eb' }}>
+            Import notes, bookmarks, planner tasks, focus history, study time, and test attempts into this account, or keep it separate. Profile details, sign-in data, chat history, and notifications are not imported. The original local data is never deleted.
+          </Text>
+          {legacyMigrationError ? (
+            <Text style={{ color: '#fecaca' }}>{legacyMigrationError}</Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: importingLegacyData, busy: importingLegacyData }}
+              disabled={importingLegacyData}
+              onPress={() => void importLegacyData()}
+            >
+              <Text style={{ color: '#ffffff', fontWeight: '700' }}>
+                {importingLegacyData ? 'Importing…' : 'Import into this account'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={importingLegacyData}
+              onPress={() => void keepLegacyDataSeparate()}
+            >
+              <Text style={{ color: '#dbeafe', fontWeight: '700' }}>Keep separate</Text>
+            </Pressable>
+            {legacyMigrationError ? (
+              <Pressable accessibilityRole="button" onPress={retryLegacyScan}>
+                <Text style={{ color: '#dbeafe', fontWeight: '700' }}>Retry check</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      )}
+      {children}
+    </StoreCtx.Provider>
+  );
 }
 
 export function useStore() {

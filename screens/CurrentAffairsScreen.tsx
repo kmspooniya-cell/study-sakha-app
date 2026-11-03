@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
@@ -7,15 +8,16 @@ import { Button, Card, Chip, EmptyState, Field, Tag, Txt } from '../components/u
 import { EXAMS, getCurrentAffairs } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
+import { ExamId } from '../lib/types';
 
 export default function CurrentAffairsScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
   const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
   const { isMobile } = useLayout();
   const [category, setCategory] = useState('all');
-  const [exam, setExam] = useState('all');
+  const [exam, setExam] = useState<ExamId | 'all'>('all');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,7 +27,7 @@ export default function CurrentAffairsScreen() {
   const data = useMemo(() => {
     let list = currentAffairs;
     if (category !== 'all') list = list.filter((c) => c.category === category);
-    if (exam !== 'all') list = list.filter((c) => c.exams.includes(exam as any));
+    if (exam !== 'all') list = list.filter((c) => c.exams.includes(exam));
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) => `${c.title} ${c.summary} ${c.points.join(' ')}`.toLowerCase().includes(q));
     return list;

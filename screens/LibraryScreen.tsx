@@ -1,14 +1,21 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import React, { useMemo, useState } from 'react';
-import { FlatList, Image, Modal, Pressable, RefreshControl, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, RefreshControl, View } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { Shell, useLayout } from '../components/Shell';
-import { Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
+import { Button, Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
 import { EXAMS, getResources, SUBJECTS } from '../lib/data';
+import { downloadResourceFile, getResourceDownloads, removeResourceDownload } from '../lib/resourceDownloads';
+import type { ResourceDownload } from '../lib/resourceDownloads';
+import { createStudentContentSignedUrl } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import type { State } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { Resource } from '../lib/types';
+import type { ExamId } from '../lib/types';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 
 const LIBRARY_SECTIONS = [
   { route: 'LibraryNotes', key: 'note', label: 'Notes', icon: 'document-text-outline', description: 'Your revision notes and study material.' },
@@ -44,14 +51,24 @@ function SectionCount({ section, state }: { section: LibrarySection; state: Stat
   const count = getSectionResources(section.key, state).length;
   return (
     <Txt size={12} weight="700" color={useTheme().colors.textMuted}>
-      {count} resource{count === 1 ? '' : 's'}
+      {section.key === 'downloads' ? 'Manage saved files' : `${count} resource${count === 1 ? '' : 's'}`}
     </Txt>
   );
 }
 
+async function shareDownloadedFile(download: ResourceDownload) {
+  const info = await FileSystem.getInfoAsync(download.localUri);
+  if (!info.exists) throw new Error('This downloaded file is no longer available on this device.');
+  if (!(await Sharing.isAvailableAsync())) throw new Error('File sharing is not available on this device.');
+  await Sharing.shareAsync(download.localUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: `Share ${download.title}`,
+  });
+}
+
 export default function LibraryScreen() {
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'Library'>>();
   const { colors } = useTheme();
   const { state } = useStore();
   const { isMobile } = useLayout();
@@ -98,8 +115,8 @@ export default function LibraryScreen() {
 
 function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey }) {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'LibraryNotes' | 'LibraryBooks' | 'LibraryPYQSets' | 'LibraryStarred' | 'LibraryDownloads'>>();
   const { state, dispatch } = useStore();
   const { isMobile, isDesktop, isTablet } = useLayout();
   const section = LIBRARY_SECTIONS.find((item) => item.key === sectionKey)!;
@@ -114,13 +131,89 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
     [state.managedContent]
   );
 
-  const [exam, setExam] = useState<string>(route.params?.exam ?? 'all');
+  const [exam, setExam] = useState<ExamId | 'all'>(route.params?.exam ?? 'all');
   const [subject, setSubject] = useState<string>(route.params?.subject ?? 'all');
   const [bookCategory, setBookCategory] = useState<string>(route.params?.category ?? 'all');
   const [bookCategoryOpen, setBookCategoryOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [downloads, setDownloads] = useState<ResourceDownload[]>([]);
+  const [downloadScope, setDownloadScope] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [downloadErrors, setDownloadErrors] = useState<Record<string, string>>({});
+  const downloadProgressRef = useRef<Record<string, number>>({});
+  const mountedRef = useRef(false);
+  const userId = state.user?.id;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const scope = userId ?? '__local__';
+    setDownloadScope(null);
+    setDownloads([]);
+    setDownloadProgress({});
+    setDownloadErrors({});
+    downloadProgressRef.current = {};
+    getResourceDownloads(userId).then((saved) => {
+      if (!active) return;
+      setDownloads(saved);
+      setDownloadScope(scope);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setDownloadErrors((current) => ({
+        ...current,
+        __storage: error instanceof Error ? error.message : 'Saved downloads could not be loaded.',
+      }));
+      setDownloadScope(scope);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const downloadFile = async (resource: Resource) => {
+    if (Platform.OS === 'web') return;
+    setDownloadErrors((current) => ({ ...current, [resource.id]: '' }));
+    setDownloadProgress((current) => ({ ...current, [resource.id]: 0 }));
+    downloadProgressRef.current[resource.id] = 0;
+    try {
+      const url = resource.fileObjectPath
+        ? await createStudentContentSignedUrl(resource.fileObjectPath)
+        : undefined;
+      if (!url) throw new Error('This resource has no attached downloadable file.');
+      const saved = await downloadResourceFile(userId, resource, url, (progress) => {
+        if (!mountedRef.current || userIdRef.current !== userId) return;
+        const rounded = Math.floor(progress * 20) / 20;
+        if (rounded !== downloadProgressRef.current[resource.id] && rounded < 1) {
+          downloadProgressRef.current[resource.id] = rounded;
+          setDownloadProgress((current) => ({ ...current, [resource.id]: rounded }));
+        }
+      });
+      if (!mountedRef.current || userIdRef.current !== userId) return;
+      setDownloads((current) => [saved, ...current.filter((item) => item.resourceId !== saved.resourceId)]);
+      setDownloadProgress((current) => ({ ...current, [resource.id]: 1 }));
+    } catch (error) {
+      if (!mountedRef.current || userIdRef.current !== userId) return;
+      setDownloadErrors((current) => ({
+        ...current,
+        [resource.id]: error instanceof Error ? error.message : 'The resource could not be downloaded.',
+      }));
+      setDownloadProgress((current) => {
+        const next = { ...current };
+        delete next[resource.id];
+        return next;
+      });
+    }
+  };
 
   const sectionResources = useMemo(
     () => getSectionResources(sectionKey, state),
@@ -128,7 +221,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
   );
 
   const subjects = useMemo(() => {
-    return exam === 'all' ? SUBJECTS : SUBJECTS.filter((item) => item.exams.includes(exam as any));
+    return exam === 'all' ? SUBJECTS : SUBJECTS.filter((item) => item.exams.includes(exam));
   }, [exam]);
 
   const data = useMemo(() => {
@@ -154,7 +247,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
     setTimeout(() => setRefreshing(false), 700);
   };
 
-  const applyExam = (id: string) => {
+  const applyExam = (id: ExamId | 'all') => {
     setLoading(true);
     setExam(id);
     setSubject('all');
@@ -172,6 +265,11 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
 
   const renderCard = (resource: Resource) => {
     const starred = state.starred.includes(resource.id);
+    const hasFile = Boolean(resource.fileObjectPath);
+    const savedDownload = downloadScope === (userId ?? '__local__')
+      ? downloads.find((item) => item.resourceId === resource.id)
+      : undefined;
+    const downloadBusy = downloadProgress[resource.id] !== undefined && downloadProgress[resource.id] < 1;
     const progress = state.progress[resource.id]?.percent ?? 0;
     const subjectMeta = SUBJECTS.find((item) => item.name === resource.subject);
     return (
@@ -227,7 +325,53 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
             >
               <Ionicons name={starred ? 'star' : 'star-outline'} size={16} color={starred ? colors.warning : colors.textFaint} />
             </Pressable>
+            {hasFile && Platform.OS !== 'web' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={savedDownload ? `Share downloaded file for ${resource.title}` : `Download ${resource.title} for offline use`}
+                disabled={downloadBusy}
+                onPress={() => {
+                  if (savedDownload) {
+                    void shareDownloadedFile(savedDownload).catch((error: unknown) => {
+                      setDownloadErrors((current) => ({
+                        ...current,
+                        [resource.id]: error instanceof Error ? error.message : 'The downloaded file could not be opened.',
+                      }));
+                    });
+                    return;
+                  }
+                  void downloadFile(resource);
+                }}
+                style={({ pressed }) => ({
+                  minWidth: 34,
+                  height: 32,
+                  paddingHorizontal: 7,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: savedDownload ? `${colors.success}1A` : colors.surfaceAlt,
+                  opacity: pressed || downloadBusy ? 0.6 : 1,
+                  flexDirection: 'row',
+                  gap: 4,
+                })}
+              >
+                {downloadBusy ? (
+                  <ActivityIndicator size="small" color={colors.blue} />
+                ) : (
+                  <Ionicons name={savedDownload ? 'checkmark-circle' : 'cloud-download-outline'} size={16} color={savedDownload ? colors.success : colors.blue} />
+                )}
+              </Pressable>
+            ) : null}
           </View>
+          {downloadErrors[resource.id] ? (
+            <Txt size={11} color={colors.danger}>{downloadErrors[resource.id]}</Txt>
+          ) : null}
+          {downloadBusy ? (
+            <View style={{ gap: 4 }}>
+              <ProgressBar value={(downloadProgress[resource.id] ?? 0) * 100} height={4} color={colors.blue} />
+              <Txt size={10.5} color={colors.textMuted}>Saving for offline use…</Txt>
+            </View>
+          ) : null}
         </View>
       </StitchCard>
     );
@@ -404,5 +548,124 @@ export function LibraryStarredScreen() {
 }
 
 export function LibraryDownloadsScreen() {
-  return <LibrarySectionScreen sectionKey="downloads" />;
+  const { colors } = useTheme();
+  const nav = useNavigation<AppNavigation>();
+  const { state } = useStore();
+  const [downloads, setDownloads] = useState<ResourceDownload[]>([]);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const userId = state.user?.id;
+  const scope = userId ?? '__local__';
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setLoadedScope(null);
+    setDownloads([]);
+    getResourceDownloads(userId).then((saved) => {
+      if (active) {
+        setDownloads(saved);
+        setLoadedScope(scope);
+      }
+    }).catch((loadError: unknown) => {
+      if (active) {
+        setError(loadError instanceof Error ? loadError.message : 'Saved downloads could not be loaded.');
+        setLoadedScope(scope);
+      }
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [retry, scope, userId]);
+
+  const remove = async (resourceId: string) => {
+    setError(null);
+    try {
+      await removeResourceDownload(userId, resourceId);
+      if (userIdRef.current !== userId) return;
+      setDownloads((current) => current.filter((item) => item.resourceId !== resourceId));
+    } catch (removeError) {
+      if (userIdRef.current !== userId) return;
+      setError(removeError instanceof Error ? removeError.message : 'The download could not be removed.');
+    }
+  };
+
+  const open = async (download: ResourceDownload) => {
+    setError(null);
+    try {
+      await shareDownloadedFile(download);
+    } catch (openError) {
+      if (userIdRef.current !== userId) return;
+      setError(openError instanceof Error ? openError.message : 'The downloaded file could not be opened.');
+    }
+  };
+
+  return (
+    <Shell active="Library" title="Downloads" subtitle="Files saved on this device for offline access" scroll={false}>
+      {loading || loadedScope !== scope ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={colors.blue} />
+        </View>
+      ) : (
+        <FlatList
+          data={downloads}
+          keyExtractor={(item) => item.resourceId}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12, flexGrow: 1 }}
+          ListHeaderComponent={
+            <View style={{ gap: 10, marginBottom: 8 }}>
+              {error ? (
+                <View style={{ gap: 8 }}>
+                  <Txt size={12.5} color={colors.danger}>{error}</Txt>
+                  <Button label="Retry" icon="refresh-outline" variant="outline" onPress={() => setRetry((value) => value + 1)} />
+                </View>
+              ) : null}
+              {Platform.OS === 'web' ? (
+                <Txt size={12.5} color={colors.textMuted}>Offline file downloads are available in the Android and iOS apps.</Txt>
+              ) : null}
+              <Txt size={12} color={colors.textMuted}>
+                {downloads.length} file{downloads.length === 1 ? '' : 's'} saved locally
+              </Txt>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <StitchCard style={{ padding: 16 }} tone="raised">
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="document-text-outline" size={20} color={colors.blue} />
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Txt size={14} weight="800">{item.title}</Txt>
+                    <Txt size={11} color={colors.textMuted}>
+                      Saved {new Date(item.savedAt).toLocaleDateString()}
+                    </Txt>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  <Button label="Open / share file" icon="open-outline" onPress={() => void open(item)} />
+                  <Button label="Remove download" icon="trash-outline" variant="outline" onPress={() => void remove(item.resourceId)} />
+                </View>
+              </View>
+            </StitchCard>
+          )}
+          ListEmptyComponent={
+            error ? null : (
+              <EmptyState
+                icon="cloud-download-outline"
+                title="No offline files yet"
+                body="Download a resource with an attached PDF from the Library to keep a local copy on this device."
+                action="Browse Library"
+                onAction={() => nav.navigate('Library')}
+              />
+            )
+          }
+        />
+      )}
+    </Shell>
+  );
 }

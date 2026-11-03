@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -59,14 +60,15 @@ function buildQuiz(body: string, subject: string) {
 
 export default function NoteEditorScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'NoteEditor'>>();
   const { state, dispatch } = useStore();
   const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const { isMobile, isDesktop } = useLayout();
 
-  const resource = route.params?.resourceId ? resources.find((r) => r.id === route.params.resourceId) : undefined;
-  const existing = route.params?.noteId ? state.notes.find((n) => n.id === route.params.noteId) : undefined;
+  const params = route.params;
+  const resource = params?.resourceId ? resources.find((r) => r.id === params.resourceId) : undefined;
+  const existing = params?.noteId ? state.notes.find((n) => n.id === params.noteId) : undefined;
   const readOnly = !!resource;
 
   const [title, setTitle] = useState(existing?.title ?? resource?.title ?? '');

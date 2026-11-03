@@ -13,8 +13,9 @@ import {
   NormalizedFocusSession,
   StatisticsDateRange,
 } from '../lib/statistics';
-import { useStore } from '../lib/store';
+import { getUserScopedStorageKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
+import type { AppRoute } from '../lib/navigation';
 
 const HISTORY_KEY = 'study-sakha-focus-history-v1';
 type TaskFilter = 'all' | 'completed' | 'pending';
@@ -37,8 +38,9 @@ function rangeEndingToday(now: Date, days: number): StatisticsDateRange {
 
 export default function TaskPerformanceScreen() {
   const { colors } = useTheme();
-  const route = useRoute<any>();
+  const route = useRoute<AppRoute<'TaskPerformance'>>();
   const { state } = useStore();
+  const historyKey = getUserScopedStorageKey(HISTORY_KEY, state.user?.id);
   const { isMobile } = useLayout();
   const [sessions, setSessions] = useState<NormalizedFocusSession[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -59,7 +61,7 @@ export default function TaskPerformanceScreen() {
     let active = true;
     setLoaded(false);
     setLoadError(null);
-    AsyncStorage.getItem(HISTORY_KEY)
+    AsyncStorage.getItem(historyKey)
       .then((raw) => {
         if (!active) return;
         try {
@@ -80,7 +82,7 @@ export default function TaskPerformanceScreen() {
     return () => {
       active = false;
     };
-  }, []));
+  }, [historyKey]));
 
   const statistics = useMemo(
     () => deriveStatistics(state, sessions, dateRange),

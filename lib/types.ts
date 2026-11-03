@@ -1,3 +1,5 @@
+import type { AppNavigationTarget } from './navigation';
+
 export type ExamId = 'upsc' | 'ssc' | 'banking' | 'neet' | 'jee';
 
 export type Exam = { id: ExamId; name: string; short: string; color: string; aspirants: string };
@@ -84,6 +86,7 @@ export type TestResult = {
   percentile: number;
   rank: number;
   totalAspirants: number;
+  comparisonStatus?: 'unavailable' | 'estimated' | 'measured';
   timeTakenSec: number;
   bySubject: { subject: string; correct: number; total: number }[];
   answers: Record<string, number | null>;
@@ -109,9 +112,7 @@ export type SourceRef = {
   type: 'Book' | 'Note' | 'PYQ' | 'Test';
   section?: string;
   pages?: number;
-  route: string;
-  params?: any;
-};
+} & AppNavigationTarget;
 
 export type ChatMsg = {
   id: string;
@@ -119,12 +120,14 @@ export type ChatMsg = {
   text: string;
   at: number;
   chips?: string[];
-  action?: { label: string; route: string; params?: any };
+  action?: { label: string } & AppNavigationTarget;
   sources?: SourceRef[];
   intent?: string;
   status?: 'sending' | 'sent' | 'error';
   error?: string;
+  requestId?: string;
   modelUsed?: string;
+  fallbackUsed?: boolean;
   retryText?: string;
 };
 

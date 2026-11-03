@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import { File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,8 +22,8 @@ const EXAM_FOCUS_OPTIONS: ExamFocusOption[] = ['UPSC', 'RAS', 'Other RPSC/RSSB E
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const { state, badges, signOut, dispatch, streak } = useStore();
+  const nav = useNavigation<AppNavigation>();
+  const { state, badges, signOut, saveProfile: persistProfile, streak } = useStore();
   const { isMobile } = useLayout();
   const [openModal, setOpenModal] = useState<ProfileModal>(null);
   const [draftName, setDraftName] = useState('');
@@ -36,6 +37,8 @@ export default function ProfileScreen() {
   const [draftPhotoUri, setDraftPhotoUri] = useState<string | undefined>();
   const [photoError, setPhotoError] = useState('');
   const [authError, setAuthError] = useState('');
+  const [profileSaveError, setProfileSaveError] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState<ProfileTab>('info');
 
   const user = state.user;
@@ -106,7 +109,8 @@ export default function ProfileScreen() {
     }
   };
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
+    if (savingProfile) return;
     const name = draftName.trim();
     const email = draftEmail.trim();
     const otherExam = draftOtherExam.trim();
@@ -123,9 +127,10 @@ export default function ProfileScreen() {
       return;
     }
     const selectedFocus = draftExamFocus === 'Other RPSC/RSSB Exams' ? otherExam : draftExamFocus;
-    dispatch({
-      type: 'updateProfile',
-      patch: {
+    setSavingProfile(true);
+    setProfileSaveError('');
+    try {
+      const result = await persistProfile({
         name,
         email,
         birthday: draftBirthday.trim(),
@@ -134,10 +139,21 @@ export default function ProfileScreen() {
         examFocus: selectedFocus,
         exam: draftExam,
         photoUri: draftPhotoUri,
-      },
-    });
-    setDraftExamFocus(draftExamFocus);
-    setOpenModal(null);
+      });
+      if (!result.ok) {
+        setProfileSaveError(result.error);
+        return;
+      }
+      setDraftExamFocus(draftExamFocus);
+      setOpenModal(null);
+      if (result.emailChangePending) {
+        Alert.alert('Check your email', 'A confirmation link was sent before the new email address can be used.');
+      }
+    } catch (error) {
+      setProfileSaveError(error instanceof Error ? error.message : 'Unable to save profile changes.');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const profileImage = (size: number) => (
@@ -381,9 +397,10 @@ export default function ProfileScreen() {
                       <Field label="Relevant exam name" value={draftOtherExam} onChangeText={setDraftOtherExam} placeholder="For example, RAS Mains" icon="school-outline" />
                     ) : null}
                   </View>
+                  {profileSaveError ? <Txt size={12.5} color={colors.danger}>{profileSaveError}</Txt> : null}
                   <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
                     <Button label="Cancel" variant="outline" onPress={() => setOpenModal(null)} />
-                    <Button label="Save changes" icon="checkmark" onPress={saveProfile} />
+                    <Button label={savingProfile ? 'Saving…' : 'Save changes'} icon="checkmark" onPress={saveProfile} />
                   </View>
                 </View>
               )}

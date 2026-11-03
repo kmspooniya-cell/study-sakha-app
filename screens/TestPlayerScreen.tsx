@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, useLayout } from '../components/Shell';
 import { Button, Card, ProgressBar, Tag, Txt } from '../components/ui';
 import { getTests } from '../lib/data';
-import { useStore } from '../lib/store';
+import { getUserScopedStorageKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { TestResult } from '../lib/types';
 
@@ -16,37 +18,202 @@ const fmt = (sec: number) => {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
+type SavedTestAttempt = {
+  testId: string;
+  startedAt: number;
+  deadlineAt: number;
+  index: number;
+  answers: Record<string, number | null>;
+  marked: Record<string, boolean>;
+  visited: Record<string, boolean>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseSavedAttempt(value: unknown, testId: string, questionCount: number, durationMs: number): SavedTestAttempt {
+  if (
+    !isRecord(value) ||
+    value.testId !== testId ||
+    typeof value.startedAt !== 'number' ||
+    !Number.isFinite(value.startedAt) ||
+    typeof value.deadlineAt !== 'number' ||
+    !Number.isFinite(value.deadlineAt) ||
+    typeof value.index !== 'number' ||
+    !Number.isInteger(value.index) ||
+    value.index < 0 ||
+    value.index >= questionCount ||
+    value.deadlineAt <= value.startedAt ||
+    value.deadlineAt - value.startedAt > durationMs + 1000 ||
+    !isRecord(value.answers) ||
+    !isRecord(value.marked) ||
+    !isRecord(value.visited)
+  ) throw new Error('The saved test attempt has an invalid format.');
+
+  const answers: Record<string, number | null> = {};
+  for (const [id, answer] of Object.entries(value.answers)) {
+    if (answer !== null && (typeof answer !== 'number' || !Number.isInteger(answer) || answer < 0)) {
+      throw new Error('The saved test answers have an invalid format.');
+    }
+    answers[id] = answer;
+  }
+  if ([value.marked, value.visited].some((items) =>
+    Object.values(items).some((flag) => typeof flag !== 'boolean')
+  )) throw new Error('The saved test navigation state has an invalid format.');
+
+  return {
+    testId,
+    startedAt: value.startedAt,
+    deadlineAt: value.deadlineAt,
+    index: value.index,
+    answers,
+    marked: value.marked as Record<string, boolean>,
+    visited: value.visited as Record<string, boolean>,
+  };
+}
+
 export default function TestPlayerScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'TestPlayer'>>();
   const { state, dispatch } = useStore();
   const { isMobile, isDesktop } = useLayout();
   const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
   const test = tests.find((t) => t.id === route.params?.testId) ?? tests[0];
+  const attemptStorageKey = useMemo(
+    () => getUserScopedStorageKey(`study-sakha-test-attempt-v1-${test.id}`, state.user?.id),
+    [state.user?.id, test.id]
+  );
 
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number | null>>({});
   const [marked, setMarked] = useState<Record<string, boolean>>({});
   const [visited, setVisited] = useState<Record<string, boolean>>({ [test.questions[0].id]: true });
   const [left, setLeft] = useState(test.durationMin * 60);
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  const [attemptReadyKey, setAttemptReadyKey] = useState<string | null>(null);
+  const [attemptError, setAttemptError] = useState<string | null>(null);
+  const [attemptRetry, setAttemptRetry] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const submittedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const startedAtRef = useRef(Date.now());
+  const deadlineAtRef = useRef<number | null>(null);
+  const attemptWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const resultsRef = useRef(state.results);
+  resultsRef.current = state.results;
+  const attemptReady = attemptReadyKey === attemptStorageKey;
 
   const q = test.questions[index];
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setLeft((l) => (l <= 0 ? 0 : l - 1));
-    }, 1000);
-    return () => clearInterval(id);
+    submittedRef.current = false;
+    startedAtRef.current = Date.now();
+    deadlineAtRef.current = null;
+  }, [attemptStorageKey]);
+
+  useEffect(() => {
+    let active = true;
+    setAttemptReadyKey(null);
+    setAttemptError(null);
+    AsyncStorage.getItem(attemptStorageKey).then(async (raw) => {
+      if (!active) return;
+      if (raw) {
+        const saved = parseSavedAttempt(JSON.parse(raw), test.id, test.questions.length, test.durationMin * 60_000);
+        const existingResult = resultsRef.current.find((result) => result.id === `res-${test.id}-${saved.startedAt}`);
+        if (existingResult) {
+          await AsyncStorage.removeItem(attemptStorageKey);
+          if (active) nav.replace('TestResult', {
+            resultId: existingResult.id,
+            headerBrand: route.params?.headerBrand,
+          });
+          return;
+        }
+        startedAtRef.current = saved.startedAt;
+        deadlineAtRef.current = saved.deadlineAt;
+        setDeadlineAt(saved.deadlineAt);
+        setAnswers(saved.answers);
+        setMarked(saved.marked);
+        setVisited(saved.visited);
+        setIndex(saved.index);
+        setLeft(Math.max(0, Math.ceil((saved.deadlineAt - Date.now()) / 1000)));
+      } else {
+        const startedAt = Date.now();
+        const nextDeadline = startedAt + test.durationMin * 60_000;
+        startedAtRef.current = startedAt;
+        deadlineAtRef.current = nextDeadline;
+        setDeadlineAt(nextDeadline);
+        const initial: SavedTestAttempt = {
+          testId: test.id,
+          startedAt,
+          deadlineAt: nextDeadline,
+          index: 0,
+          answers: {},
+          marked: {},
+          visited: { [test.questions[0].id]: true },
+        };
+        await AsyncStorage.setItem(attemptStorageKey, JSON.stringify(initial));
+      }
+      if (active) setAttemptReadyKey(attemptStorageKey);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setAttemptError(error instanceof Error ? error.message : 'Saved test attempt could not be restored.');
+    });
+    return () => {
+      active = false;
+    };
+  }, [attemptRetry, attemptStorageKey, nav, route.params?.headerBrand, test.durationMin, test.id, test.questions]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (left === 0 && !submittedRef.current) submit(true);
+    if (!attemptReady || deadlineAt === null) return;
+    const updateRemaining = () => {
+      const currentDeadline = deadlineAtRef.current;
+      if (currentDeadline === null) return;
+      setLeft(Math.max(0, Math.ceil((currentDeadline - Date.now()) / 1000)));
+    };
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 500);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') updateRemaining();
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [attemptReady, deadlineAt]);
+
+  useEffect(() => {
+    if (!attemptReady || deadlineAt === null) return;
+    const snapshot: SavedTestAttempt = {
+      testId: test.id,
+      startedAt: startedAtRef.current,
+      deadlineAt,
+      index,
+      answers,
+      marked,
+      visited,
+    };
+    attemptWriteQueue.current = attemptWriteQueue.current.catch(() => {}).then(async () => {
+      await AsyncStorage.setItem(attemptStorageKey, JSON.stringify(snapshot));
+      if (mountedRef.current) setAttemptError(null);
+    }).catch((error: unknown) => {
+      if (mountedRef.current) setAttemptError(error instanceof Error ? error.message : 'Test attempt could not be saved.');
+    });
+  }, [answers, attemptReady, attemptStorageKey, deadlineAt, index, marked, test.id, visited]);
+
+  useEffect(() => {
+    if (attemptReady && left === 0 && !submittedRef.current) submit(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [left]);
+  }, [attemptReady, left]);
 
   const counts = useMemo(() => {
     let answered = 0;
@@ -87,12 +254,8 @@ export default function TestPlayerScreen() {
     const score = correct * test.marksPerQ - wrong * test.negative * test.marksPerQ;
     const maxScore = test.questions.length * test.marksPerQ;
     const attempted = correct + wrong;
-    const ratio = Math.max(0, score) / maxScore;
-    const percentile = Math.max(5, Math.min(99.8, 38 + ratio * 61 + (attempted / test.questions.length) * 2));
-    const totalAspirants = test.attempts;
-    const rank = Math.max(1, Math.round(totalAspirants * (1 - percentile / 100)));
     const result: TestResult = {
-      id: `res-${Date.now()}`,
+      id: `res-${test.id}-${startedAtRef.current}`,
       testId: test.id,
       title: test.title,
       exam: test.exam,
@@ -103,9 +266,10 @@ export default function TestPlayerScreen() {
       wrong,
       skipped,
       accuracy: attempted ? (correct / attempted) * 100 : 0,
-      percentile: Number(percentile.toFixed(1)),
-      rank,
-      totalAspirants,
+      percentile: 0,
+      rank: 0,
+      totalAspirants: 0,
+      comparisonStatus: 'unavailable',
       timeTakenSec: test.durationMin * 60 - left,
       bySubject: Object.entries(bySubjectMap).map(([subject, v]) => ({ subject, ...v })),
       answers,
@@ -117,7 +281,7 @@ export default function TestPlayerScreen() {
       notif: {
         id: `n-${Date.now()}`,
         title: auto ? 'Time up — test submitted' : 'Test submitted successfully',
-        body: `${test.title}: ${score.toFixed(2)}/${maxScore} with ${percentile.toFixed(1)} percentile.`,
+        body: `${test.title}: ${score.toFixed(2)}/${maxScore} with ${Math.round(attempted ? (correct / attempted) * 100 : 0)}% accuracy.`,
         at: Date.now(),
         kind: 'test',
         read: false,
@@ -127,6 +291,46 @@ export default function TestPlayerScreen() {
   };
 
   const timeLow = left < 60;
+  const retryAttemptSave = async () => {
+    const snapshot: SavedTestAttempt = {
+      testId: test.id,
+      startedAt: startedAtRef.current,
+      deadlineAt: deadlineAt ?? Date.now(),
+      index,
+      answers,
+      marked,
+      visited,
+    };
+    const write = attemptWriteQueue.current.catch(() => {}).then(() =>
+      AsyncStorage.setItem(attemptStorageKey, JSON.stringify(snapshot))
+    );
+    attemptWriteQueue.current = write;
+    try {
+      await write;
+      setAttemptError(null);
+    } catch (error) {
+      setAttemptError(error instanceof Error ? error.message : 'Test attempt could not be saved.');
+    }
+  };
+
+  if (!attemptReady) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', padding: 24 }} edges={['top', 'bottom']}>
+        <View style={{ alignItems: 'center', gap: 14 }}>
+          {attemptError ? null : <ActivityIndicator size="large" color={colors.blue} />}
+          <Txt size={15} weight="700" display>
+            {attemptError ? 'Your saved test attempt could not be restored.' : 'Restoring your test attempt...'}
+          </Txt>
+          {attemptError ? (
+            <>
+              <Txt size={13} color={colors.textMuted} style={{ textAlign: 'center' }}>{attemptError}</Txt>
+              <Button label="Retry recovery" icon="refresh-outline" onPress={() => setAttemptRetry((retry) => retry + 1)} />
+            </>
+          ) : null}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const palette = (
     <View style={{ gap: 14 }}>
@@ -233,6 +437,12 @@ export default function TestPlayerScreen() {
       </View>
 
       <ProgressBar value={((index + 1) / test.questions.length) * 100} height={3} color={colors.teal} />
+      {attemptError ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Txt size={12} color={colors.danger} style={{ flex: 1 }}>{attemptError}</Txt>
+          <Button label="Retry save" icon="refresh-outline" variant="outline" onPress={retryAttemptSave} />
+        </View>
+      ) : null}
 
       <View style={{ flex: 1, flexDirection: 'row' }}>
         <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 820, width: '100%', alignSelf: 'center', paddingBottom: 40 }} showsVerticalScrollIndicator={false}>

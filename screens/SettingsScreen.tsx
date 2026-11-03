@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, Switch, View } from 'react-native';
 import { Shell } from '../components/Shell';
@@ -25,14 +26,15 @@ type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id'];
 
 export default function SettingsScreen() {
   const { colors, mode } = useTheme();
-  const nav = useNavigation<any>();
-  const { state, dispatch, signOut } = useStore();
+  const nav = useNavigation<AppNavigation>();
+  const { state, dispatch, signOut, saveProfile } = useStore();
   const lang = state.settings.language;
   const [cleared, setCleared] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [profileError, setProfileError] = useState('');
   const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
 
-  const set = (patch: any) => dispatch({ type: 'settings', patch });
+  const set = (patch: Partial<typeof state.settings>) => dispatch({ type: 'settings', patch });
   const handleSignOut = async () => {
     setAuthError('');
     try {
@@ -41,6 +43,12 @@ export default function SettingsScreen() {
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Unable to sign out.');
     }
+  };
+  const updateExam = async (exam: (typeof EXAMS)[number]['id']) => {
+    if (!state.user) return;
+    setProfileError('');
+    const result = await saveProfile({ exam });
+    if (!result.ok) setProfileError(result.error);
   };
 
   const Row = ({ title, body, right }: { title: string; body?: string; right: React.ReactNode }) => (
@@ -156,19 +164,20 @@ export default function SettingsScreen() {
                 label={exam.short}
                 tone={exam.color}
                 active={state.user?.exam === exam.id}
-                onPress={() => state.user && dispatch({ type: 'signIn', user: { ...state.user, exam: exam.id } })}
+                onPress={() => void updateExam(exam.id)}
               />
             ))}
           </View>
         </View>
+        {profileError ? <Txt size={12.5} color={colors.danger}>{profileError}</Txt> : null}
       </Card>
     ),
     notifications: (
       <Card>
         <SectionHeader title={t('notifications', lang)} icon="notifications-outline" />
         <Row
-          title={t('pushNotifications', lang)}
-          body={t('pushBody', lang)}
+          title="In-app notifications"
+          body="Controls the notification inbox. Remote push delivery is not configured."
           right={
             <Switch
               value={state.settings.notifications}
@@ -250,7 +259,7 @@ export default function SettingsScreen() {
         </View>
       </Card>
     ),
-    guide: <AppGuideContent onOpen={(route) => nav.navigate(route)} />,
+    guide: <AppGuideContent onOpen={(route) => nav.dispatch(CommonActions.navigate(route))} />,
   };
 
   const selectedSection = SETTINGS_SECTIONS.find((section) => section.id === openSection);

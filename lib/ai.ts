@@ -1,4 +1,5 @@
 import { CURRENT_AFFAIRS, EXAMS, PYQS, RESOURCES, SUBJECTS, TESTS } from './data';
+import type { AppNavigationTarget } from './navigation';
 import { ExamId, TestResult, UserNote } from './types';
 
 export type AiContext = {
@@ -16,7 +17,7 @@ export type AiReply = {
   text: string;
   chips: string[];
   intent: string;
-  action?: { label: string; route: string; params?: any };
+  action?: { label: string } & AppNavigationTarget;
 };
 
 const INTENTS: { id: string; keys: string[] }[] = [

@@ -16,12 +16,14 @@ import {
 import { useTheme } from '../lib/theme';
 import {
   dayKey,
+  getUserScopedStorageKey,
   PlannerPriority,
   PlannerScope,
   PlannerTask,
   PlannerTaskType,
   useStore,
 } from '../lib/store';
+import { appendFocusHistory } from '../lib/focusHistory';
 import { getPlannerTasksForDate, PlannerTaskView, updatePlannerTask } from '../lib/planner';
 import Svg, { Circle } from 'react-native-svg';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
@@ -191,6 +193,7 @@ export function FocusActivityTimer({
     : activity === 'meditation'
       ? MEDITATION_HISTORY_KEY
       : BREAK_HISTORY_KEY;
+  const scopedHistoryKey = getUserScopedStorageKey(HISTORY_KEY, storeState.user?.id);
   const ACTIVITY_TITLE = activity === 'study'
     ? 'Focus for Study'
     : activity === 'meditation'
@@ -338,7 +341,7 @@ export function FocusActivityTimer({
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(HISTORY_KEY)
+    AsyncStorage.getItem(scopedHistoryKey)
       .then((value) => {
         if (!active) return;
         if (!value) return;
@@ -370,7 +373,7 @@ export function FocusActivityTimer({
         if (droppedInvalidRecord) {
           console.warn('Focus history contains malformed records; valid records were loaded without rewriting storage.');
         } else if (droppedDuplicateRecord) {
-          AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(valid)).catch((error: unknown) => {
+          AsyncStorage.setItem(scopedHistoryKey, JSON.stringify(valid)).catch((error: unknown) => {
             console.warn('Focus history could not be normalized:', error);
           });
         }
@@ -386,7 +389,7 @@ export function FocusActivityTimer({
     return () => {
       active = false;
     };
-  }, [HISTORY_KEY, ACTIVITY_TITLE]);
+  }, [scopedHistoryKey, ACTIVITY_TITLE]);
 
   function createSessionId() {
     let id = '';
@@ -445,7 +448,10 @@ export function FocusActivityTimer({
         plannedMinutes: session.taskId ? session.plannedMinutes : undefined,
       });
     }
-    AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated)).catch((error: unknown) => {
+    void appendFocusHistory(scopedHistoryKey, session).then((savedHistory) => {
+      historyRef.current = savedHistory;
+      if (updateView && mounted.current) setHistory(savedHistory);
+    }).catch((error: unknown) => {
       console.error(`${ACTIVITY_TITLE} history could not be saved:`, error);
       if (updateView && mounted.current) {
         setHistoryError(error instanceof Error ? error.message : 'Session history could not be saved.');
@@ -888,17 +894,17 @@ export function FocusActivityTimer({
           const minutes = Math.max(1, Math.round(elapsed / 60));
           dispatch({ type: 'study', minutes });
           const newSession = {
-            id: `med-${Date.now()}`,
+            id: `med-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`,
             minutes,
             completedAt: new Date().toISOString(),
             actualSeconds: elapsed,
           };
-          AsyncStorage.getItem(MEDITATION_HISTORY_KEY)
-            .then((raw) => {
-              const history = raw ? JSON.parse(raw) : [];
-              AsyncStorage.setItem(MEDITATION_HISTORY_KEY, JSON.stringify([newSession, ...history]));
-            })
-            .catch(() => {});
+          void appendFocusHistory(
+            getUserScopedStorageKey(MEDITATION_HISTORY_KEY, storeState.user?.id),
+            newSession
+          ).catch((error: unknown) => {
+            console.error('Meditation history could not be saved:', error);
+          });
         }}
         onClose={() => {
           setVisible(false);

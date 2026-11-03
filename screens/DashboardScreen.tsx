@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -33,7 +34,7 @@ const stitchDark = {
 
 export default function DashboardScreen() {
   const { colors, scheme } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state, streak, todayMinutes, dispatch } = useStore();
   const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);

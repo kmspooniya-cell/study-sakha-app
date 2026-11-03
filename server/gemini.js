@@ -1,4 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
+const GEMINI_MODELS = require('../lib/geminiModels.json');
 const {
   APP_INFO,
   APP_SCREENS,
@@ -46,10 +47,15 @@ function buildSystemInstruction(userContext) {
     ? `The user's currently selected target exam is "${exam.toUpperCase()}". Tailor exam-specific insights, syllabus references, and advice specifically to ${exam.toUpperCase()}.`
     : `No specific exam is currently selected by the user. Keep your answers exam-neutral, or address competitive exams generally. Do NOT automatically default to or assume UPSC. If the user mentions an exam in their message (e.g., RAS, RSSB, SSC, Banking, NEET, JEE, State PCS), follow that exam.`;
 
-  // Build verified user performance & study context
+  // Build personalized context from validated fields supplied alongside the prompt.
   let personalizedStudyContext = '';
   if (recentResult && recentResult.title) {
-    personalizedStudyContext += `\n- Recent Mock Test Attempt: "${recentResult.title}" | Score: ${recentResult.score}/${recentResult.maxScore} (${recentResult.accuracy}% accuracy, ${recentResult.percentile}th percentile)${recentResult.weakestSubject ? ` | Needs improvement in: ${recentResult.weakestSubject}` : ''}. Use this to provide targeted diagnostic feedback and suggest specific real resources to improve weak topics.`;
+    const comparison = recentResult.comparisonStatus === 'measured'
+      ? `, measured ${recentResult.percentile}th percentile`
+      : recentResult.comparisonStatus === 'estimated'
+        ? `, estimated percentile ${recentResult.percentile} (not official)`
+        : '';
+    personalizedStudyContext += `\n- Recent Mock Test Attempt: "${recentResult.title}" | Score: ${recentResult.score}/${recentResult.maxScore} (${recentResult.accuracy}% accuracy${comparison})${recentResult.weakestSubject ? ` | Needs improvement in: ${recentResult.weakestSubject}` : ''}. Use this to provide targeted diagnostic feedback and suggest specific real resources to improve weak topics.`;
   } else if (typeof testsAttempted === 'number' && testsAttempted === 0) {
     personalizedStudyContext += `\n- Mock Test Activity: User has not taken any mock tests yet. If relevant, gently suggest taking an initial diagnostic test like "UPSC Prelims Full Mock #14" (t1) or "SSC CGL Speed Mock #27" (t2).`;
   }
@@ -315,6 +321,65 @@ function parseSources(rawText, userQuery, action) {
   return { text, sources };
 }
 
+const ACTION_ROUTE_PARAMS = {
+  DashboardRoot: { optional: ['headerBrand'] },
+  Library: { optional: ['headerBrand', 'exam', 'subject', 'category'] },
+  More: { optional: ['headerBrand'] },
+  LibraryNotes: { optional: ['headerBrand', 'exam', 'subject', 'category'] },
+  LibraryBooks: { optional: ['headerBrand', 'exam', 'subject', 'category'] },
+  LibraryPYQSets: { optional: ['headerBrand', 'exam', 'subject', 'category'] },
+  LibraryStarred: { optional: ['headerBrand', 'exam', 'subject', 'category'] },
+  LibraryDownloads: { optional: ['headerBrand'] },
+  PYQ: { optional: ['headerBrand', 'exam', 'subject'] },
+  Tests: { optional: ['headerBrand'] },
+  TestPlayer: { required: ['testId'], optional: ['headerBrand'] },
+  TestResult: { required: ['resultId'], optional: ['headerBrand'] },
+  SakhaAI: { optional: ['headerBrand', 'prompt'] },
+  NoteEditor: { optional: ['headerBrand', 'resourceId', 'noteId'] },
+  BookReader: { required: ['resourceId'], optional: ['headerBrand'] },
+  CurrentAffairs: { optional: ['headerBrand'] },
+  Search: { optional: ['headerBrand'] },
+  Notifications: { optional: ['headerBrand'] },
+  Statistics: { optional: ['headerBrand'] },
+  TaskPerformance: { optional: ['headerBrand', 'startDate', 'endDate'] },
+  StudyPlanner: { optional: ['headerBrand'] },
+  FocusCenter: { optional: ['headerBrand'] },
+  FocusLock: { optional: ['headerBrand'] },
+  Hobbies: { optional: ['headerBrand'] },
+  Profile: { optional: ['headerBrand'] },
+  Settings: { optional: ['headerBrand'] },
+  AppGuide: { optional: ['headerBrand'] },
+  StudentTestimonials: { optional: ['headerBrand'] },
+  Admin: { optional: ['headerBrand'] },
+};
+
+function sanitizeNavigationAction(action) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
+  const route = action.route;
+  const spec = typeof route === 'string' && Object.hasOwn(ACTION_ROUTE_PARAMS, route)
+    ? ACTION_ROUTE_PARAMS[route]
+    : undefined;
+  const label = typeof action.label === 'string' ? action.label.trim().slice(0, 100) : '';
+  if (!spec || !label) return null;
+
+  const source = action.params && typeof action.params === 'object' && !Array.isArray(action.params)
+    ? action.params
+    : {};
+  const allowed = new Set([...(spec.required || []), ...spec.optional]);
+  const params = {};
+  const stringParams = new Set(['subject', 'category', 'testId', 'resultId', 'resourceId', 'noteId', 'prompt', 'startDate', 'endDate']);
+  for (const key of allowed) {
+    const value = source[key];
+    if (key === 'headerBrand' && value === 'SakhaAI') params[key] = value;
+    else if (key === 'exam' && EXAMS_SUPPORTED.some((exam) => exam.id === value)) params[key] = value;
+    else if (stringParams.has(key) && typeof value === 'string' && value.trim()) {
+      params[key] = value.trim().slice(0, key === 'prompt' ? 1000 : 120);
+    }
+  }
+  if ((spec.required || []).some((key) => !params[key])) return null;
+  return { route, label, ...(Object.keys(params).length ? { params } : {}) };
+}
+
 function parseActionAndChips(rawText) {
   let text = rawText || '';
   let action = null;
@@ -333,7 +398,7 @@ function parseActionAndChips(rawText) {
         // ignore json parse error
       }
     }
-    action = { route, label, params };
+    action = sanitizeNavigationAction({ route, label, params });
     text = text.replace(actionMatch[0], '').trim();
   }
 
@@ -422,28 +487,28 @@ function generateCatalogFallbackResponse(userQuery, examContext) {
   if (q.includes('fundamental rights') || q.includes('article 12') || q.includes('article 32') || q.includes('writs')) {
     return {
       text: `${greeting} In the Indian Constitution, **Fundamental Rights** are enshrined in Part III (Articles 12 to 35). They are justiciable and protected directly by the Supreme Court (Article 32) and High Courts (Article 226).\n\n### Core Classifications:\n1. **Right to Equality (Articles 14–18)**: Equality before law, prohibition of discrimination, and abolition of untouchability (Art. 17).\n2. **Right to Freedom (Articles 19–22)**: Six democratic freedoms, protection in respect of conviction (Art. 20), and right to life & personal liberty (Art. 21).\n3. **Right against Exploitation (Articles 23–24)**: Ban on human trafficking, forced labor, and child employment in hazardous industries.\n4. **Right to Freedom of Religion (Articles 25–28)**: Freedom of conscience, profession, practice, and propagation.\n5. **Cultural & Educational Rights (Articles 29–30)**: Protection of minority languages, script, and institutions.\n6. **Right to Constitutional Remedies (Article 32)**: The 'Heart and Soul' of the Constitution granting writs: *Habeas Corpus, Mandamus, Prohibition, Certiorari, and Quo-Warranto*.\n\nYou can study the full breakdown in Study Sakha's dedicated note.\n\n[SOURCES: r1 | Articles 12–35]\n[ACTION: NoteEditor | Open Fundamental Rights Note | {"resourceId": "r1"}]\n[CHIPS: Explain Article 32 Writs | Show Polity PYQs | Articles 19 vs 21]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('monsoon') || q.includes('itcz') || q.includes('climate')) {
     return {
       text: `${greeting} The **Indian Monsoon** is driven by differential heating between the Indian subcontinent landmass and the Indian Ocean, shifting the Inter-Tropical Convergence Zone (ITCZ) northward during summer.\n\n### Key Driving Factors:\n- **Thermal Contrast**: Intense heating of the Tibetan Plateau generates an upper-tropospheric high and the Tropical Easterly Jet (TEJ).\n- **Somali Jet & Mascarene High**: Drives moisture-laden South-West trade winds across the Arabian Sea.\n- **ENSO & IOD**: El Niño conditions typically suppress rainfall, whereas Positive Indian Ocean Dipole (IOD) aids Indian monsoon precipitation.\n\n[SOURCES: r2 | Climatology & ITCZ]\n[ACTION: NoteEditor | Open Indian Monsoon Note | {"resourceId": "r2"}]\n[CHIPS: What is Positive IOD? | Arabian Sea vs Bay of Bengal branch | El Niño vs La Niña]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('monetary policy') || q.includes('rbi') || q.includes('inflation targeting') || q.includes('repo')) {
     return {
       text: `${greeting} **Monetary Policy in India** is executed by the Reserve Bank of India (RBI) through the six-member Monetary Policy Committee (MPC).\n\n### Key Pillars:\n- **Target**: Flexible Inflation Targeting framework mandates a headline CPI target of 4% (±2% tolerance band: 2% to 6%).\n- **Policy Repo Rate**: The benchmark interest rate at which the RBI lends short-term funds to commercial banks against government securities.\n- **Liquidity Adjustment Facility (LAF)**: Includes Standing Deposit Facility (SDF) as the floor and Marginal Standing Facility (MSF) as the ceiling.\n\n[SOURCES: r3 | RBI & Inflation Targeting]\n[ACTION: NoteEditor | Open Monetary Policy Note | {"resourceId": "r3"}]\n[CHIPS: What is SDF rate? | How MPC controls inflation | Banking Sectional Test]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('history') || q.includes('1857') || q.includes('spectrum') || q.includes('modern')) {
     return {
       text: `${greeting} **Modern Indian History** spans the decline of the Mughal Empire, British expansion through the Subsidiary Alliance and Doctrine of Lapse, the Revolt of 1857, and the national freedom struggle.\n\n### Crucial Phases:\n1. **Revolt of 1857**: The watershed uprising ending East India Company rule and establishing direct British Crown administration under the Government of India Act 1858.\n2. **Moderate Phase (1885–1905)**: Constitutional agitation, petitions, and economic drain theory (Dadabhai Naoroji).\n3. **Extremist Phase (1905–1919)**: Swadeshi movement, boycott, and aggressive mass mobilization.\n4. **Gandhian Movements (1919–1947)**: Non-Cooperation (1920), Civil Disobedience (1930), and Quit India (1942).\n\nRead the full chapter-wise companion in our library book.\n\n[SOURCES: r5 | 1857 to Independence]\n[ACTION: BookReader | Read Modern History Book | {"resourceId": "r5"}]\n[CHIPS: Causes of 1857 Revolt | Moderates vs Extremists | Quit India Movement]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
@@ -454,28 +519,28 @@ function generateCatalogFallbackResponse(userQuery, examContext) {
     }
     return {
       text: `${greeting} Here is your targeted performance diagnostic:\n\n${perfDetails}\n\n### Actionable Next Steps:\n1. **Error Log Analysis**: Categorize wrong answers into Conceptual Gap vs Silly Error vs Time Pressure.\n2. **Focused Revision**: Review the specific notes in the app for your weakest areas.\n3. **Sectional Retest**: Take a short 10–15 min test before attempting the next full mock.\n\n[ACTION: Statistics | View Performance Analytics]\n[CHIPS: Review Mock Mistakes | Practice Weak Subject | Retake Mock Test]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('pomodoro') || q.includes('focus') || q.includes('ambient') || q.includes('sound')) {
     return {
       text: `${greeting} The **Focus Center** in Study Sakha combines scientific time-blocking with ambient acoustic therapy to maximize retention.\n\n### How to Use:\n1. **Select Interval**: 25 min Focus + 5 min Short Break, or 50 min Deep Work + 10 min Break.\n2. **Ambient Sound**: Choose Calming Rain, Forest Crickets, Small River, or Relaxing Night Sounds.\n3. **Log Hours**: Completed focus sessions automatically synchronize with your Daily Streak and Study Statistics.\n\n[ACTION: FocusCenter | Open Focus & Timer]\n[CHIPS: Start 25m Pomodoro | How ambient sounds help | Open Study Planner]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('planner') || q.includes('timetable') || q.includes('schedule') || q.includes('routine')) {
     return {
       text: `${greeting} Study Sakha's **Study Planner** helps you structure daily, weekly, and monthly goals.\n\n### How to Organize Your Day:\n1. **Set Daily Priority**: Add 3–5 high-priority tasks (e.g. 1 Concept Study + 1 PYQ Set + 1 Revision).\n2. **Categorize**: Tag tasks by Subject and Task Type (Study, Revision, PYQ, Mock Test).\n3. **Track Completion**: Check off tasks as you finish them to boost your productivity index.\n\n[ACTION: StudyPlanner | Open Study Planner]\n[CHIPS: How to add custom tasks | Daily vs Weekly planning | View Task Performance]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
   if (q.includes('library') || q.includes('book') || q.includes('notes') || q.includes('what is available')) {
     return {
       text: `${greeting} Study Sakha's Library houses curated, syllabus-aligned resources across 5 sub-sections:\n\n### Available Catalog:\n- **Books**:\n  * *Modern Indian History — Spectrum Companion* (ID: r5, 412 pages)\n  * *NCERT Distilled — Class 11 & 12 Biology* (ID: r6, 368 pages)\n  * *Reasoning Mastery — Puzzles & Seating* (ID: r7, 286 pages)\n  * *English Grammar & Comprehension Blueprint* (ID: r12, 240 pages)\n- **Curated Notes**:\n  * *Fundamental Rights (Articles 12–35)* (ID: r1, 18 pages)\n  * *Indian Monsoon Mechanism & Climatology* (ID: r2, 14 pages)\n  * *Monetary Policy & Inflation Targeting* (ID: r3, 12 pages)\n  * *Time, Speed & Distance 30 Patterns* (ID: r4, 9 pages)\n  * *Environment Conventions & Protocols* (ID: r8, 11 pages)\n  * *Rotational Motion Formula Sheet* (ID: r9, 8 pages)\n  * *Chemical Bonding VSEPR & MOT* (ID: r11, 10 pages)\n- **PYQs**:\n  * *UPSC Prelims GS Paper-I Decadal Solved Set* (ID: r10, 64 pages)\n\n[ACTION: Library | Explore Library]\n[CHIPS: Open Modern History Book | Open Fundamental Rights Note | Browse Mock Tests]`,
-      modelUsed: 'gemini-3.5-flash',
+      modelUsed: 'verified-catalog',
     };
   }
 
@@ -483,25 +548,17 @@ function generateCatalogFallbackResponse(userQuery, examContext) {
   const targetExam = exam ? exam.toUpperCase() : 'your competitive exam';
   return {
     text: `${greeting} I am Sakha, your syllabus-aware study partner for ${targetExam}.\n\nI can help you:\n- **Clarify Concepts**: In Indian Polity, Modern History, Climatology, Economy, and Science.\n- **Navigate Library Resources**: Open notes, textbooks, and decadal PYQ sets.\n- **Analyze Mock Tests**: Diagnose weak subjects and accuracy metrics.\n- **Plan Your Routine**: Schedule tasks in the Study Planner and use the Focus Center Pomodoro timer.\n\nWhat would you like to focus on today?`,
-    modelUsed: 'gemini-3.5-flash',
+    modelUsed: 'verified-catalog',
   };
 }
 
 async function callModelWithFallback(ai, contents, requestedModel, systemInstruction, userQuery, examContext) {
-  // gemini-3.1-flash-lite has active free-tier quota and fastest latency
-  const primaryModel =
-    requestedModel && requestedModel !== 'gemini-3.5-flash'
-      ? requestedModel
-      : 'gemini-3.1-flash-lite';
-
-  const modelsToTry = [
-    primaryModel,
-    'gemini-3.1-flash-lite',
-    'gemini-3.8-flash',
-    'gemini-3.5-flash',
-  ];
-
-  const uniqueModels = [...new Set(modelsToTry)];
+  const allowedModels = GEMINI_MODELS.map((item) => item.id);
+  const primaryModel = requestedModel || allowedModels[0];
+  if (!allowedModels.includes(primaryModel)) {
+    throw new Error('The selected Gemini model is not supported.');
+  }
+  const uniqueModels = [primaryModel, ...allowedModels.filter((model) => model !== primaryModel)];
   let lastError = null;
 
   for (const model of uniqueModels) {
@@ -520,6 +577,7 @@ async function callModelWithFallback(ai, contents, requestedModel, systemInstruc
         return {
           text: response.text,
           modelUsed: model,
+          fallbackUsed: model !== primaryModel,
         };
       }
     } catch (err) {
@@ -541,7 +599,11 @@ async function callModelWithFallback(ai, contents, requestedModel, systemInstruc
   // If upstream models experienced temporary high demand or quota limits, return verified catalog response
   if (userQuery) {
     console.log('[Sakha AI] Upstream models busy; returning high-fidelity verified catalog response.');
-    return generateCatalogFallbackResponse(userQuery, examContext);
+    return {
+      ...generateCatalogFallbackResponse(userQuery, examContext),
+      modelUsed: 'verified-catalog',
+      fallbackUsed: true,
+    };
   }
 
   throw lastError || new Error('Failed to generate response from Gemini API.');
@@ -578,36 +640,129 @@ function buildGeminiContents(history, message) {
   return contents;
 }
 
-async function handleChat(req, res) {
-  try {
-    const { message, history = [], model, examContext } = req.body || {};
+function boundedNumber(value, min, max) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value))
+    : undefined;
+}
 
-    if (!message || typeof message !== 'string' || !message.trim()) {
+function sanitizeExamContext(input, authenticatedUser) {
+  const context = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const metadata = authenticatedUser?.user_metadata || {};
+  const allowedExams = new Set(EXAMS_SUPPORTED.map((exam) => exam.id));
+  const metadataExam = typeof metadata.exam_id === 'string' && allowedExams.has(metadata.exam_id)
+    ? metadata.exam_id
+    : undefined;
+  const contextExam = typeof context.exam === 'string' && allowedExams.has(context.exam)
+    ? context.exam
+    : undefined;
+  const recent = context.recentResult && typeof context.recentResult === 'object'
+    ? context.recentResult
+    : null;
+  return {
+    name: typeof metadata.display_name === 'string' ? metadata.display_name.slice(0, 80) : undefined,
+    exam: metadataExam ?? contextExam,
+    streak: boundedNumber(context.streak, 0, 5000),
+    todayMinutes: boundedNumber(context.todayMinutes, 0, 1440),
+    goalMinutes: boundedNumber(context.goalMinutes, 1, 1440),
+    notesCount: boundedNumber(context.notesCount, 0, 100_000),
+    starredCount: boundedNumber(context.starredCount, 0, 100_000),
+    testsAttempted: boundedNumber(context.testsAttempted, 0, 100_000),
+    recentResult: recent && typeof recent.title === 'string'
+      ? {
+          title: recent.title.slice(0, 120),
+          accuracy: boundedNumber(recent.accuracy, 0, 100) ?? 0,
+          score: boundedNumber(recent.score, -100_000, 100_000) ?? 0,
+          maxScore: boundedNumber(recent.maxScore, 1, 100_000) ?? 1,
+          percentile: boundedNumber(recent.percentile, 0, 100),
+          comparisonStatus: recent.comparisonStatus === 'measured'
+            ? 'measured'
+            : recent.comparisonStatus === 'estimated'
+              ? 'estimated'
+              : 'unavailable',
+          weakestSubject: typeof recent.weakestSubject === 'string'
+            ? recent.weakestSubject.slice(0, 80)
+            : undefined,
+        }
+      : null,
+    activeReading: Array.isArray(context.activeReading)
+      ? context.activeReading.slice(0, 5).filter((item) =>
+          item &&
+          typeof item.resourceId === 'string' &&
+          typeof item.title === 'string' &&
+          typeof item.percent === 'number'
+        ).map((item) => ({
+          resourceId: item.resourceId.slice(0, 80),
+          title: item.title.slice(0, 120),
+          percent: Math.max(0, Math.min(100, item.percent)),
+        }))
+      : [],
+    todayTasks: Array.isArray(context.todayTasks)
+      ? context.todayTasks.slice(0, 5).filter((item) =>
+          item &&
+          typeof item.label === 'string' &&
+          typeof item.category === 'string' &&
+          typeof item.taskType === 'string' &&
+          typeof item.completed === 'boolean'
+        ).map((item) => ({
+          label: item.label.slice(0, 120),
+          category: item.category.slice(0, 80),
+          taskType: item.taskType.slice(0, 80),
+          completed: item.completed,
+        }))
+      : [],
+  };
+}
+
+async function handleChat(req, res) {
+  let message = '';
+  try {
+    const body = req.body || {};
+    const { history = [], model, examContext } = body;
+    if (!req.authenticatedUser?.id) {
+      return res.status(401).json({ error: 'Sign in to use Sakha AI.' });
+    }
+
+    if (typeof body.message !== 'string' || !body.message.trim() || body.message.length > 4000) {
       return res.status(400).json({
-        error: 'Message text is required.',
+        error: 'Message text must be between 1 and 4000 characters.',
       });
     }
+    if (!Array.isArray(history) || history.length > 12 || history.some((item) =>
+      !item ||
+      typeof item !== 'object' ||
+      !['user', 'sakha', 'assistant', 'model'].includes(item.role) ||
+      typeof item.text !== 'string' ||
+      item.text.length > 4000
+    )) {
+      return res.status(400).json({ error: 'Chat history contains invalid messages.' });
+    }
+    if (model !== undefined && !GEMINI_MODELS.some((item) => item.id === model)) {
+      return res.status(400).json({ error: 'The selected Gemini model is not supported.' });
+    }
+    message = body.message.trim();
+    const safeExamContext = sanitizeExamContext(examContext, req.authenticatedUser);
 
     const ai = getGeminiClient();
     if (!ai) {
-      return res.status(401).json({
-        error: 'Gemini API key is not configured. Please add your GEMINI_API_KEY in Google AI Studio (Settings > Secrets) to enable AI chat.',
+      return res.status(503).json({
+        error: 'Sakha AI is not configured on this server.',
         needsKey: true,
       });
     }
 
-    const systemInstruction = buildSystemInstruction(examContext);
+    const systemInstruction = buildSystemInstruction(safeExamContext);
     const contents = buildGeminiContents(history, message);
 
-    const rawResult = await callModelWithFallback(ai, contents, model, systemInstruction, message, examContext);
+    const rawResult = await callModelWithFallback(ai, contents, model, systemInstruction, message, safeExamContext);
 
     // Parse action, chips, and sources from response text
     const parsed = parseActionAndChips(rawResult.text);
-    const finalAction = parsed.action || inferFallbackAction(parsed.text, message);
+    const finalAction = sanitizeNavigationAction(parsed.action || inferFallbackAction(parsed.text, message));
     const parsedSources = parseSources(parsed.text, message, finalAction);
 
     // If no chips were emitted by the model, check heuristic fallback
-    const finalChips = parsed.chips.length > 0 ? parsed.chips : inferFallbackChips(parsedSources.text, examContext?.exam);
+    const finalChips = parsed.chips.length > 0 ? parsed.chips : inferFallbackChips(parsedSources.text, safeExamContext.exam);
 
     return res.json({
       text: parsedSources.text,
@@ -615,17 +770,17 @@ async function handleChat(req, res) {
       sources: parsedSources.sources,
       chips: finalChips,
       modelUsed: rawResult.modelUsed,
+      fallbackUsed: Boolean(rawResult.fallbackUsed),
       timestamp: Date.now(),
     });
   } catch (error) {
-    console.error('[Sakha AI Chat Error]', error);
-
     const errorMessage = error?.message || 'An error occurred while communicating with Gemini.';
     const status = error?.status || error?.code;
+    console.error('[Sakha AI] Request failed with status:', status || 'unknown');
 
     if (status === 403 || status === 401 || errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('PERMISSION_DENIED')) {
       return res.status(403).json({
-        error: 'Invalid or unauthorized Gemini API key. Please check your API key in Google AI Studio Settings > Secrets.',
+        error: 'The AI provider rejected this server request. Please contact support.',
         needsKey: true,
       });
     }
@@ -633,15 +788,17 @@ async function handleChat(req, res) {
     if (status === 429 || errorMessage.includes('RESOURCE_EXHAUSTED')) {
       if (message) {
         console.log('[Sakha AI] Rate limit encountered, serving verified catalog response.');
-        const fallback = generateCatalogFallbackResponse(message, examContext);
-        const parsedAction = inferFallbackAction(fallback.text, message);
+        const safeExamContext = sanitizeExamContext(req.body?.examContext, req.authenticatedUser);
+        const fallback = generateCatalogFallbackResponse(message, safeExamContext);
+        const parsedAction = sanitizeNavigationAction(inferFallbackAction(fallback.text, message));
         const parsedSources = parseSources(fallback.text, message, parsedAction);
         return res.json({
           text: parsedSources.text,
           action: parsedAction,
           sources: parsedSources.sources,
-          chips: inferFallbackChips(parsedSources.text, examContext?.exam),
-          modelUsed: 'gemini-3.1-flash-lite',
+          chips: inferFallbackChips(parsedSources.text, safeExamContext.exam),
+          modelUsed: 'verified-catalog',
+          fallbackUsed: true,
           timestamp: Date.now(),
         });
       }
@@ -652,7 +809,7 @@ async function handleChat(req, res) {
     }
 
     return res.status(500).json({
-      error: `Gemini service error: ${errorMessage.slice(0, 200)}. Tap retry to try again.`,
+      error: 'Sakha AI is temporarily unavailable. Tap retry to try again.',
     });
   }
 }
@@ -665,4 +822,5 @@ module.exports = {
   inferFallbackAction,
   inferFallbackChips,
   generateCatalogFallbackResponse,
+  sanitizeExamContext,
 };

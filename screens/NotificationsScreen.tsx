@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import type { AppNavigation } from '../lib/navigation';
 import React, { useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
@@ -25,7 +26,7 @@ const ago = (ts: number) => {
 
 export default function NotificationsScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
+  const nav = useNavigation<AppNavigation>();
   const { state, unread, dispatch } = useStore();
   const { isMobile } = useLayout();
   const [filter, setFilter] = useState('all');

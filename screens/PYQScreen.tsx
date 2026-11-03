@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
@@ -8,16 +9,17 @@ import { EXAMS, PYQS, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { PYQ } from '../lib/types';
+import type { ExamId } from '../lib/types';
 
 const DIFFICULTY = ['Easy', 'Moderate', 'Hard'] as const;
 
 export default function PYQScreen() {
   const { colors } = useTheme();
-  const nav = useNavigation<any>();
-  const route = useRoute<any>();
+  const nav = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'PYQ'>>();
   const { state, dispatch } = useStore();
   const { isMobile } = useLayout();
-  const [exam, setExam] = useState<string>(route.params?.exam ?? 'all');
+  const [exam, setExam] = useState<ExamId | 'all'>(route.params?.exam ?? 'all');
   const [subject, setSubject] = useState<string>(route.params?.subject ?? 'all');
   const [year, setYear] = useState<number | 'all'>('all');
   const [difficulty, setDifficulty] = useState<string>('all');

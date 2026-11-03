@@ -12,6 +12,14 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
 import { getDisplayName, StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
+import type {
+  AppDrawerContentProps,
+  AppLinkingOptions,
+  AppStackNavigationTarget,
+  AppStackParamList,
+  DrawerParamList,
+  RootStackParamList,
+} from './lib/navigation';
 import {
   LibraryBooksScreen,
   LibraryDownloadsScreen,
@@ -47,12 +55,23 @@ import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
 
-const Stack = createNativeStackNavigator();
-const AppStack = createNativeStackNavigator();
-const Drawer = createDrawerNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+const AppStack = createNativeStackNavigator<AppStackParamList>();
+const Drawer = createDrawerNavigator<DrawerParamList>();
 const MASCOT_SPLASH = require('./assets/mascot/study-sakha-mascot.png');
 
-const linking = {
+const DRAWER_ITEMS = [
+  { label: 'Offline downloads', icon: 'cloud-download-outline', target: { screen: 'LibraryDownloads' } },
+  { label: 'How to use the app', icon: 'help-circle-outline', target: { screen: 'AppGuide' } },
+  { label: 'Settings', icon: 'settings-outline', target: { screen: 'Settings' } },
+  { label: 'Student Testimonials', icon: 'chatbubbles-outline', target: { screen: 'StudentTestimonials' } },
+] as const satisfies readonly {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  target: AppStackNavigationTarget;
+}[];
+
+const linking: AppLinkingOptions = {
   prefixes: [],
   config: {
     screens: {
@@ -146,12 +165,15 @@ function BrandIntro({ onFinished }: { onFinished: () => void }) {
 // ----------------------------------------------------
 // 1. CUSTOM LEFT DRAWER COMPONENT
 // ----------------------------------------------------
-function CustomDrawerContent(props: any) {
+function CustomDrawerContent(props: AppDrawerContentProps) {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
   const first = getDisplayName(state.user).split(/\s+/)[0];
   const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
   const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
+  const navigateToMainStack = (target: AppStackNavigationTarget) => {
+    props.navigation.navigate('MainStack', target);
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -164,7 +186,7 @@ function CustomDrawerContent(props: any) {
           <Pressable
             onPress={() => {
               props.navigation.closeDrawer();
-              props.navigation.navigate('MainStack', { screen: 'Profile' });
+              navigateToMainStack({ screen: 'Profile' });
             }}
             accessibilityRole="button"
             accessibilityLabel="View profile"
@@ -182,22 +204,17 @@ function CustomDrawerContent(props: any) {
 
         {/* 4 Menu Options */}
         <View style={{ padding: 16, gap: 6 }}>
-          {[
-            { label: 'Offline downloads', icon: 'cloud-download-outline', route: 'LibraryDownloads' },
-            { label: 'How to use the app', icon: 'help-circle-outline', route: 'AppGuide' },
-            { label: 'Settings', icon: 'settings-outline', route: 'Settings' },
-            { label: 'Student Testimonials', icon: 'chatbubbles-outline', route: 'StudentTestimonials' },
-          ].map((item) => (
+          {DRAWER_ITEMS.map((item) => (
             <Pressable
               key={item.label}
               onPress={() => {
                 props.navigation.closeDrawer();
-                props.navigation.navigate('MainStack', { screen: item.route });
+                navigateToMainStack(item.target);
               }}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.route ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.target.screen ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
             >
-              <Ionicons name={item.icon as any} size={22} color={currentRoute === item.route ? colors.brandPrimary : colors.text} />
-              <Text style={{ fontSize: 15, fontWeight: currentRoute === item.route ? '800' : '600', color: currentRoute === item.route ? colors.brandPrimary : colors.text, marginLeft: 15 }}>{item.label}</Text>
+              <Ionicons name={item.icon} size={22} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} />
+              <Text style={{ fontSize: 15, fontWeight: currentRoute === item.target.screen ? '800' : '600', color: currentRoute === item.target.screen ? colors.brandPrimary : colors.text, marginLeft: 15 }}>{item.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -311,7 +328,7 @@ function Navigation() {
   if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
   return (
-    <NavigationContainer theme={navTheme} linking={linking as any} fallback={<Splash />}>
+    <NavigationContainer theme={navTheme} linking={linking} fallback={<Splash />}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
         screenOptions={{
