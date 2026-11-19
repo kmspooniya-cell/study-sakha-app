@@ -162,6 +162,8 @@ export default function DashboardScreen() {
                 <View style={{ marginBottom: 14 }}>
                   <Pressable
                     onPress={() => nav.navigate('StudyPlanner')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open study schedule"
                     style={({ pressed }) => ({
                       flexDirection: 'row',
                       alignItems: 'center',

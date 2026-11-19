@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
-import type { AppNavigation } from '../lib/navigation';
-import React, { useEffect, useState } from 'react';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   BackHandler,
   Modal,
@@ -23,12 +23,14 @@ import { MeditationSceneRenderer } from '../components/MeditationSceneRenderer';
 import { FocusActivity, FocusActivityTimer } from '../components/DashboardStudyTools';
 import { Shell } from '../components/Shell';
 import { Button, Card, Chip, SectionHeader, Txt } from '../components/ui';
-import { useStore } from '../lib/store';
+import { appendFocusHistory } from '../lib/focusHistory';
+import { dayKey, getUserScopedStorageKey, PlannerTask, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { AudioDownloadManager, AudioDownloadState } from '../lib/audioDownloadManager';
 
 const MEDITATION_HISTORY_KEY = 'study-sakha-meditation-history-v1';
 const MEDITATION_PREFS_KEY = 'study-sakha-meditation-prefs-v2';
+const STUDY_HISTORY_KEY = 'study-sakha-focus-history-v1';
 
 const ACTIVITIES: {
   id: FocusActivity | 'hobbies';
@@ -48,7 +50,8 @@ const MEDITATION_DURATIONS = [5, 10, 15, 20, 30];
 export default function FocusCenterScreen() {
   const { colors, scheme } = useTheme();
   const navigation = useNavigation<AppNavigation>();
-  const { dispatch } = useStore();
+  const route = useRoute<AppRoute<'FocusCenter'>>();
+  const { state: storeState, dispatch } = useStore();
   const isDark = scheme === 'dark';
 
   const [activity, setActivity] = useState<FocusActivity | null>(null);
@@ -57,12 +60,24 @@ export default function FocusCenterScreen() {
   const [showStudySetupModal, setShowStudySetupModal] = useState(false);
   const [timerMode, setTimerMode] = useState<'timer' | 'stopwatch' | 'pomodoro'>('timer');
   const [selectedTag, setSelectedTag] = useState('History');
+  const [selectedTask, setSelectedTask] = useState<PlannerTask | null>(null);
+  const [studySelection, setStudySelection] = useState<'schedule' | 'manual' | null>(null);
   const [tagModalVisible, setTagModalVisible] = useState(false);
+  const [scheduleTaskModalVisible, setScheduleTaskModalVisible] = useState(false);
   const [customTagInput, setCustomTagInput] = useState('');
   const [studyDurationMinutes, setStudyDurationMinutes] = useState(25);
   const [isStudySessionActive, setIsStudySessionActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
+  const studySessionStartedAt = React.useRef<string | null>(null);
+  const studySessionSaved = React.useRef(false);
+
+  useEffect(() => {
+    if (route.params?.openStudySetup) {
+      setShowStudySetupModal(true);
+      navigation.setParams({ openStudySetup: undefined });
+    }
+  }, [navigation, route.params?.openStudySetup]);
 
   // 3-Line Menu Modal States (Music, Themes, Blocked Apps)
   const [menuModalVisible, setMenuModalVisible] = useState(false);
@@ -119,10 +134,66 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
 
   const handleStartStudySession = () => {
     setSecondsRemaining(timerMode === 'stopwatch' ? 0 : studyDurationMinutes * 60);
+    studySessionStartedAt.current = new Date().toISOString();
+    studySessionSaved.current = false;
     setShowStudySetupModal(false);
     setIsStudySessionActive(true);
     setIsPaused(false);
   };
+
+  const saveStudySession = useCallback((actualSeconds: number) => {
+    const recordedSeconds = Math.max(0, Math.round(actualSeconds));
+    const startedAt = studySessionStartedAt.current;
+    if (studySessionSaved.current || !startedAt || recordedSeconds <= 0) return;
+
+    studySessionSaved.current = true;
+    studySessionStartedAt.current = null;
+    const endedAt = new Date().toISOString();
+    const task = studySelection === 'schedule' ? selectedTask : null;
+    const id = `focus-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    const session = {
+      id,
+      ...(task ? { subject: task.category, topic: task.label, taskId: task.id } : {}),
+      ...(!task && studySelection === 'manual' ? { subject: selectedTag.trim() || 'General Study' } : {}),
+      minutes: recordedSeconds / 60,
+      completedAt: endedAt,
+      startedAt,
+      endedAt,
+      actualSeconds: recordedSeconds,
+      plannedMinutes: timerMode === 'stopwatch' ? undefined : studyDurationMinutes,
+    };
+
+    dispatch({
+      type: 'recordFocusStudy',
+      id,
+      date: dayKey(new Date(endedAt)),
+      taskId: task?.id ?? null,
+      seconds: recordedSeconds,
+      taskTitle: task?.label,
+      category: task?.category,
+      plannedMinutes: task ? studyDurationMinutes : undefined,
+    });
+    void appendFocusHistory(
+      getUserScopedStorageKey(STUDY_HISTORY_KEY, storeState.user?.id),
+      session
+    ).catch((error: unknown) => {
+      console.error('Focus session history could not be saved:', error);
+    });
+  }, [dispatch, selectedTag, selectedTask, storeState.user?.id, studyDurationMinutes, studySelection, timerMode]);
+
+  const handleStopStudySession = useCallback(() => {
+    const actualSeconds = timerMode === 'stopwatch'
+      ? secondsRemaining
+      : studyDurationMinutes * 60 - secondsRemaining;
+    saveStudySession(actualSeconds);
+    setIsStudySessionActive(false);
+  }, [saveStudySession, secondsRemaining, studyDurationMinutes, timerMode]);
+
+  useEffect(() => {
+    if (!isStudySessionActive && timerMode !== 'stopwatch' && secondsRemaining === 0) {
+      saveStudySession(studyDurationMinutes * 60);
+    }
+  }, [isStudySessionActive, secondsRemaining, saveStudySession, studyDurationMinutes, timerMode]);
 
   const formatTime = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);
@@ -178,15 +249,21 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       setActivity(null);
       setShowMeditationConfig(false);
       setShowStudySetupModal(false);
+      if (studySessionStartedAt.current) handleStopStudySession();
       setIsStudySessionActive(false);
       setFullScreenMeditationActive(false);
       setTagModalVisible(false);
+      setScheduleTaskModalVisible(false);
       setMenuModalVisible(false);
     });
-  }, [navigation]);
+  }, [handleStopStudySession, navigation]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (scheduleTaskModalVisible) {
+        setScheduleTaskModalVisible(false);
+        return true;
+      }
       if (tagModalVisible) {
         setTagModalVisible(false);
         return true;
@@ -196,7 +273,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
         return true;
       }
       if (isStudySessionActive) {
-        setIsStudySessionActive(false);
+        handleStopStudySession();
         return true;
       }
       if (showStudySetupModal) {
@@ -219,7 +296,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       return false;
     });
     return () => subscription.remove();
-  }, [activity, fullScreenMeditationActive, showMeditationConfig, isStudySessionActive, showStudySetupModal, tagModalVisible, menuModalVisible]);
+  }, [activity, fullScreenMeditationActive, showMeditationConfig, isStudySessionActive, showStudySetupModal, tagModalVisible, scheduleTaskModalVisible, menuModalVisible, handleStopStudySession]);
 
   const handleCardPress = (id: FocusActivity | 'hobbies') => {
     if (id === 'study') {
@@ -282,6 +359,63 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
   const greenAccent = '#4ADE80';
   const surfaceBg = isDark ? '#18191C' : colors.surface;
   const surfaceAltBg = isDark ? '#202225' : colors.surfaceAlt;
+  const renderManualTagPicker = () => (
+    <Modal
+      visible={tagModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setTagModalVisible(false)}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <Txt color={colors.text} size={18} weight="800">Select Subject Tag</Txt>
+            <Pressable onPress={() => setTagModalVisible(false)}>
+              <Ionicons name="close" size={20} color={colors.textMuted} />
+            </Pressable>
+          </View>
+
+          {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
+            <Pressable
+              key={tag}
+              onPress={() => {
+                setSelectedTag(tag);
+                setStudySelection('manual');
+                setTagModalVisible(false);
+              }}
+              style={[styles.modalTagItem, { backgroundColor: surfaceAltBg }]}
+            >
+              <Txt color={colors.text} size={14} weight="700">{tag}</Txt>
+              {selectedTag === tag && <Ionicons name="checkmark" size={18} color={colors.blue} />}
+            </Pressable>
+          ))}
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <TextInput
+              style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text }]}
+              placeholder="Add custom tag..."
+              placeholderTextColor={colors.textMuted}
+              value={customTagInput}
+              onChangeText={setCustomTagInput}
+            />
+            <Pressable
+              onPress={() => {
+                if (customTagInput.trim()) {
+                  setSelectedTag(customTagInput.trim());
+                  setStudySelection('manual');
+                  setCustomTagInput('');
+                  setTagModalVisible(false);
+                }
+              }}
+              style={[styles.addTagBtn, { backgroundColor: colors.blue }]}
+            >
+              <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   // ==================== 1. ACTIVE FULL-SCREEN FOCUS VIEW (TRUE FULLSCREEN) ====================
   if (isStudySessionActive) {
@@ -310,7 +444,11 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
               style={styles.circleTopTagRow}
             >
               <Txt color="#94A3B8" size={12} weight="600">
-                {selectedTag}
+                {studySelection === 'schedule' && selectedTask
+                  ? `${selectedTask.label} · ${selectedTask.category}`
+                  : studySelection === 'manual'
+                    ? selectedTag
+                    : 'No subject selected'}
               </Txt>
               <Ionicons name="chevron-down" size={12} color="#94A3B8" />
             </Pressable>
@@ -344,7 +482,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
           </Pressable>
 
           <Pressable
-            onPress={() => setIsStudySessionActive(false)}
+            onPress={handleStopStudySession}
             style={styles.stopFocusBtn}
           >
             <Txt color="#0F172A" size={14.5} weight="800">
@@ -364,54 +502,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
 
         {/* ================= MODALS INSIDE FULLSCREEN VIEW ================= */}
         {/* Tag Selection Modal */}
-        <Modal animationType="fade" transparent visible={tagModalVisible} onRequestClose={() => setTagModalVisible(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <Txt color={colors.text} size={18} weight="800">Select Subject Tag</Txt>
-                <Pressable onPress={() => setTagModalVisible(false)}>
-                  <Ionicons name="close" size={20} color={colors.textMuted} />
-                </Pressable>
-              </View>
-
-              {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
-                <Pressable
-                  key={tag}
-                  onPress={() => {
-                    setSelectedTag(tag);
-                    setTagModalVisible(false);
-                  }}
-                  style={[styles.modalTagItem, { backgroundColor: surfaceAltBg }]}
-                >
-                  <Txt color={colors.text} size={14} weight="700">{tag}</Txt>
-                  {selectedTag === tag && <Ionicons name="checkmark" size={18} color={colors.blue} />}
-                </Pressable>
-              ))}
-
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                <TextInput
-                  style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text }]}
-                  placeholder="Add custom tag..."
-                  placeholderTextColor={colors.textMuted}
-                  value={customTagInput}
-                  onChangeText={setCustomTagInput}
-                />
-                <Pressable
-                  onPress={() => {
-                    if (customTagInput.trim()) {
-                      setSelectedTag(customTagInput.trim());
-                      setCustomTagInput('');
-                      setTagModalVisible(false);
-                    }
-                  }}
-                  style={[styles.addTagBtn, { backgroundColor: colors.blue }]}
-                >
-                  <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {renderManualTagPicker()}
 
         {/* 3-Line Menu Modal */}
         <Modal animationType="fade" transparent visible={menuModalVisible} onRequestClose={() => setMenuModalVisible(false)}>
@@ -621,16 +712,67 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
               ))}
             </View>
 
-            {/* Subject Tag Selector */}
-            <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>SUBJECT TAG</Txt>
-            <Pressable
-              onPress={() => setTagModalVisible(true)}
-              style={[styles.tagSelectTrigger, { backgroundColor: surfaceAltBg, borderColor: colors.border, marginBottom: 16 }]}
-            >
-              <Txt color={colors.text} size={14} weight="700">{selectedTag}</Txt>
-              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-            </Pressable>
-
+            <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>SUBJECT OR TASK (OPTIONAL)</Txt>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: studySelection === 'schedule' }}
+                onPress={() => {
+                  setStudySelection('schedule');
+                  setScheduleTaskModalVisible(true);
+                }}
+                style={[
+                  styles.studySourceButton,
+                  {
+                    backgroundColor: studySelection === 'schedule' ? colors.blue + '18' : surfaceAltBg,
+                    borderColor: studySelection === 'schedule' ? colors.blue : colors.border,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={17}
+                  color={studySelection === 'schedule' ? colors.blue : colors.textMuted}
+                />
+                <Txt
+                  color={studySelection === 'schedule' ? colors.blue : colors.text}
+                  size={12}
+                  weight="700"
+                  numberOfLines={1}
+                >
+                  Add from Schedule
+                </Txt>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: studySelection === 'manual' }}
+                onPress={() => {
+                  setStudySelection('manual');
+                  setTagModalVisible(true);
+                }}
+                style={[
+                  styles.studySourceButton,
+                  {
+                    backgroundColor: studySelection === 'manual' ? colors.blue + '18' : surfaceAltBg,
+                    borderColor: studySelection === 'manual' ? colors.blue : colors.border,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="pricetag-outline"
+                  size={17}
+                  color={studySelection === 'manual' ? colors.blue : colors.textMuted}
+                />
+                <Txt
+                  color={studySelection === 'manual' ? colors.blue : colors.text}
+                  size={12}
+                  weight="700"
+                  numberOfLines={1}
+                >
+                  Tag Manually
+                </Txt>
+              </Pressable>
+            </View>
             {/* Duration Pills */}
             {timerMode !== 'stopwatch' && (
               <>
@@ -668,6 +810,64 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={scheduleTaskModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScheduleTaskModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <Txt color={colors.text} size={18} weight="800">Select a Scheduled Task</Txt>
+              <Pressable onPress={() => setScheduleTaskModalVisible(false)} accessibilityRole="button" accessibilityLabel="Close scheduled task list">
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </Pressable>
+            </View>
+            {!storeState.plannerTasksLoaded ? (
+              <Txt color={colors.textMuted} size={13}>Loading scheduled tasks...</Txt>
+            ) : storeState.plannerTaskLoadError ? (
+              <Txt color={colors.danger} size={13}>{storeState.plannerTaskLoadError}</Txt>
+            ) : storeState.plannerTasks.length === 0 ? (
+              <Txt color={colors.textMuted} size={13}>No scheduled tasks are available. You can continue without selecting one.</Txt>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                {storeState.plannerTasks.map((task) => (
+                  <Pressable
+                    key={task.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selectedTask?.id === task.id }}
+                    onPress={() => {
+                      setSelectedTask(task);
+                      setStudySelection('schedule');
+                      setScheduleTaskModalVisible(false);
+                    }}
+                    style={[
+                      styles.modalTagItem,
+                      {
+                        backgroundColor: surfaceAltBg,
+                        borderWidth: selectedTask?.id === task.id ? 1 : 0,
+                        borderColor: colors.blue,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Txt color={colors.text} size={14} weight="700">{task.label}</Txt>
+                      <Txt color={colors.textMuted} size={12} style={{ marginTop: 3 }}>
+                        {task.category} · {task.targetDate}
+                      </Txt>
+                    </View>
+                    {selectedTask?.id === task.id && <Ionicons name="checkmark-circle" size={19} color={colors.blue} />}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {renderManualTagPicker()}
 
       {/* Pre-Session Setup Modal for Meditation Gallery */}
       <Modal
@@ -1044,14 +1244,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 10,
   },
-  tagSelectTrigger: {
+  studySourceButton: {
+    flex: 1,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    height: 46,
+    justifyContent: 'center',
+    gap: 6,
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 8,
   },
   durationPill: {
     flex: 1,

@@ -30,7 +30,7 @@ export type AppStackParamList = {
   Statistics: OptionalScreenParams;
   TaskPerformance: (HeaderParams & { startDate?: string; endDate?: string }) | undefined;
   StudyPlanner: OptionalScreenParams;
-  FocusCenter: OptionalScreenParams;
+  FocusCenter: (HeaderParams & { openStudySetup?: boolean }) | undefined;
   FocusLock: OptionalScreenParams;
   Hobbies: OptionalScreenParams;
   Profile: OptionalScreenParams;

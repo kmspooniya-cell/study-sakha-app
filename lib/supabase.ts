@@ -2,8 +2,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
-const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+const supabaseUrlValue = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabasePublishableKeyValue = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const supabaseUrl = supabaseUrlValue?.trim();
+const supabasePublishableKey = supabasePublishableKeyValue?.trim();
 
 export const supabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 

@@ -1,1637 +1,2617 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  Crown, 
-  ChevronDown, 
-  Clock, 
-  Calendar as CalendarIcon, 
-  Plus, 
-  Minus, 
-  ArrowRight, 
-  Image as ImageIcon, 
-  CheckCircle2, 
-  BookOpen, 
-  GraduationCap, 
-  Palmtree, 
-  Sparkles, 
-  MapPin, 
-  Trash2, 
-  X, 
-  LayoutList,
-  PlusCircle,
-  AlertCircle,
-  User
-} from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { Shell } from '../components/Shell';
+import { useTheme } from '../lib/theme';
 
-// Predefined subjects and task types
+export type PlannerCategory = 'Tasks' | 'Classes' | 'Exams' | 'Vacations' | 'Activities';
+type Occurrence = 'Once' | 'Repeating';
+type DateRange = 'None' | 'Term' | 'Manual';
+type LocationType = 'In Person' | 'Online';
+type VacationPreset = '1 day' | '1 week' | '2 weeks' | 'Custom';
+
+export interface PlannerItem {
+  id: string;
+  category: PlannerCategory;
+  title: string;
+  subject?: string;
+  type?: string;
+  teacher?: string;
+  date?: string;
+  time?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  duration?: number;
+  occurs?: Occurrence;
+  days?: string[];
+  dateRange?: DateRange;
+  whereType?: LocationType;
+  room?: string;
+  building?: string;
+  seat?: string;
+  notes?: string;
+  daysCount?: number;
+  hasCoverPhoto?: boolean;
+  completed?: boolean;
+}
+
+interface TaskForm {
+  title: string;
+  subject: string;
+  type: string;
+  date: string;
+  time: string;
+  startTime: string;
+  endTime: string;
+  timeMode: 'single' | 'range';
+  occurs: Occurrence;
+  notes: string;
+}
+
+interface ClassForm {
+  name: string;
+  subject: string;
+  teacher: string;
+  occurs: Occurrence;
+  date: string;
+  days: string[];
+  startTime: string;
+  endTime: string;
+  dateRange: DateRange;
+  whereType: LocationType;
+  room: string;
+  building: string;
+  notes: string;
+}
+
+interface ExamForm {
+  name: string;
+  subject: string;
+  type: string;
+  date: string;
+  time: string;
+  duration: number;
+  whereType: LocationType;
+  room: string;
+  seat: string;
+  notes: string;
+}
+
+interface VacationForm {
+  name: string;
+  preset: VacationPreset;
+  startDate: string;
+  endDate: string;
+  notes: string;
+  hasCoverPhoto: boolean;
+}
+
+interface ActivityForm {
+  name: string;
+  category: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+}
+
+interface PickerModalState {
+  visible: boolean;
+  title: string;
+  options: string[];
+  selected: string;
+  onSelect: (value: string) => void;
+}
+
+interface DateModalState {
+  visible: boolean;
+  title: string;
+  value: string;
+  error: string;
+  onSave: (value: string) => void;
+}
+
+interface TimeModalState {
+  visible: boolean;
+  title: string;
+  mode: 'single' | 'range';
+  allowRange: boolean;
+  startHour: string;
+  startMinute: string;
+  startPeriod: 'AM' | 'PM';
+  endHour: string;
+  endMinute: string;
+  endPeriod: 'AM' | 'PM';
+  error: string;
+  onSave: (value: string) => void;
+  onSaveRange?: (startTime: string, endTime: string) => void;
+}
+
+interface Palette {
+  background: string;
+  card: string;
+  field: string;
+  text: string;
+  muted: string;
+  placeholder: string;
+  border: string;
+  blue: string;
+  softBlue: string;
+  softBlueBorder: string;
+  dark: boolean;
+}
+
 const SUBJECTS = [
-  'Mathematics', 
-  'Physics', 
-  'Chemistry', 
-  'Biology', 
-  'Computer Science', 
-  'English Literature', 
-  'History & Civics', 
-  'Geography', 
-  'Economics'
+  'Mathematics',
+  'Physics',
+  'Chemistry',
+  'Biology',
+  'CS',
+  'English',
+  'Computer Science',
+  'English Literature',
+  'History & Civics',
+  'Geography',
+  'Economics',
 ];
-
 const TASK_TYPES = ['Assignment', 'Homework', 'Revision', 'Project', 'Reading', 'Lab Work'];
 const EXAM_TYPES = ['Exam', 'Quiz', 'Midterm', 'Final', 'Unit Test', 'Practical'];
+const ACTIVITY_TYPES = [
+  'Sports & Fitness',
+  'Music & Arts',
+  'Coding Club',
+  'Volunteering',
+  'Personal Hobby',
+];
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const TABS: { id: PlannerCategory; label: string; pro?: boolean }[] = [
+  { id: 'Tasks', label: 'Tasks' },
+  { id: 'Classes', label: 'Classes' },
+  { id: 'Exams', label: 'Exams' },
+  { id: 'Vacations', label: 'Vacations' },
+  { id: 'Activities', label: 'Activities', pro: true },
+];
 
-export default function StudySakhaPlanner() {
-  // Main navigation state: 'create' (Form Screen) or 'dashboard' (Schedule List)
-  const [currentScreen, setCurrentScreen] = useState('create');
-  const [activeTab, setActiveTab] = useState('Tasks');
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
+function addDays(value: string, days: number): string {
+  const date = parseLocalDate(value) ?? new Date();
+  date.setDate(date.getDate() + days);
+  return formatLocalDate(date);
+}
+
+function formatDate(value: string): string {
+  const date = parseLocalDate(value);
+  if (!date) return 'Select date';
+  return date.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function formatTime(value: string): string {
+  const [hourText, minuteText = '00'] = value.split(':');
+  const hour = Number(hourText);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return 'Add time';
+  const period = hour >= 12 ? 'PM' : 'AM';
+  return `${hour % 12 || 12}:${minuteText} ${period}`;
+}
+
+function timeToMinutes(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function to24HourTime(hourText: string, minuteText: string, period: 'AM' | 'PM'): string | null {
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (
+    !Number.isInteger(hour) ||
+    hour < 1 ||
+    hour > 12 ||
+    !Number.isInteger(minute) ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+  const hour24 = (hour % 12) + (period === 'PM' ? 12 : 0);
+  return `${String(hour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function getTimeParts(value: string) {
+  const [hourText = '09', minuteText = '00'] = value.split(':');
+  const hour24 = Number(hourText);
+  return {
+    hour: String(hour24 % 12 || 12).padStart(2, '0'),
+    minute: minuteText,
+    period: hour24 >= 12 ? 'PM' as const : 'AM' as const,
+  };
+}
+
+function formatTimeRange(startTime: string, endTime: string): string {
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+}
+
+function getQuickDates() {
+  const today = formatLocalDate(new Date());
+  const daysUntilMonday = ((8 - new Date().getDay()) % 7) || 7;
+  return [
+    { label: 'Today', value: today },
+    { label: 'Tomorrow', value: addDays(today, 1) },
+    { label: 'Next Mon', value: addDays(today, daysUntilMonday) },
+    { label: 'Next Week', value: addDays(today, 7) },
+  ];
+}
+
+function FieldLabel({ children, palette }: { children: React.ReactNode; palette: Palette }) {
+  return <Text style={[styles.fieldLabel, { color: palette.muted }]}>{children}</Text>;
+}
+
+function SoftInput({
+  value,
+  onChangeText,
+  placeholder,
+  palette,
+  multiline = false,
+  accessibilityLabel,
+  keyboardType,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  palette: Palette;
+  multiline?: boolean;
+  accessibilityLabel?: string;
+  keyboardType?: 'default' | 'number-pad';
+}) {
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={palette.placeholder}
+      accessibilityLabel={accessibilityLabel}
+      keyboardType={keyboardType}
+      multiline={multiline}
+      textAlignVertical={multiline ? 'top' : 'center'}
+      style={[
+        multiline ? styles.textArea : styles.textInput,
+        { backgroundColor: palette.field, color: palette.text },
+      ]}
+    />
+  );
+}
+
+function PlannerSelect({
+  value,
+  placeholder = 'Select',
+  palette,
+  onPress,
+}: {
+  value: string;
+  placeholder?: string;
+  palette: Palette;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.select, { backgroundColor: palette.field }]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[styles.inputText, { color: value ? palette.text : palette.placeholder }]}
+      >
+        {value || placeholder}
+      </Text>
+      <Ionicons name="chevron-down" size={18} color={palette.muted} />
+    </Pressable>
+  );
+}
+
+function DateButton({
+  value,
+  palette,
+  onPress,
+  soft = false,
+}: {
+  value: string;
+  palette: Palette;
+  onPress: () => void;
+  soft?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[
+        styles.dateButton,
+        {
+          backgroundColor: soft ? palette.softBlue : palette.field,
+          borderColor: soft ? palette.softBlueBorder : 'transparent',
+        },
+      ]}
+    >
+      <Text style={[styles.inputText, { color: soft ? palette.blue : palette.text }]}>
+        {formatDate(value)}
+      </Text>
+    </Pressable>
+  );
+}
+
+function TimeButton({
+  value,
+  displayValue,
+  palette,
+  onPress,
+  icon = false,
+}: {
+  value: string;
+  displayValue?: string;
+  palette: Palette;
+  onPress: () => void;
+  icon?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.dateButton, styles.timeButton, { backgroundColor: palette.field }]}
+    >
+      {icon ? <Ionicons name="time-outline" size={17} color={palette.muted} /> : null}
+      <Text style={[styles.inputText, { color: palette.text }]}>
+        {displayValue || (value ? formatTime(value) : 'Add time')}
+      </Text>
+    </Pressable>
+  );
+}
+
+function TimeEntryGroup({
+  label,
+  hour,
+  minute,
+  period,
+  palette,
+  onHourChange,
+  onMinuteChange,
+  onPeriodChange,
+}: {
+  label: string;
+  hour: string;
+  minute: string;
+  period: 'AM' | 'PM';
+  palette: Palette;
+  onHourChange: (value: string) => void;
+  onMinuteChange: (value: string) => void;
+  onPeriodChange: (value: 'AM' | 'PM') => void;
+}) {
+  return (
+    <View style={styles.timeEntryGroup}>
+      <FieldLabel palette={palette}>{label}</FieldLabel>
+      <View style={styles.timeEntryRow}>
+        <View style={styles.timeEntry}>
+          <SoftInput
+            value={hour}
+            onChangeText={(value) => onHourChange(value.replace(/\D/g, '').slice(0, 2))}
+            palette={palette}
+            keyboardType="number-pad"
+            accessibilityLabel={`${label} hour`}
+          />
+        </View>
+        <View style={styles.timeEntry}>
+          <SoftInput
+            value={minute}
+            onChangeText={(value) => onMinuteChange(value.replace(/\D/g, '').slice(0, 2))}
+            palette={palette}
+            keyboardType="number-pad"
+            accessibilityLabel={`${label} minute`}
+          />
+        </View>
+        <View style={styles.periodPicker}>
+          {(['AM', 'PM'] as const).map((value) => (
+            <Pressable
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: period === value }}
+              onPress={() => onPeriodChange(value)}
+              style={[
+                styles.periodButton,
+                { backgroundColor: period === value ? palette.blue : palette.field },
+              ]}
+            >
+              <Text style={[styles.periodText, { color: period === value ? '#FFFFFF' : palette.muted }]}>
+                {value}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ChoicePill({
+  label,
+  selected,
+  palette,
+  onPress,
+  variant = 'blue',
+  crown = false,
+}: {
+  label: string;
+  selected: boolean;
+  palette: Palette;
+  onPress: () => void;
+  variant?: 'blue' | 'soft' | 'outline';
+  crown?: boolean;
+}) {
+  const selectedStyle =
+    variant === 'soft'
+      ? { backgroundColor: palette.softBlue, borderColor: palette.softBlueBorder }
+      : variant === 'outline'
+        ? { backgroundColor: palette.card, borderColor: palette.blue }
+        : { backgroundColor: palette.blue, borderColor: palette.blue };
+  const unselectedStyle =
+    variant === 'soft'
+      ? { backgroundColor: palette.field, borderColor: 'transparent' }
+      : variant === 'outline'
+        ? { backgroundColor: palette.card, borderColor: palette.blue }
+        : { backgroundColor: palette.field, borderColor: 'transparent' };
+  const color =
+    selected && variant === 'blue'
+      ? '#FFFFFF'
+      : variant === 'outline' || (selected && variant === 'soft')
+        ? palette.blue
+        : palette.muted;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[
+        styles.choicePill,
+        selected ? selectedStyle : unselectedStyle,
+        variant === 'outline' && styles.outlineChoice,
+      ]}
+    >
+      <Text style={[styles.choiceText, { color }]}>{label}</Text>
+      {crown ? (
+        <MaterialCommunityIcons
+          name="crown"
+          size={13}
+          color={selected && variant === 'blue' ? '#FFFFFF' : palette.blue}
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+function SectionCard({
+  title,
+  children,
+  palette,
+}: {
+  title: string;
+  children: React.ReactNode;
+  palette: Palette;
+}) {
+  return (
+    <View style={[styles.sectionCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+      <FieldLabel palette={palette}>{title}</FieldLabel>
+      {children}
+    </View>
+  );
+}
+
+export default function StudyPlanner() {
+  const { colors: themeColors, scheme } = useTheme();
+  const { width } = useWindowDimensions();
+  const today = useMemo(() => formatLocalDate(new Date()), []);
+  const isDark = scheme === 'dark';
+  const palette: Palette = {
+    background: isDark ? themeColors.bg : width >= 768 ? '#F8FAFC' : '#FFFFFF',
+    card: isDark ? themeColors.surface : '#FFFFFF',
+    field: isDark ? themeColors.surfaceAlt : '#F2F4F7',
+    text: isDark ? themeColors.text : '#1E293B',
+    muted: isDark ? themeColors.textMuted : '#717E95',
+    placeholder: isDark ? themeColors.textFaint : '#9CA3AF',
+    border: isDark ? themeColors.border : '#E6E9EE',
+    blue: '#3B82F6',
+    softBlue: isDark ? 'rgba(59,130,246,0.18)' : '#EBF4FE',
+    softBlueBorder: isDark ? 'rgba(59,130,246,0.5)' : '#99C7F7',
+    dark: isDark,
+  };
+
+  const [activeTab, setActiveTab] = useState<PlannerCategory>('Tasks');
+  const [currentScreen, setCurrentScreen] = useState<'create' | 'schedule'>('create');
   const [freeTasksRemaining, setFreeTasksRemaining] = useState(6);
   const [isPremium, setIsPremium] = useState(false);
-  
-  // Toast notification and Premium modal state
-  const [toast, setToast] = useState(null);
-  const [premiumModal, setPremiumModal] = useState({ open: false, feature: '' });
-
-  // Initial demo schedule items
-  const [savedItems, setSavedItems] = useState([
-    {
-      id: '1',
-      category: 'Tasks',
-      title: 'Complete Calculus Exercise 4.2',
-      subject: 'Mathematics',
-      type: 'Homework',
-      date: '2026-11-20',
-      time: '18:00',
-      occurs: 'Once',
-      notes: 'Solve questions 1 to 15 with step-by-step graphs.',
-      completed: false
-    },
-    {
-      id: '2',
-      category: 'Classes',
-      title: 'Quantum Mechanics Lecture',
-      subject: 'Physics',
-      teacher: 'Dr. H.C. Verma',
-      whenType: 'Repeating',
-      days: ['Mon', 'Wed', 'Fri'],
-      startTime: '13:30',
-      endTime: '14:30',
-      whereType: 'In Person',
-      room: 'Room 204, Building A',
-      building: 'Science Block',
-      notes: 'Bring scientific calculator.'
-    },
-    {
-      id: '3',
-      category: 'Exams',
-      title: 'Organic Chemistry Mid-Term',
-      subject: 'Chemistry',
-      type: 'Midterm',
-      date: '2026-11-25',
-      time: '10:00',
-      duration: 90,
-      whereType: 'In Person',
-      room: 'Exam Hall B',
-      seat: 'A-42',
-      notes: 'Revise Aldehydes, Ketones and Carboxylic Acids.'
-    }
-  ]);
-
-  // ==================== 1. NEW TASK FORM STATE ====================
-  const [taskForm, setTaskForm] = useState({
+  const [savedItems, setSavedItems] = useState<PlannerItem[]>([]);
+  const [taskForm, setTaskForm] = useState<TaskForm>({
     title: '',
     subject: '',
     type: '',
-    date: '2026-11-18',
-    time: '17:00',
+    date: today,
+    time: '',
+    startTime: '',
+    endTime: '',
+    timeMode: 'single',
     occurs: 'Once',
-    repeatDays: ['Mon', 'Wed'],
-    notes: ''
+    notes: '',
   });
-
-  // ==================== 2. NEW CLASS FORM STATE ====================
-  const [classForm, setClassForm] = useState({
+  const [classForm, setClassForm] = useState<ClassForm>({
     name: '',
     subject: '',
     teacher: '',
-    whenType: 'Once', // 'Once' | 'Repeating'
-    date: '2026-11-18',
-    repeatDays: ['Mon', 'Wed', 'Fri'],
+    occurs: 'Once',
+    date: today,
+    days: ['Mon', 'Wed', 'Fri'],
     startTime: '13:30',
     endTime: '14:30',
-    dateRange: 'None', // 'None' | 'Term' | 'Manual'
-    whereType: 'In Person', // 'In Person' | 'Online'
+    dateRange: 'None',
+    whereType: 'In Person',
     room: '',
     building: '',
-    onlineLink: '',
-    notes: ''
+    notes: '',
   });
-
-  // ==================== 3. NEW EXAM FORM STATE ====================
-  const [examForm, setExamForm] = useState({
+  const [examForm, setExamForm] = useState<ExamForm>({
     name: '',
     subject: '',
     type: 'Exam',
-    date: '2026-11-20',
-    time: '09:30',
-    duration: 60, // Duration in minutes
-    whereType: 'In Person', // 'In Person' | 'Online'
+    date: today,
+    time: '10:00',
+    duration: 60,
+    whereType: 'In Person',
     room: '',
     seat: '',
-    onlineLink: '',
-    notes: ''
-  });
-
-  // ==================== 4. NEW VACATION FORM STATE ====================
-  const [vacationForm, setVacationForm] = useState({
-    name: '',
-    preset: '1 day', // '1 day' | '1 week' | '2 weeks' | 'Custom'
-    startDate: '2026-11-18',
-    endDate: '2026-11-18',
     notes: '',
-    coverPhoto: null
   });
-
-  // ==================== 5. NEW ACTIVITY FORM STATE ====================
-  const [activityForm, setActivityForm] = useState({
+  const [vacationForm, setVacationForm] = useState<VacationForm>({
     name: '',
-    category: 'Sports & Fitness',
-    date: '2026-11-18',
+    preset: '1 day',
+    startDate: today,
+    endDate: today,
+    notes: '',
+    hasCoverPhoto: false,
+  });
+  const [activityForm, setActivityForm] = useState<ActivityForm>({
+    name: '',
+    category: ACTIVITY_TYPES[0],
+    date: today,
     startTime: '16:00',
     endTime: '17:00',
-    notes: ''
+    notes: '',
   });
+  const [pickerModal, setPickerModal] = useState<PickerModalState>({
+    visible: false,
+    title: '',
+    options: [],
+    selected: '',
+    onSelect: () => undefined,
+  });
+  const [dateModal, setDateModal] = useState<DateModalState>({
+    visible: false,
+    title: '',
+    value: today,
+    error: '',
+    onSave: () => undefined,
+  });
+  const [timeModal, setTimeModal] = useState<TimeModalState>({
+    visible: false,
+    title: '',
+    mode: 'single',
+    allowRange: false,
+    startHour: '09',
+    startMinute: '00',
+    startPeriod: 'AM',
+    endHour: '10',
+    endMinute: '00',
+    endPeriod: 'AM',
+    error: '',
+    onSave: () => undefined,
+  });
+  const [proModal, setProModal] = useState({ visible: false, feature: '' });
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idCounter = useRef(0);
 
-  // Helper to trigger toast notification
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3200);
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    []
+  );
+
+  const showStatus = (message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setStatusMessage(message);
+    toastTimer.current = setTimeout(() => setStatusMessage(null), 2600);
   };
 
-  // Handler for premium-gated features
-  const handlePremiumFeature = (featureName, callback) => {
-    if (isPremium) {
-      callback();
-    } else {
-      setPremiumModal({ open: true, feature: featureName });
-    }
+  const newId = () => {
+    idCounter.current += 1;
+    return `planner-${Date.now()}-${idCounter.current}`;
   };
 
-  // Calculate end date based on selected vacation preset
-  const handleVacationPreset = (preset) => {
-    const start = new Date(vacationForm.startDate || '2026-11-18');
-    let end = new Date(start);
+  const openPicker = (
+    title: string,
+    options: string[],
+    selected: string,
+    onSelect: (value: string) => void
+  ) => setPickerModal({ visible: true, title, options, selected, onSelect });
 
-    if (preset === '1 day') {
-      end = new Date(start);
-    } else if (preset === '1 week') {
-      end.setDate(start.getDate() + 6);
-    } else if (preset === '2 weeks') {
-      end.setDate(start.getDate() + 13);
-    }
-
-    const endFormatted = end.toISOString().split('T')[0];
-    setVacationForm({ ...vacationForm, preset, endDate: endFormatted });
+  const openDatePicker = (title: string, value: string, onSave: (value: string) => void) => {
+    setDateModal({ visible: true, title, value, error: '', onSave });
   };
 
-  // Format date string into readable format (e.g., Wed, 18 Nov)
-  const formatNiceDate = (dateStr) => {
-    if (!dateStr) return 'Select date';
-    const d = new Date(dateStr + 'T00:00:00');
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const openTimePicker = (
+    title: string,
+    value: string,
+    onSave: (value: string) => void,
+    onSaveRange?: (startTime: string, endTime: string) => void,
+    range?: { startTime: string; endTime: string }
+  ) => {
+    const startParts = getTimeParts(range?.startTime || value);
+    const endParts = getTimeParts(
+      range?.endTime ||
+        (() => {
+          const startMinutes = timeToMinutes(range?.startTime || value) ?? 16 * 60;
+          const suggestedEnd = Math.min(startMinutes + 60, 23 * 60 + 59);
+          return `${String(Math.floor(suggestedEnd / 60)).padStart(2, '0')}:${String(suggestedEnd % 60).padStart(2, '0')}`;
+        })()
+    );
+    setTimeModal({
+      visible: true,
+      title,
+      mode: range?.startTime && range.endTime ? 'range' : 'single',
+      allowRange: Boolean(onSaveRange),
+      startHour: startParts.hour,
+      startMinute: startParts.minute,
+      startPeriod: startParts.period,
+      endHour: endParts.hour,
+      endMinute: endParts.minute,
+      endPeriod: endParts.period,
+      error: '',
+      onSave,
+      onSaveRange,
+    });
   };
 
-  // Convert 24-hour time string into 12-hour format (e.g., 1.30 PM)
-  const formatNiceTime = (timeStr) => {
-    if (!timeStr) return 'Add time';
-    const [h, m] = timeStr.split(':');
-    const hour = parseInt(h, 10);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 || 12;
-    return `${hour12}.${m} ${ampm}`;
-  };
-
-  // Compute total number of vacation days
-  const vacationDaysCount = useMemo(() => {
-    const s = new Date(vacationForm.startDate);
-    const e = new Date(vacationForm.endDate);
-    const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    return diff > 0 ? diff : 1;
+  const daysInVacation = useMemo(() => {
+    const start = parseLocalDate(vacationForm.startDate);
+    const end = parseLocalDate(vacationForm.endDate);
+    if (!start || !end || end < start) return 0;
+    const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+    const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+    return Math.floor((endUtc - startUtc) / 86400000) + 1;
   }, [vacationForm.startDate, vacationForm.endDate]);
 
-  // Primary handler to save form data across all tabs
-  const handleSave = () => {
+  const selectVacationPreset = (preset: VacationPreset) => {
+    if (preset === 'Custom') {
+      setVacationForm((current) => ({ ...current, preset }));
+      return;
+    }
+    const duration = preset === '1 day' ? 1 : preset === '1 week' ? 7 : 14;
+    setVacationForm((current) => ({
+      ...current,
+      preset,
+      endDate: addDays(current.startDate, duration - 1),
+    }));
+  };
+
+  const clearActiveForm = () => {
+    if (activeTab === 'Tasks') {
+      setTaskForm({
+        title: '',
+        subject: '',
+        type: '',
+        date: today,
+        time: '',
+        startTime: '',
+        endTime: '',
+        timeMode: 'single',
+        occurs: 'Once',
+        notes: '',
+      });
+    } else if (activeTab === 'Classes') {
+      setClassForm({
+        name: '',
+        subject: '',
+        teacher: '',
+        occurs: 'Once',
+        date: today,
+        days: [],
+        startTime: '13:30',
+        endTime: '14:30',
+        dateRange: 'None',
+        whereType: 'In Person',
+        room: '',
+        building: '',
+        notes: '',
+      });
+    } else if (activeTab === 'Exams') {
+      setExamForm({
+        name: '',
+        subject: '',
+        type: 'Exam',
+        date: today,
+        time: '10:00',
+        duration: 60,
+        whereType: 'In Person',
+        room: '',
+        seat: '',
+        notes: '',
+      });
+    } else if (activeTab === 'Vacations') {
+      setVacationForm({
+        name: '',
+        preset: '1 day',
+        startDate: today,
+        endDate: today,
+        notes: '',
+        hasCoverPhoto: false,
+      });
+    } else {
+      setActivityForm({
+        name: '',
+        category: ACTIVITY_TYPES[0],
+        date: today,
+        startTime: '16:00',
+        endTime: '17:00',
+        notes: '',
+      });
+    }
+  };
+
+  const saveItem = () => {
+    let item: PlannerItem;
+    let successMessage: string;
+
     if (activeTab === 'Tasks') {
       if (!taskForm.title.trim()) {
-        showToast('Please enter a Task Title!', 'error');
+        showStatus('Please enter a task title.');
+        return;
+      }
+      if (!parseLocalDate(taskForm.date)) {
+        showStatus('Choose a valid due date.');
         return;
       }
       if (!isPremium && freeTasksRemaining <= 0) {
-        setPremiumModal({ open: true, feature: 'Unlimited Tasks' });
+        setProModal({ visible: true, feature: 'Unlimited Tasks' });
         return;
       }
-      const newItem = {
-        id: Date.now().toString(),
+      item = {
+        id: newId(),
         category: 'Tasks',
-        title: taskForm.title,
+        title: taskForm.title.trim(),
         subject: taskForm.subject || 'General',
         type: taskForm.type || 'Task',
         date: taskForm.date,
-        time: taskForm.time,
+        time: taskForm.timeMode === 'single' ? taskForm.time || undefined : undefined,
+        startTime: taskForm.timeMode === 'range' ? taskForm.startTime : undefined,
+        endTime: taskForm.timeMode === 'range' ? taskForm.endTime : undefined,
         occurs: taskForm.occurs,
-        notes: taskForm.notes,
-        completed: false
+        notes: taskForm.notes.trim(),
+        completed: false,
       };
-      setSavedItems([newItem, ...savedItems]);
-      if (!isPremium) setFreeTasksRemaining((prev) => Math.max(0, prev - 1));
-      setTaskForm({ ...taskForm, title: '', notes: '' });
-      showToast('Task saved successfully!');
-      setCurrentScreen('dashboard');
-    } 
-    else if (activeTab === 'Classes') {
+      successMessage = 'Task saved successfully.';
+    } else if (activeTab === 'Classes') {
       if (!classForm.name.trim()) {
-        showToast('Please enter a Class Name!', 'error');
+        showStatus('Please enter a class name.');
         return;
       }
-      const newItem = {
-        id: Date.now().toString(),
+      if (!parseLocalDate(classForm.date)) {
+        showStatus('Choose a valid class date.');
+        return;
+      }
+      item = {
+        id: newId(),
         category: 'Classes',
-        title: classForm.name,
+        title: classForm.name.trim(),
         subject: classForm.subject || 'General',
-        teacher: classForm.teacher,
-        whenType: classForm.whenType,
+        teacher: classForm.teacher.trim(),
+        occurs: classForm.occurs,
         date: classForm.date,
-        days: classForm.repeatDays,
+        days: classForm.occurs === 'Repeating' ? classForm.days : undefined,
         startTime: classForm.startTime,
-        endTime: classForm.endTime,
+        endTime: classForm.endTime || undefined,
         dateRange: classForm.dateRange,
         whereType: classForm.whereType,
-        room: classForm.room,
-        building: classForm.building,
-        notes: classForm.notes
+        room: classForm.whereType === 'In Person' ? classForm.room.trim() : undefined,
+        building: classForm.whereType === 'In Person' ? classForm.building.trim() : undefined,
+        notes: classForm.notes.trim(),
       };
-      setSavedItems([newItem, ...savedItems]);
-      setClassForm({ ...classForm, name: '', room: '', building: '', notes: '' });
-      showToast('Class saved successfully!');
-      setCurrentScreen('dashboard');
-    } 
-    else if (activeTab === 'Exams') {
+      successMessage = 'Class saved successfully.';
+    } else if (activeTab === 'Exams') {
       if (!examForm.name.trim()) {
-        showToast('Please enter an Exam Name!', 'error');
+        showStatus('Please enter an exam name.');
         return;
       }
-      const newItem = {
-        id: Date.now().toString(),
+      if (!parseLocalDate(examForm.date)) {
+        showStatus('Choose a valid exam date.');
+        return;
+      }
+      item = {
+        id: newId(),
         category: 'Exams',
-        title: examForm.name,
+        title: examForm.name.trim(),
         subject: examForm.subject || 'General',
         type: examForm.type,
         date: examForm.date,
         time: examForm.time,
         duration: examForm.duration,
         whereType: examForm.whereType,
-        room: examForm.room,
-        seat: examForm.seat,
-        notes: examForm.notes
+        room: examForm.whereType === 'In Person' ? examForm.room.trim() : undefined,
+        seat: examForm.whereType === 'In Person' ? examForm.seat.trim() : undefined,
+        notes: examForm.notes.trim(),
       };
-      setSavedItems([newItem, ...savedItems]);
-      setExamForm({ ...examForm, name: '', room: '', seat: '', notes: '' });
-      showToast('Exam saved successfully!');
-      setCurrentScreen('dashboard');
-    } 
-    else if (activeTab === 'Vacations') {
+      successMessage = 'Exam saved successfully.';
+    } else if (activeTab === 'Vacations') {
+      const start = parseLocalDate(vacationForm.startDate);
+      const end = parseLocalDate(vacationForm.endDate);
       if (!vacationForm.name.trim()) {
-        showToast('Please enter a Vacation Name!', 'error');
+        showStatus('Please enter a vacation name.');
         return;
       }
-      const newItem = {
-        id: Date.now().toString(),
+      if (!start || !end || end < start) {
+        showStatus('Choose a valid vacation date range.');
+        return;
+      }
+      item = {
+        id: newId(),
         category: 'Vacations',
-        title: vacationForm.name,
-        startDate: vacationForm.startDate,
+        title: vacationForm.name.trim(),
+        date: vacationForm.startDate,
         endDate: vacationForm.endDate,
-        daysCount: vacationDaysCount,
-        notes: vacationForm.notes,
-        coverPhoto: vacationForm.coverPhoto
+        daysCount: daysInVacation,
+        notes: vacationForm.notes.trim(),
+        hasCoverPhoto: vacationForm.hasCoverPhoto,
       };
-      setSavedItems([newItem, ...savedItems]);
-      setVacationForm({ ...vacationForm, name: '', notes: '' });
-      showToast('Vacation saved successfully!');
-      setCurrentScreen('dashboard');
-    } 
-    else if (activeTab === 'Activities') {
+      successMessage = 'Vacation saved successfully.';
+    } else {
       if (!activityForm.name.trim()) {
-        showToast('Please enter an Activity Name!', 'error');
+        showStatus('Please enter an activity name.');
         return;
       }
-      const newItem = {
-        id: Date.now().toString(),
+      if (!parseLocalDate(activityForm.date)) {
+        showStatus('Choose a valid activity date.');
+        return;
+      }
+      item = {
+        id: newId(),
         category: 'Activities',
-        title: activityForm.name,
-        subCategory: activityForm.category,
+        title: activityForm.name.trim(),
+        type: activityForm.category,
         date: activityForm.date,
         startTime: activityForm.startTime,
-        endTime: activityForm.endTime,
-        notes: activityForm.notes
+        endTime: activityForm.endTime || undefined,
+        notes: activityForm.notes.trim(),
       };
-      setSavedItems([newItem, ...savedItems]);
-      setActivityForm({ ...activityForm, name: '', notes: '' });
-      showToast('Activity saved successfully!');
-      setCurrentScreen('dashboard');
+      successMessage = 'Activity saved successfully.';
     }
+
+    setSavedItems((items) => [item, ...items]);
+    if (activeTab === 'Tasks' && !isPremium) {
+      setFreeTasksRemaining((remaining) => Math.max(0, remaining - 1));
+    }
+    clearActiveForm();
+    showStatus(successMessage);
   };
 
-  // Dynamic header title based on active tab
-  const getHeaderTitle = () => {
-    switch (activeTab) {
-      case 'Tasks': return 'New Task';
-      case 'Classes': return 'New Class';
-      case 'Exams': return 'New Exam';
-      case 'Vacations': return 'New Vacation';
-      case 'Activities': return 'New Activity';
-      default: return 'New Entry';
-    }
-  };
+  const title =
+    activeTab === 'Tasks'
+      ? 'New Task'
+      : activeTab === 'Classes'
+        ? 'New Class'
+        : activeTab === 'Exams'
+          ? 'New Exam'
+          : activeTab === 'Vacations'
+            ? 'New Vacation'
+            : 'New Activity';
+
+  const dateOptions = getQuickDates();
+  const rangeStartValue = to24HourTime(
+    timeModal.startHour,
+    timeModal.startMinute,
+    timeModal.startPeriod
+  );
+  const rangeEndValue = to24HourTime(
+    timeModal.endHour,
+    timeModal.endMinute,
+    timeModal.endPeriod
+  );
+  const rangeValidationError =
+    timeModal.mode === 'range' &&
+    rangeStartValue &&
+    rangeEndValue &&
+    (timeToMinutes(rangeEndValue) ?? 0) <= (timeToMinutes(rangeStartValue) ?? 0)
+      ? 'End time must be after start time.'
+      : '';
+
+  const renderLocationToggles = (value: LocationType, setValue: (value: LocationType) => void) => (
+    <View style={styles.pillRow}>
+      {(['In Person', 'Online'] as const).map((option) => (
+        <ChoicePill
+          key={option}
+          label={option}
+          selected={value === option}
+          palette={palette}
+          variant="outline"
+          onPress={() => setValue(option)}
+        />
+      ))}
+    </View>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-start py-0 sm:py-6 font-sans text-slate-800 select-none">
-      
-      {/* Top App Switcher Bar for Study Sakha Branding */}
-      <div className="w-full max-w-md bg-white sm:rounded-t-3xl border-b border-slate-100 px-5 py-3 flex items-center justify-between shadow-sm z-20">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-[#4A90E2] flex items-center justify-center text-white font-bold text-lg shadow-sm">
-            S
-          </div>
-          <div>
-            <h1 className="text-sm font-bold text-slate-900 leading-tight flex items-center gap-1.5">
-              Study Sakha
-              {isPremium && (
-                <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-0.5">
-                  <Crown className="w-3 h-3 fill-amber-500 text-amber-500" /> PRO
-                </span>
-              )}
-            </h1>
-            <p className="text-[11px] text-slate-400">Student Smart Planner</p>
-          </div>
-        </div>
+    <Shell
+      active="StudyPlanner"
+      title="Study Planner"
+      subtitle="Plan your tasks, classes, exams and activities"
+      scroll={false}
+      contentPadding={0}
+    >
+      <View style={[styles.root, { backgroundColor: palette.background }]}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.page,
+            width >= 768 && styles.desktopPage,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ width: '100%', maxWidth: 620, flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCurrentScreen('create')}
+              style={({ pressed }) => ({
+                minHeight: 40,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderRadius: 12,
+                paddingHorizontal: 10,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="add-circle-outline" size={17} color={palette.blue} />
+              <Text style={{ color: palette.blue, fontSize: 13, fontWeight: '700' }}>Add New</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setCurrentScreen('schedule')}
+              style={({ pressed }) => ({
+                minHeight: 40,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                borderRadius: 12,
+                paddingHorizontal: 10,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="calendar-outline" size={16} color={palette.muted} />
+              <Text style={{ color: palette.muted, fontSize: 13, fontWeight: '700' }}>
+                Schedule ({savedItems.length})
+              </Text>
+            </Pressable>
+          </View>
 
-        {/* Screen Switcher Buttons: Create Form vs My Schedule */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-          <button
-            onClick={() => setCurrentScreen('create')}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              currentScreen === 'create'
-                ? 'bg-white text-[#4A90E2] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+          {currentScreen === 'create' ? (
+          <View
+            style={[
+              styles.formSheet,
+              {
+                backgroundColor: palette.card,
+                borderColor: width >= 768 ? palette.border : 'transparent',
+              },
+              width >= 768 && styles.desktopSheet,
+            ]}
           >
-            <PlusCircle className="w-3.5 h-3.5" />
-            Add New
-          </button>
-          <button
-            onClick={() => setCurrentScreen('dashboard')}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              currentScreen === 'dashboard'
-                ? 'bg-white text-[#4A90E2] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <LayoutList className="w-3.5 h-3.5" />
-            Schedule ({savedItems.length})
-          </button>
-        </div>
-      </div>
-
-      {/* Main Mobile Container */}
-      <div className="w-full max-w-md bg-white sm:rounded-b-3xl shadow-xl min-h-[88vh] flex flex-col justify-between relative overflow-hidden">
-        
-        {/* Toast Notification */}
-        {toast && (
-          <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-2 text-sm font-medium transition-all animate-bounce ${
-            toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'
-          }`}>
-            {toast.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-            <span>{toast.message}</span>
-          </div>
-        )}
-
-        {currentScreen === 'create' ? (
-          <div className="p-5 pb-10 flex-1 overflow-y-auto">
-            {/* Screen Header Title (New Task / New Class / New Exam / New Vacation) */}
-            <h2 className="text-[26px] font-bold text-center text-slate-900 tracking-tight mt-1 mb-5">
-              {getHeaderTitle()}
-            </h2>
-
-            {/* Segmented Navigation Tab Bar */}
-            <div className="bg-[#F4F6F9] p-1.5 rounded-full flex items-center justify-between mb-6 overflow-x-auto no-scrollbar">
-              {[
-                { id: 'Tasks', label: 'Tasks', pro: false },
-                { id: 'Classes', label: 'Classes', pro: false },
-                { id: 'Exams', label: 'Exams', pro: false },
-                { id: 'Vacations', label: 'Vacations', pro: false },
-                { id: 'Activities', label: 'Activities', pro: true }
-              ].map((tab) => {
-                const isActive = activeTab === tab.id;
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tabBar}
+              style={[styles.tabBarOuter, { backgroundColor: palette.field }]}
+            >
+              {TABS.map((tab) => {
+                const selected = activeTab === tab.id;
                 return (
-                  <button
+                  <Pressable
                     key={tab.id}
-                    onClick={() => {
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
                       if (tab.pro && !isPremium) {
-                        handlePremiumFeature('Activities Planner', () => setActiveTab(tab.id));
+                        setProModal({
+                          visible: true,
+                          feature: 'Activities & Extracurriculars Planner',
+                        });
                       } else {
                         setActiveTab(tab.id);
                       }
                     }}
-                    className={`px-3.5 py-2 rounded-full text-[13px] font-semibold transition-all flex items-center gap-1 whitespace-nowrap ${
-                      isActive
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-[#68768A] hover:text-slate-900'
-                    }`}
+                    style={[
+                      styles.tab,
+                      selected && styles.activeTab,
+                      selected && {
+                        shadowColor: '#000000',
+                        shadowOpacity: 0.08,
+                        shadowRadius: 4,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 2,
+                      },
+                    ]}
                   >
-                    <span>{tab.label}</span>
-                    {tab.pro && (
-                      <Crown className="w-3.5 h-3.5 text-[#2B99FF] stroke-[2.2]" />
-                    )}
-                  </button>
+                    <Text
+                      style={[
+                        styles.tabText,
+                        { color: selected ? palette.text : palette.muted },
+                        selected && styles.activeTabText,
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                    {tab.pro ? <MaterialCommunityIcons name="crown" size={13} color={palette.blue} /> : null}
+                  </Pressable>
                 );
               })}
-            </div>
+            </ScrollView>
 
-            {/* ==================== TAB 1: NEW TASK UI ==================== */}
-            {activeTab === 'Tasks' && (
-              <div className="space-y-5 animate-fadeIn">
-                {/* Task Title Input */}
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Task Title"
-                    value={taskForm.title}
-                    onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 transition-all"
+            <Text style={[styles.screenTitle, { color: palette.text }]}>{title}</Text>
+
+            {activeTab === 'Tasks' ? (
+              <View style={styles.form}>
+                <SoftInput
+                  value={taskForm.title}
+                  onChangeText={(value) => setTaskForm((form) => ({ ...form, title: value }))}
+                  placeholder="Task Title"
+                  palette={palette}
+                  accessibilityLabel="Task title"
+                />
+                <View>
+                  <FieldLabel palette={palette}>SUBJECT</FieldLabel>
+                  <PlannerSelect
+                    value={taskForm.subject}
+                    placeholder="Select subject"
+                    palette={palette}
+                    onPress={() =>
+                      openPicker('Select Subject', SUBJECTS, taskForm.subject, (subject) =>
+                        setTaskForm((form) => ({ ...form, subject }))
+                      )
+                    }
                   />
-                </div>
-
-                {/* SUBJECT Dropdown */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    SUBJECT
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={taskForm.subject}
-                      onChange={(e) => setTaskForm({ ...taskForm, subject: e.target.value })}
-                      className="w-full appearance-none bg-[#F4F6F9] text-slate-800 text-[15px] rounded-2xl px-4 py-4 pr-10 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 transition-all"
-                    >
-                      <option value="" className="text-[#8E9BAE]">Select subject</option>
-                      {SUBJECTS.map((sub) => (
-                        <option key={sub} value={sub}>{sub}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-5 h-5 text-slate-600 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* TYPE (OPTIONAL) Dropdown */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    TYPE (OPTIONAL)
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={taskForm.type}
-                      onChange={(e) => setTaskForm({ ...taskForm, type: e.target.value })}
-                      className="w-full appearance-none bg-[#F4F6F9] text-slate-800 text-[15px] rounded-2xl px-4 py-4 pr-10 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 transition-all"
-                    >
-                      <option value="">Task type</option>
-                      {TASK_TYPES.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-5 h-5 text-slate-600 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* DUE DATE Pill Buttons */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    DUE DATE
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <label className="relative cursor-pointer bg-[#F4F6F9] hover:bg-slate-200/70 transition-colors rounded-3xl px-5 py-3.5 flex items-center justify-center min-w-[130px]">
-                      <span className="text-[14px] font-medium text-[#7A889B]">
-                        {taskForm.date ? formatNiceDate(taskForm.date) : 'Select date'}
-                      </span>
-                      <input
-                        type="date"
-                        value={taskForm.date}
-                        onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                    </label>
-
-                    <label className="relative cursor-pointer bg-[#F4F6F9] hover:bg-slate-200/70 transition-colors rounded-3xl px-5 py-3.5 flex items-center gap-2 min-w-[135px]">
-                      <Clock className="w-5 h-5 text-[#7A889B]" />
-                      <span className="text-[14px] font-medium text-[#7A889B]">
-                        {taskForm.time ? formatNiceTime(taskForm.time) : 'Add time'}
-                      </span>
-                      <input
-                        type="time"
-                        value={taskForm.time}
-                        onChange={(e) => setTaskForm({ ...taskForm, time: e.target.value })}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                {/* OCCURS Section (Once / Repeating with Crown) */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    OCCURS
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTaskForm({ ...taskForm, occurs: 'Once' })}
-                      className={`px-6 py-3 rounded-full text-[15px] font-semibold transition-all ${
-                        taskForm.occurs === 'Once'
-                          ? 'bg-[#4A90E2] text-white shadow-sm'
-                          : 'bg-[#F4F6F9] text-[#7A889B]'
-                      }`}
-                    >
-                      Once
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handlePremiumFeature('Repeating Tasks', () =>
-                          setTaskForm({ ...taskForm, occurs: 'Repeating' })
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>TYPE (OPTIONAL)</FieldLabel>
+                  <PlannerSelect
+                    value={taskForm.type}
+                    placeholder="Task type"
+                    palette={palette}
+                    onPress={() =>
+                      openPicker('Select Task Type', TASK_TYPES, taskForm.type, (type) =>
+                        setTaskForm((form) => ({ ...form, type }))
+                      )
+                    }
+                  />
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>DUE DATE</FieldLabel>
+                  <View style={styles.pillRow}>
+                    <DateButton
+                      value={taskForm.date}
+                      palette={palette}
+                      onPress={() =>
+                        openDatePicker('Select Due Date', taskForm.date, (date) =>
+                          setTaskForm((form) => ({ ...form, date }))
                         )
                       }
-                      className={`px-6 py-3 rounded-full text-[15px] font-semibold flex items-center gap-2 transition-all ${
-                        taskForm.occurs === 'Repeating'
-                          ? 'bg-[#4A90E2] text-white shadow-sm'
-                          : 'bg-[#F4F6F9] text-[#7A889B]'
-                      }`}
-                    >
-                      <span>Repeating</span>
-                      <Crown className={`w-4 h-4 ${taskForm.occurs === 'Repeating' ? 'text-white' : 'text-[#2B99FF]'}`} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* DETAILS Textarea */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    DETAILS
-                  </label>
-                  <textarea
-                    rows={4}
-                    placeholder="Add notes..."
-                    value={taskForm.notes}
-                    onChange={(e) => setTaskForm({ ...taskForm, notes: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl p-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 resize-none"
-                  />
-                </div>
-
-                {/* Bottom Action Buttons */}
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="w-full bg-[#4A90E2] hover:bg-[#357ABD] active:scale-[0.99] text-white font-semibold text-[16px] py-4 rounded-2xl shadow-sm transition-all"
-                  >
-                    {isPremium
-                      ? 'Save Task'
-                      : `Save (${freeTasksRemaining} free tasks remaining)`}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('dashboard')}
-                    className="w-full bg-white border-[1.5px] border-[#2B99FF] text-[#0088FF] font-semibold text-[16px] py-3.5 rounded-2xl hover:bg-blue-50/40 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ==================== TAB 2: NEW CLASS UI ==================== */}
-            {activeTab === 'Classes' && (
-              <div className="space-y-5 animate-fadeIn">
-                {/* CLASS NAME */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    CLASS NAME
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Class Name"
-                    value={classForm.name}
-                    onChange={(e) => setClassForm({ ...classForm, name: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                  />
-                </div>
-
-                {/* SUBJECT & Teacher Row */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      SUBJECT
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={classForm.subject}
-                        onChange={(e) => setClassForm({ ...classForm, subject: e.target.value })}
-                        className="w-full appearance-none bg-[#F4F6F9] text-slate-800 text-[14px] rounded-2xl px-3.5 py-4 pr-8 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      >
-                        <option value="">Select subject</option>
-                        {SUBJECTS.map((sub) => (
-                          <option key={sub} value={sub}>{sub}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-slate-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-semibold text-[#68768A] mb-2">
-                      Teacher
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Teacher Name"
-                      value={classForm.teacher}
-                      onChange={(e) => setClassForm({ ...classForm, teacher: e.target.value })}
-                      className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[14px] rounded-2xl px-3.5 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
                     />
-                  </div>
-                </div>
+                    <TimeButton
+                      value={taskForm.time}
+                      displayValue={
+                        taskForm.timeMode === 'range' && taskForm.startTime && taskForm.endTime
+                          ? formatTimeRange(taskForm.startTime, taskForm.endTime)
+                          : undefined
+                      }
+                      palette={palette}
+                      icon
+                      onPress={() => {
+                        openTimePicker(
+                          'Add Due Time',
+                          taskForm.time || taskForm.startTime || '17:00',
+                          (time) => {
+                            setTaskForm((form) => ({
+                              ...form,
+                              time,
+                              startTime: '',
+                              endTime: '',
+                              timeMode: 'single',
+                            }));
+                          },
+                          (startTime, endTime) =>
+                            setTaskForm((form) => ({
+                              ...form,
+                              time: '',
+                              startTime,
+                              endTime,
+                              timeMode: 'range',
+                            })),
+                          taskForm.timeMode === 'range'
+                            ? { startTime: taskForm.startTime, endTime: taskForm.endTime }
+                            : undefined
+                        );
+                      }}
+                    />
+                  </View>
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>OCCURS</FieldLabel>
+                  <View style={styles.pillRow}>
+                    <ChoicePill
+                      label="Once"
+                      selected={taskForm.occurs === 'Once'}
+                      palette={palette}
+                      onPress={() => setTaskForm((form) => ({ ...form, occurs: 'Once' }))}
+                    />
+                    <ChoicePill
+                      label="Repeating"
+                      selected={taskForm.occurs === 'Repeating'}
+                      palette={palette}
+                      crown
+                      onPress={() => {
+                        if (!isPremium) {
+                          setProModal({ visible: true, feature: 'Repeating Tasks' });
+                        } else {
+                          setTaskForm((form) => ({ ...form, occurs: 'Repeating' }));
+                        }
+                      }}
+                    />
+                  </View>
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>DETAILS</FieldLabel>
+                  <SoftInput
+                    value={taskForm.notes}
+                    onChangeText={(value) => setTaskForm((form) => ({ ...form, notes: value }))}
+                    placeholder="Add notes..."
+                    palette={palette}
+                    multiline
+                    accessibilityLabel="Task details"
+                  />
+                </View>
+              </View>
+            ) : null}
 
-                {/* WHEN Outlined Card */}
-                <div className="border border-slate-200/90 rounded-3xl p-4 space-y-4">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A]">
-                    WHEN
-                  </label>
+            {activeTab === 'Classes' ? (
+              <View style={styles.form}>
+                <View>
+                  <FieldLabel palette={palette}>CLASS NAME</FieldLabel>
+                  <SoftInput
+                    value={classForm.name}
+                    onChangeText={(value) => setClassForm((form) => ({ ...form, name: value }))}
+                    placeholder="Class Name"
+                    palette={palette}
+                    accessibilityLabel="Class name"
+                  />
+                </View>
+                <View style={styles.columns}>
+                  <View style={styles.column}>
+                    <FieldLabel palette={palette}>SUBJECT</FieldLabel>
+                    <PlannerSelect
+                      value={classForm.subject}
+                      placeholder="Select subject"
+                      palette={palette}
+                      onPress={() =>
+                        openPicker('Select Subject', SUBJECTS, classForm.subject, (subject) =>
+                          setClassForm((form) => ({ ...form, subject }))
+                        )
+                      }
+                    />
+                  </View>
+                  <View style={styles.column}>
+                    <FieldLabel palette={palette}>TEACHER</FieldLabel>
+                    <SoftInput
+                      value={classForm.teacher}
+                      onChangeText={(value) => setClassForm((form) => ({ ...form, teacher: value }))}
+                      placeholder="Teacher"
+                      palette={palette}
+                    />
+                  </View>
+                </View>
 
-                  {/* Once / Repeating Toggle */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setClassForm({ ...classForm, whenType: 'Once' })}
-                      className={`py-3 rounded-full text-[14px] font-semibold transition-all border ${
-                        classForm.whenType === 'Once'
-                          ? 'bg-[#EAF3FC] border-[#99C7F7] text-[#2B85E4]'
-                          : 'bg-[#F4F6F9] border-transparent text-[#7A889B]'
-                      }`}
-                    >
-                      Once
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setClassForm({ ...classForm, whenType: 'Repeating' })}
-                      className={`py-3 rounded-full text-[14px] font-semibold transition-all border ${
-                        classForm.whenType === 'Repeating'
-                          ? 'bg-[#EAF3FC] border-[#99C7F7] text-[#2B85E4]'
-                          : 'bg-[#F4F6F9] border-transparent text-[#7A889B]'
-                      }`}
-                    >
-                      Repeating
-                    </button>
-                  </div>
-
-                  {/* DATE or Repeat Days */}
-                  {classForm.whenType === 'Once' ? (
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                        DATE
-                      </label>
-                      <label className="relative block w-full bg-[#F4F6F9] rounded-2xl px-4 py-3.5 cursor-pointer">
-                        <span className="text-[14px] text-[#7A889B]">
-                          {classForm.date ? formatNiceDate(classForm.date) : 'Select date'}
-                        </span>
-                        <input
-                          type="date"
-                          value={classForm.date}
-                          onChange={(e) => setClassForm({ ...classForm, date: e.target.value })}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                        REPEAT DAYS
-                      </label>
-                      <div className="flex justify-between gap-1">
-                        {DAYS_OF_WEEK.map((day) => {
-                          const selected = classForm.repeatDays.includes(day);
-                          return (
-                            <button
-                              key={day}
-                              type="button"
-                              onClick={() => {
-                                const exists = classForm.repeatDays.includes(day);
-                                setClassForm({
-                                  ...classForm,
-                                  repeatDays: exists
-                                    ? classForm.repeatDays.filter((d) => d !== day)
-                                    : [...classForm.repeatDays, day]
-                                });
-                              }}
-                              className={`w-10 h-10 rounded-full text-xs font-bold transition-all ${
-                                selected
-                                  ? 'bg-[#4A90E2] text-white'
-                                  : 'bg-[#F4F6F9] text-[#7A889B]'
-                              }`}
-                            >
-                              {day.slice(0, 2)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* STARTS & ENDS */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                        STARTS
-                      </label>
-                      <label className="relative block bg-[#F4F6F9] rounded-2xl px-4 py-4 cursor-pointer">
-                        <span className="text-[16px] font-medium text-slate-900">
-                          {formatNiceTime(classForm.startTime)}
-                        </span>
-                        <input
-                          type="time"
-                          value={classForm.startTime}
-                          onChange={(e) => setClassForm({ ...classForm, startTime: e.target.value })}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                        ENDS
-                      </label>
-                      <label className="relative block bg-[#F4F6F9] rounded-2xl px-4 py-4 cursor-pointer">
-                        <span className="text-[16px] font-medium text-slate-900">
-                          {formatNiceTime(classForm.endTime)}
-                        </span>
-                        <input
-                          type="time"
-                          value={classForm.endTime}
-                          onChange={(e) => setClassForm({ ...classForm, endTime: e.target.value })}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* DATE RANGE (None / Term / Manual) */}
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      DATE RANGE
-                    </label>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {['None', 'Term', 'Manual'].map((range) => {
-                        const active = classForm.dateRange === range;
+                <SectionCard title="WHEN" palette={palette}>
+                  <View style={styles.pillRow}>
+                    {(['Once', 'Repeating'] as const).map((option) => (
+                      <ChoicePill
+                        key={option}
+                        label={option}
+                        selected={classForm.occurs === option}
+                        palette={palette}
+                        variant="soft"
+                        onPress={() =>
+                          setClassForm((form) => ({ ...form, occurs: option }))
+                        }
+                      />
+                    ))}
+                  </View>
+                  {classForm.occurs === 'Repeating' ? (
+                    <View style={styles.dayRow}>
+                      {DAYS_OF_WEEK.map((day) => {
+                        const selected = classForm.days.includes(day);
                         return (
-                          <button
-                            key={range}
-                            type="button"
-                            onClick={() => setClassForm({ ...classForm, dateRange: range })}
-                            className={`py-3 rounded-full text-[14px] font-semibold transition-all border ${
-                              active
-                                ? 'bg-[#EAF3FC] border-[#99C7F7] text-[#2B85E4]'
-                                : 'bg-[#F4F6F9] border-transparent text-[#7A889B]'
-                            }`}
+                          <Pressable
+                            key={day}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            onPress={() =>
+                              setClassForm((form) => ({
+                                ...form,
+                                days: selected
+                                  ? form.days.filter((item) => item !== day)
+                                  : [...form.days, day],
+                              }))
+                            }
+                            style={[
+                              styles.dayButton,
+                              {
+                                backgroundColor: selected ? palette.softBlue : palette.field,
+                                borderColor: selected ? palette.softBlueBorder : 'transparent',
+                              },
+                            ]}
                           >
-                            {range}
-                          </button>
+                            <Text style={[styles.smallChoiceText, { color: selected ? palette.blue : palette.muted }]}>
+                              {day}
+                            </Text>
+                          </Pressable>
                         );
                       })}
-                    </div>
-                  </div>
-                </div>
+                    </View>
+                  ) : null}
+                  <View>
+                    <FieldLabel palette={palette}>DATE &amp; TIME</FieldLabel>
+                    <View style={styles.pillRow}>
+                      <DateButton
+                        value={classForm.date}
+                        palette={palette}
+                        onPress={() =>
+                          openDatePicker('Select Class Date', classForm.date, (date) =>
+                            setClassForm((form) => ({ ...form, date }))
+                          )
+                        }
+                      />
+                      <TimeButton
+                        value={classForm.startTime}
+                        displayValue={
+                          classForm.endTime
+                            ? formatTimeRange(classForm.startTime, classForm.endTime)
+                            : undefined
+                        }
+                        palette={palette}
+                        icon
+                        onPress={() =>
+                          openTimePicker(
+                            'Select Class Time',
+                            classForm.startTime,
+                            (startTime) =>
+                              setClassForm((form) => ({ ...form, startTime, endTime: '' })),
+                            (startTime, endTime) =>
+                              setClassForm((form) => ({ ...form, startTime, endTime })),
+                            classForm.endTime
+                              ? { startTime: classForm.startTime, endTime: classForm.endTime }
+                              : undefined
+                          )
+                        }
+                      />
+                    </View>
+                  </View>
+                  <View>
+                    <FieldLabel palette={palette}>DATE RANGE</FieldLabel>
+                    <View style={styles.threeColumns}>
+                      {(['None', 'Term', 'Manual'] as const).map((option) => (
+                        <ChoicePill
+                          key={option}
+                          label={option}
+                          selected={classForm.dateRange === option}
+                          palette={palette}
+                          variant="soft"
+                          onPress={() =>
+                            setClassForm((form) => ({ ...form, dateRange: option }))
+                          }
+                        />
+                      ))}
+                    </View>
+                  </View>
+                </SectionCard>
 
-                {/* WHERE Outlined Card */}
-                <div className="border border-slate-200/90 rounded-3xl p-4 space-y-4">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A]">
-                    WHERE
-                  </label>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setClassForm({ ...classForm, whereType: 'In Person' })}
-                      className={`px-5 py-2.5 rounded-full text-[14px] font-semibold transition-all border ${
-                        classForm.whereType === 'In Person'
-                          ? 'bg-[#4A90E2] border-[#4A90E2] text-white shadow-sm'
-                          : 'bg-white border-[#4A90E2] text-[#4A90E2]'
-                      }`}
-                    >
-                      In Person
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setClassForm({ ...classForm, whereType: 'Online' })}
-                      className={`px-5 py-2.5 rounded-full text-[14px] font-semibold transition-all border ${
-                        classForm.whereType === 'Online'
-                          ? 'bg-[#4A90E2] border-[#4A90E2] text-white shadow-sm'
-                          : 'bg-white border-[#4A90E2] text-[#4A90E2]'
-                      }`}
-                    >
-                      Online
-                    </button>
-                  </div>
-
+                <SectionCard title="WHERE" palette={palette}>
+                  {renderLocationToggles(classForm.whereType, (whereType) =>
+                    setClassForm((form) => ({ ...form, whereType }))
+                  )}
                   {classForm.whereType === 'In Person' ? (
                     <>
-                      <div>
-                        <label className="block text-[12px] font-semibold text-[#68768A] mb-2">
-                          Room
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Room 204, Building A"
+                      <View>
+                        <FieldLabel palette={palette}>ROOM</FieldLabel>
+                        <SoftInput
                           value={classForm.room}
-                          onChange={(e) => setClassForm({ ...classForm, room: e.target.value })}
-                          className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
+                          onChangeText={(value) => setClassForm((form) => ({ ...form, room: value }))}
+                          placeholder="Room 204, Building A"
+                          palette={palette}
                         />
-                      </div>
-
-                      <div>
-                        <label className="block text-[12px] font-semibold text-[#68768A] mb-2">
-                          Building
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Building"
+                      </View>
+                      <View>
+                        <FieldLabel palette={palette}>BUILDING</FieldLabel>
+                        <SoftInput
                           value={classForm.building}
-                          onChange={(e) => setClassForm({ ...classForm, building: e.target.value })}
-                          className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
+                          onChangeText={(value) =>
+                            setClassForm((form) => ({ ...form, building: value }))
+                          }
+                          placeholder="Building"
+                          palette={palette}
                         />
-                      </div>
+                      </View>
                     </>
-                  ) : (
-                    <div>
-                      <label className="block text-[12px] font-semibold text-[#68768A] mb-2">
-                        Meeting Link
-                      </label>
-                      <input
-                        type="url"
-                        placeholder="https://meet.google.com/..."
-                        value={classForm.onlineLink}
-                        onChange={(e) => setClassForm({ ...classForm, onlineLink: e.target.value })}
-                        className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* NOTES */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    NOTES
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Add a reminder..."
+                  ) : null}
+                </SectionCard>
+                <View>
+                  <FieldLabel palette={palette}>NOTES</FieldLabel>
+                  <SoftInput
                     value={classForm.notes}
-                    onChange={(e) => setClassForm({ ...classForm, notes: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl p-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 resize-none"
+                    onChangeText={(value) => setClassForm((form) => ({ ...form, notes: value }))}
+                    placeholder="Add a reminder..."
+                    palette={palette}
+                    multiline
+                    accessibilityLabel="Class notes"
                   />
-                </div>
+                </View>
+              </View>
+            ) : null}
 
-                {/* Save Class & Cancel Buttons */}
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="w-full bg-[#4A90E2] hover:bg-[#357ABD] active:scale-[0.99] text-white font-semibold text-[16px] py-4 rounded-2xl shadow-sm transition-all"
-                  >
-                    Save Class
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('dashboard')}
-                    className="w-full bg-white border-[1.5px] border-[#2B99FF] text-[#0088FF] font-semibold text-[16px] py-3.5 rounded-2xl hover:bg-blue-50/40 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ==================== TAB 3: NEW EXAM UI ==================== */}
-            {activeTab === 'Exams' && (
-              <div className="space-y-5 animate-fadeIn">
-                {/* EXAM NAME */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    EXAM NAME
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Exam Name"
+            {activeTab === 'Exams' ? (
+              <View style={styles.form}>
+                <View>
+                  <FieldLabel palette={palette}>EXAM NAME</FieldLabel>
+                  <SoftInput
                     value={examForm.name}
-                    onChange={(e) => setExamForm({ ...examForm, name: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
+                    onChangeText={(value) => setExamForm((form) => ({ ...form, name: value }))}
+                    placeholder="Exam Name"
+                    palette={palette}
+                    accessibilityLabel="Exam name"
                   />
-                </div>
-
-                {/* SUBJECT & TYPE */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      SUBJECT
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={examForm.subject}
-                        onChange={(e) => setExamForm({ ...examForm, subject: e.target.value })}
-                        className="w-full appearance-none bg-[#F4F6F9] text-slate-800 text-[14px] rounded-2xl px-3.5 py-4 pr-8 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      >
-                        <option value="">Select subject</option>
-                        {SUBJECTS.map((sub) => (
-                          <option key={sub} value={sub}>{sub}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-slate-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      TYPE
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={examForm.type}
-                        onChange={(e) => setExamForm({ ...examForm, type: e.target.value })}
-                        className="w-full appearance-none bg-[#F4F6F9] text-slate-900 font-medium text-[15px] rounded-2xl px-3.5 py-4 pr-8 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      >
-                        {EXAM_TYPES.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-slate-600 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* WHEN Card with Duration Stepper */}
-                <div className="border border-slate-200/90 rounded-3xl p-4 space-y-4">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A]">
-                    WHEN
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] uppercase text-[#7A889B] mb-1.5">
-                        DATE
-                      </label>
-                      <label className="relative block bg-[#F4F6F9] rounded-2xl px-4 py-3.5 cursor-pointer">
-                        <span className="text-[14px] text-[#7A889B]">
-                          {examForm.date ? formatNiceDate(examForm.date) : 'Select date'}
-                        </span>
-                        <input
-                          type="date"
-                          value={examForm.date}
-                          onChange={(e) => setExamForm({ ...examForm, date: e.target.value })}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-[#7A889B] mb-1.5">
-                        Time
-                      </label>
-                      <label className="relative block bg-[#F4F6F9] rounded-2xl px-4 py-3.5 cursor-pointer">
-                        <span className="text-[14px] text-[#7A889B]">
-                          {examForm.time ? formatNiceTime(examForm.time) : 'Select time'}
-                        </span>
-                        <input
-                          type="time"
-                          value={examForm.time}
-                          onChange={(e) => setExamForm({ ...examForm, time: e.target.value })}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* DURATION Stepper (- 60 min +) */}
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-3">
-                      DURATION
-                    </label>
-                    <div className="flex items-center justify-between px-6 py-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExamForm({
-                            ...examForm,
-                            duration: Math.max(15, examForm.duration - 15)
-                          })
+                </View>
+                <View style={styles.columns}>
+                  <View style={styles.column}>
+                    <FieldLabel palette={palette}>SUBJECT</FieldLabel>
+                    <PlannerSelect
+                      value={examForm.subject}
+                      placeholder="Select subject"
+                      palette={palette}
+                      onPress={() =>
+                        openPicker('Select Subject', SUBJECTS, examForm.subject, (subject) =>
+                          setExamForm((form) => ({ ...form, subject }))
+                        )
+                      }
+                    />
+                  </View>
+                  <View style={styles.column}>
+                    <FieldLabel palette={palette}>TYPE</FieldLabel>
+                    <PlannerSelect
+                      value={examForm.type}
+                      palette={palette}
+                      onPress={() =>
+                        openPicker('Select Exam Type', EXAM_TYPES, examForm.type, (type) =>
+                          setExamForm((form) => ({ ...form, type }))
+                        )
+                      }
+                    />
+                  </View>
+                </View>
+                <SectionCard title="WHEN" palette={palette}>
+                  <View style={styles.columns}>
+                    <View style={styles.column}>
+                      <FieldLabel palette={palette}>DATE</FieldLabel>
+                      <DateButton
+                        value={examForm.date}
+                        palette={palette}
+                        onPress={() =>
+                          openDatePicker('Select Exam Date', examForm.date, (date) =>
+                            setExamForm((form) => ({ ...form, date }))
+                          )
                         }
-                        className="w-12 h-12 rounded-full bg-[#15192C] text-white flex items-center justify-center active:scale-95 transition-transform shadow-sm"
+                      />
+                    </View>
+                    <View style={styles.column}>
+                      <FieldLabel palette={palette}>TIME</FieldLabel>
+                      <TimeButton
+                        value={examForm.time}
+                        palette={palette}
+                        onPress={() =>
+                          openTimePicker('Select Exam Time', examForm.time, (time) =>
+                            setExamForm((form) => ({ ...form, time }))
+                          )
+                        }
+                      />
+                    </View>
+                  </View>
+                  <View>
+                    <FieldLabel palette={palette}>DURATION</FieldLabel>
+                    <View style={styles.stepperRow}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Decrease duration"
+                        onPress={() =>
+                          setExamForm((form) => ({
+                            ...form,
+                            duration: Math.max(15, form.duration - 15),
+                          }))
+                        }
+                        style={[styles.stepperButton, { backgroundColor: '#15192C' }]}
                       >
-                        <Minus className="w-5 h-5 stroke-[2.5]" />
-                      </button>
-
-                      <span className="text-[16px] font-medium text-[#68768A]">
+                        <Ionicons name="remove" size={20} color="#FFFFFF" />
+                      </Pressable>
+                      <Text style={[styles.durationText, { color: palette.text }]}>
                         {examForm.duration} min
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExamForm({
-                            ...examForm,
-                            duration: examForm.duration + 15
-                          })
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Increase duration"
+                        onPress={() =>
+                          setExamForm((form) => ({ ...form, duration: form.duration + 15 }))
                         }
-                        className="w-12 h-12 rounded-full bg-[#F4F6F9] text-slate-900 flex items-center justify-center hover:bg-slate-200 active:scale-95 transition-all"
+                        style={[styles.stepperButton, { backgroundColor: palette.field }]}
                       >
-                        <Plus className="w-5 h-5 stroke-[2.5]" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* WHERE Outlined Card (In Person / Online + Room & Seat #) */}
-                <div className="border border-slate-200/90 rounded-3xl p-4 space-y-4">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A]">
-                    WHERE
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setExamForm({ ...examForm, whereType: 'In Person' })}
-                      className={`py-3 rounded-full text-[14px] font-semibold transition-all border ${
-                        examForm.whereType === 'In Person'
-                          ? 'bg-[#EAF3FC] border-[#99C7F7] text-[#2B85E4]'
-                          : 'bg-[#F4F6F9] border-transparent text-[#68768A]'
-                      }`}
-                    >
-                      In Person
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setExamForm({ ...examForm, whereType: 'Online' })}
-                      className={`py-3 rounded-full text-[14px] font-semibold transition-all border ${
-                        examForm.whereType === 'Online'
-                          ? 'bg-[#EAF3FC] border-[#99C7F7] text-[#2B85E4]'
-                          : 'bg-[#F4F6F9] border-transparent text-[#68768A]'
-                      }`}
-                    >
-                      Online
-                    </button>
-                  </div>
-
-                  {examForm.whereType === 'In Person' ? (
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      <input
-                        type="text"
-                        placeholder="Room"
-                        value={examForm.room}
-                        onChange={(e) => setExamForm({ ...examForm, room: e.target.value })}
-                        className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Seat #"
-                        value={examForm.seat}
-                        onChange={(e) => setExamForm({ ...examForm, seat: e.target.value })}
-                        className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                      />
-                    </div>
-                  ) : (
-                    <input
-                      type="url"
-                      placeholder="Online Exam Portal Link"
-                      value={examForm.onlineLink}
-                      onChange={(e) => setExamForm({ ...examForm, onlineLink: e.target.value })}
-                      className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                    />
+                        <Ionicons name="add" size={20} color={palette.text} />
+                      </Pressable>
+                    </View>
+                  </View>
+                </SectionCard>
+                <SectionCard title="WHERE" palette={palette}>
+                  {renderLocationToggles(examForm.whereType, (whereType) =>
+                    setExamForm((form) => ({ ...form, whereType }))
                   )}
-                </div>
-
-                {/* NOTES */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    NOTES
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Add notes..."
+                  {examForm.whereType === 'In Person' ? (
+                    <View style={styles.columns}>
+                      <View style={styles.column}>
+                        <FieldLabel palette={palette}>ROOM</FieldLabel>
+                        <SoftInput
+                          value={examForm.room}
+                          onChangeText={(value) => setExamForm((form) => ({ ...form, room: value }))}
+                          placeholder="Room"
+                          palette={palette}
+                        />
+                      </View>
+                      <View style={styles.column}>
+                        <FieldLabel palette={palette}>SEAT #</FieldLabel>
+                        <SoftInput
+                          value={examForm.seat}
+                          onChangeText={(value) => setExamForm((form) => ({ ...form, seat: value }))}
+                          placeholder="Seat #"
+                          palette={palette}
+                        />
+                      </View>
+                    </View>
+                  ) : null}
+                </SectionCard>
+                <View>
+                  <FieldLabel palette={palette}>NOTES</FieldLabel>
+                  <SoftInput
                     value={examForm.notes}
-                    onChange={(e) => setExamForm({ ...examForm, notes: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl p-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 resize-none"
+                    onChangeText={(value) => setExamForm((form) => ({ ...form, notes: value }))}
+                    placeholder="Add notes..."
+                    palette={palette}
+                    multiline
+                    accessibilityLabel="Exam notes"
                   />
-                </div>
+                </View>
+              </View>
+            ) : null}
 
-                {/* Save Exam & Cancel Buttons */}
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="w-full bg-[#4A90E2] hover:bg-[#357ABD] active:scale-[0.99] text-white font-semibold text-[16px] py-4 rounded-2xl shadow-sm transition-all"
-                  >
-                    Save Exam
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('dashboard')}
-                    className="w-full bg-white border-[1.5px] border-[#2B99FF] text-[#0088FF] font-semibold text-[16px] py-3.5 rounded-2xl hover:bg-blue-50/40 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ==================== TAB 4: NEW VACATION UI ==================== */}
-            {activeTab === 'Vacations' && (
-              <div className="space-y-5 animate-fadeIn">
-                {/* NAME */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    NAME
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Vacation Name"
+            {activeTab === 'Vacations' ? (
+              <View style={styles.form}>
+                <View>
+                  <FieldLabel palette={palette}>NAME</FieldLabel>
+                  <SoftInput
                     value={vacationForm.name}
-                    onChange={(e) => setVacationForm({ ...vacationForm, name: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
+                    onChangeText={(value) => setVacationForm((form) => ({ ...form, name: value }))}
+                    placeholder="Vacation Name"
+                    palette={palette}
+                    accessibilityLabel="Vacation name"
                   />
-                </div>
-
-                {/* DATES Card */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    DATES
-                  </label>
-                  <div className="border border-slate-200/90 rounded-3xl p-4 space-y-4">
-                    {/* Duration Preset Pills (1 day, 1 week, 2 weeks, Custom) */}
-                    <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
-                      {['1 day', '1 week', '2 weeks', 'Custom'].map((preset) => {
-                        const isSelected = vacationForm.preset === preset;
-                        return (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => handleVacationPreset(preset)}
-                            className={`px-4 py-2.5 rounded-full text-[13px] font-semibold whitespace-nowrap transition-all ${
-                              isSelected
-                                ? 'bg-[#4A90E2] text-white shadow-sm'
-                                : 'bg-[#F4F6F9] text-[#5A687C] hover:bg-slate-200/70'
-                            }`}
-                          >
-                            {preset}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* START -> END Date Selector */}
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-1">
-                      <div>
-                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                          START
-                        </label>
-                        <label className="relative block bg-[#EAF3FC] border border-[#BFDDFB] rounded-full py-3.5 px-3 text-center cursor-pointer">
-                          <span className="text-[14px] font-semibold text-[#2B85E4]">
-                            {formatNiceDate(vacationForm.startDate)}
-                          </span>
-                          <input
-                            type="date"
-                            value={vacationForm.startDate}
-                            onChange={(e) =>
-                              setVacationForm({
-                                ...vacationForm,
-                                preset: 'Custom',
-                                startDate: e.target.value
-                              })
-                            }
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="pt-5 text-slate-400">
-                        <ArrowRight className="w-5 h-5" />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                          END
-                        </label>
-                        <label className="relative block bg-[#EAF3FC] border border-[#BFDDFB] rounded-full py-3.5 px-3 text-center cursor-pointer">
-                          <span className="text-[14px] font-semibold text-[#2B85E4]">
-                            {formatNiceDate(vacationForm.endDate)}
-                          </span>
-                          <input
-                            type="date"
-                            value={vacationForm.endDate}
-                            min={vacationForm.startDate}
-                            onChange={(e) =>
-                              setVacationForm({
-                                ...vacationForm,
-                                preset: 'Custom',
-                                endDate: e.target.value
-                              })
-                            }
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Count summary */}
-                    <div className="text-[13px] font-semibold text-[#2B85E4]">
-                      {vacationDaysCount} {vacationDaysCount === 1 ? 'day' : 'days'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* NOTES */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    NOTES
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Vacation notes"
+                </View>
+                <SectionCard title="DATES" palette={palette}>
+                  <View style={styles.presetRow}>
+                    {(['1 day', '1 week', '2 weeks', 'Custom'] as const).map((preset) => (
+                      <ChoicePill
+                        key={preset}
+                        label={preset}
+                        selected={vacationForm.preset === preset}
+                        palette={palette}
+                        onPress={() => selectVacationPreset(preset)}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.columns}>
+                    <View style={styles.column}>
+                      <FieldLabel palette={palette}>START</FieldLabel>
+                      <DateButton
+                        value={vacationForm.startDate}
+                        palette={palette}
+                        soft
+                        onPress={() =>
+                          openDatePicker('Select Start Date', vacationForm.startDate, (startDate) =>
+                            setVacationForm((form) => ({
+                              ...form,
+                              preset: 'Custom',
+                              startDate,
+                              endDate:
+                                parseLocalDate(form.endDate) &&
+                                parseLocalDate(form.endDate)! >= (parseLocalDate(startDate) ?? new Date(0))
+                                  ? form.endDate
+                                  : startDate,
+                            }))
+                          )
+                        }
+                      />
+                    </View>
+                    <View style={styles.column}>
+                      <FieldLabel palette={palette}>END</FieldLabel>
+                      <DateButton
+                        value={vacationForm.endDate}
+                        palette={palette}
+                        soft
+                        onPress={() =>
+                          openDatePicker('Select End Date', vacationForm.endDate, (endDate) =>
+                            setVacationForm((form) => ({
+                              ...form,
+                              preset: 'Custom',
+                              endDate,
+                            }))
+                          )
+                        }
+                      />
+                    </View>
+                  </View>
+                  <Text style={[styles.durationSummary, { color: palette.blue }]}>
+                    {daysInVacation} {daysInVacation === 1 ? 'day' : 'days'}
+                  </Text>
+                </SectionCard>
+                <View>
+                  <FieldLabel palette={palette}>NOTES</FieldLabel>
+                  <SoftInput
                     value={vacationForm.notes}
-                    onChange={(e) => setVacationForm({ ...vacationForm, notes: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl p-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40 resize-none"
+                    onChangeText={(value) => setVacationForm((form) => ({ ...form, notes: value }))}
+                    placeholder="Vacation notes"
+                    palette={palette}
+                    multiline
+                    accessibilityLabel="Vacation notes"
                   />
-                </div>
-
-                {/* COVER PHOTO with Crown */}
-                <div>
-                  <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    <span>COVER PHOTO</span>
-                    <Crown className="w-3.5 h-3.5 text-[#2B99FF]" />
-                  </label>
-                  <div
-                    onClick={() =>
-                      handlePremiumFeature('Custom Vacation Cover Photo', () => {
-                        setVacationForm({
-                          ...vacationForm,
-                          coverPhoto: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=80'
-                        });
-                        showToast('Cover photo added!');
-                      })
-                    }
-                    className="bg-[#F4F6F9] rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-slate-200/60 transition-all"
+                </View>
+                <View>
+                  <View style={styles.labelWithCrown}>
+                    <FieldLabel palette={palette}>COVER PHOTO</FieldLabel>
+                    <MaterialCommunityIcons name="crown" size={13} color={palette.blue} />
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      if (!isPremium) {
+                        setProModal({ visible: true, feature: 'Custom Vacation Cover Photos' });
+                      } else {
+                        setVacationForm((form) => ({
+                          ...form,
+                          hasCoverPhoto: !form.hasCoverPhoto,
+                        }));
+                        showStatus(vacationForm.hasCoverPhoto ? 'Photo removed.' : 'Photo added.');
+                      }
+                    }}
+                    style={[styles.uploadCard, { backgroundColor: palette.field }]}
                   >
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center text-slate-400 shadow-sm">
-                        <ImageIcon className="w-5 h-5" />
-                      </div>
-                      <span className="text-[15px] text-[#8E9BAE]">
-                        {vacationForm.coverPhoto ? 'Beach_Holiday_Cover.jpg' : 'Add a photo'}
-                      </span>
-                    </div>
-                    <span className="text-[14px] font-semibold text-[#2B85E4] pr-2">
-                      {vacationForm.coverPhoto ? 'Change' : 'Upload'}
-                    </span>
-                  </div>
-                </div>
+                    <View style={styles.uploadLeft}>
+                      <View style={[styles.imageBadge, { backgroundColor: palette.card }]}>
+                        <Ionicons name="image-outline" size={20} color={palette.muted} />
+                      </View>
+                      <Text style={[styles.uploadText, { color: palette.muted }]}>
+                        {vacationForm.hasCoverPhoto ? 'Photo added' : 'Add a photo'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.uploadAction, { color: palette.blue }]}>Upload</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
-                {/* Save Vacation & Cancel */}
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="w-full bg-[#4A90E2] hover:bg-[#357ABD] active:scale-[0.99] text-white font-semibold text-[16px] py-4 rounded-2xl shadow-sm transition-all"
-                  >
-                    Save Vacation
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('dashboard')}
-                    className="w-full bg-white border-[1.5px] border-[#2B99FF] text-[#0088FF] font-semibold text-[16px] py-3.5 rounded-2xl hover:bg-blue-50/40 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ==================== TAB 5: NEW ACTIVITY UI (PRO) ==================== */}
-            {activeTab === 'Activities' && (
-              <div className="space-y-5 animate-fadeIn">
-                <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center gap-2.5 text-xs text-blue-800">
-                  <Sparkles className="w-4 h-4 text-[#2B99FF] shrink-0" />
-                  <span>Track extracurriculars, sports, music, or gym sessions in Study Sakha Pro!</span>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    ACTIVITY NAME
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., Evening Cricket Practice / Guitar Club"
+            {activeTab === 'Activities' ? (
+              <View style={styles.form}>
+                <View>
+                  <FieldLabel palette={palette}>ACTIVITY NAME</FieldLabel>
+                  <SoftInput
                     value={activityForm.name}
-                    onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
+                    onChangeText={(value) => setActivityForm((form) => ({ ...form, name: value }))}
+                    placeholder="Activity Name"
+                    palette={palette}
+                    accessibilityLabel="Activity name"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    CATEGORY
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={activityForm.category}
-                      onChange={(e) => setActivityForm({ ...activityForm, category: e.target.value })}
-                      className="w-full appearance-none bg-[#F4F6F9] text-slate-800 text-[15px] rounded-2xl px-4 py-4 pr-10 focus:outline-none focus:ring-2 focus:ring-[#4A90E2]/40"
-                    >
-                      <option>Sports & Fitness</option>
-                      <option>Music & Arts</option>
-                      <option>Coding Club</option>
-                      <option>Volunteering</option>
-                      <option>Personal Hobby</option>
-                    </select>
-                    <ChevronDown className="w-5 h-5 text-slate-600 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      STARTS
-                    </label>
-                    <input
-                      type="time"
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>CATEGORY</FieldLabel>
+                  <PlannerSelect
+                    value={activityForm.category}
+                    palette={palette}
+                    onPress={() =>
+                      openPicker('Select Activity Category', ACTIVITY_TYPES, activityForm.category, (category) =>
+                        setActivityForm((form) => ({ ...form, category }))
+                      )
+                    }
+                  />
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>DATE &amp; TIME</FieldLabel>
+                  <View style={styles.pillRow}>
+                    <DateButton
+                      value={activityForm.date}
+                      palette={palette}
+                      onPress={() =>
+                        openDatePicker('Select Activity Date', activityForm.date, (date) =>
+                          setActivityForm((form) => ({ ...form, date }))
+                        )
+                      }
+                    />
+                    <TimeButton
                       value={activityForm.startTime}
-                      onChange={(e) => setActivityForm({ ...activityForm, startTime: e.target.value })}
-                      className="w-full bg-[#F4F6F9] text-slate-800 text-[15px] rounded-2xl px-4 py-3.5"
+                      displayValue={
+                        activityForm.endTime
+                          ? formatTimeRange(activityForm.startTime, activityForm.endTime)
+                          : undefined
+                      }
+                      palette={palette}
+                      icon
+                      onPress={() =>
+                        openTimePicker(
+                          'Select Activity Time',
+                          activityForm.startTime,
+                          (startTime) =>
+                            setActivityForm((form) => ({ ...form, startTime, endTime: '' })),
+                          (startTime, endTime) =>
+                            setActivityForm((form) => ({ ...form, startTime, endTime })),
+                          activityForm.endTime
+                            ? { startTime: activityForm.startTime, endTime: activityForm.endTime }
+                            : undefined
+                        )
+                      }
                     />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                      ENDS
-                    </label>
-                    <input
-                      type="time"
-                      value={activityForm.endTime}
-                      onChange={(e) => setActivityForm({ ...activityForm, endTime: e.target.value })}
-                      className="w-full bg-[#F4F6F9] text-slate-800 text-[15px] rounded-2xl px-4 py-3.5"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#68768A] mb-2">
-                    NOTES
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Activity notes..."
+                  </View>
+                </View>
+                <View>
+                  <FieldLabel palette={palette}>NOTES</FieldLabel>
+                  <SoftInput
                     value={activityForm.notes}
-                    onChange={(e) => setActivityForm({ ...activityForm, notes: e.target.value })}
-                    className="w-full bg-[#F4F6F9] text-slate-800 placeholder-[#8E9BAE] text-[15px] rounded-2xl p-4 focus:outline-none resize-none"
+                    onChangeText={(value) => setActivityForm((form) => ({ ...form, notes: value }))}
+                    placeholder="Add notes..."
+                    palette={palette}
+                    multiline
                   />
-                </div>
+                </View>
+              </View>
+            ) : null}
 
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="w-full bg-[#4A90E2] hover:bg-[#357ABD] text-white font-semibold text-[16px] py-4 rounded-2xl shadow-sm transition-all"
-                  >
-                    Save Activity
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('dashboard')}
-                    className="w-full bg-white border-[1.5px] border-[#2B99FF] text-[#0088FF] font-semibold text-[16px] py-3.5 rounded-2xl"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          /* ==================== MY SCHEDULE DASHBOARD SCREEN ==================== */
-          <div className="p-5 flex-1 overflow-y-auto space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">My Planner</h2>
-                <p className="text-xs text-slate-500">All your upcoming tasks, classes & exams</p>
-              </div>
-              <button
-                onClick={() => setCurrentScreen('create')}
-                className="bg-[#4A90E2] text-white px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:bg-[#357ABD]"
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={saveItem}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  { backgroundColor: palette.blue, opacity: pressed ? 0.88 : 1 },
+                ]}
               >
-                <Plus className="w-4 h-4" /> New Entry
-              </button>
-            </div>
-
-            {/* Category Filter Pills */}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-              {['All', 'Tasks', 'Classes', 'Exams', 'Vacations', 'Activities'].map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    if (cat !== 'All') setActiveTab(cat);
-                  }}
-                  className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#F4F6F9] text-slate-700 hover:bg-blue-50 hover:text-[#4A90E2] whitespace-nowrap"
-                >
-                  {cat} (
-                  {cat === 'All'
-                    ? savedItems.length
-                    : savedItems.filter((i) => i.category === cat).length}
-                  )
-                </button>
-              ))}
-            </div>
-
-            {/* Saved Items List */}
-            {savedItems.length === 0 ? (
-              <div className="text-center py-16 space-y-3">
-                <div className="w-14 h-14 rounded-full bg-slate-100 mx-auto flex items-center justify-center text-slate-400">
-                  <CalendarIcon className="w-6 h-6" />
-                </div>
-                <p className="text-slate-600 font-semibold">No schedule items found</p>
-                <p className="text-xs text-slate-400">Tap the New Entry button to add a task or class.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {savedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="border border-slate-200/80 rounded-2xl p-4 bg-white hover:shadow-md transition-all flex items-start justify-between gap-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                        item.category === 'Tasks' ? 'bg-blue-50 text-[#4A90E2]' :
-                        item.category === 'Classes' ? 'bg-indigo-50 text-indigo-600' :
-                        item.category === 'Exams' ? 'bg-rose-50 text-rose-600' :
-                        'bg-emerald-50 text-emerald-600'
-                      }`}>
-                        {item.category === 'Tasks' && <CheckCircle2 className="w-5 h-5" />}
-                        {item.category === 'Classes' && <BookOpen className="w-5 h-5" />}
-                        {item.category === 'Exams' && <GraduationCap className="w-5 h-5" />}
-                        {item.category === 'Vacations' && <Palmtree className="w-5 h-5" />}
-                        {item.category === 'Activities' && <Sparkles className="w-5 h-5" />}
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
-                            {item.category}
-                          </span>
-                          {item.subject && (
-                            <span className="text-[11px] font-semibold text-[#4A90E2]">
-                              • {item.subject}
-                            </span>
-                          )}
-                        </div>
-
-                        <h3 className="font-bold text-slate-900 text-[15px]">
-                          {item.title}
-                        </h3>
-
-                        <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {item.date && (
-                            <span className="flex items-center gap-1">
-                              <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
-                              {formatNiceDate(item.date)}
-                            </span>
-                          )}
-                          {item.time && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              {formatNiceTime(item.time)}
-                            </span>
-                          )}
-                          {item.startTime && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              {formatNiceTime(item.startTime)} - {formatNiceTime(item.endTime)}
-                            </span>
-                          )}
-                          {item.room && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                              {item.room} {item.seat ? `(Seat ${item.seat})` : ''}
-                            </span>
-                          )}
-                          {item.teacher && (
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5 text-slate-400" />
-                              {item.teacher}
-                            </span>
-                          )}
-                        </div>
-
-                        {item.notes && (
-                          <p className="text-xs text-slate-400 pt-1 line-clamp-2">
-                            {item.notes}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setSavedItems(savedItems.filter((i) => i.id !== item.id));
-                        showToast('Item deleted');
-                      }}
-                      className="text-slate-300 hover:text-rose-500 p-1 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Home Indicator Bar */}
-        <div className="py-2.5 flex justify-center bg-white">
-          <div className="w-32 h-1 rounded-full bg-slate-300" />
-        </div>
-
-        {/* ==================== STUDY SAKHA PRO MODAL ==================== */}
-        {premiumModal.open && (
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-fadeIn">
-              <div className="flex justify-between items-start">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-[#2B99FF]">
-                  <Crown className="w-6 h-6" />
-                </div>
-                <button
-                  onClick={() => setPremiumModal({ open: false, feature: '' })}
-                  className="p-1.5 rounded-full text-slate-400 hover:bg-slate-100"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#2B99FF]">
-                  Study Sakha Pro Feature
-                </span>
-                <h3 className="text-xl font-bold text-slate-900 mt-0.5">
-                  Unlock {premiumModal.feature}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Upgrade to Study Sakha Pro to unlock repeating tasks, extracurricular activity tracking, cover photos, and unlimited task storage.
-                </p>
-              </div>
-
-              <div className="bg-[#F4F6F9] rounded-2xl p-3.5 space-y-2 text-xs text-slate-700">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#4A90E2]" />
-                  <span>Unlimited Tasks, Classes & Exams</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#4A90E2]" />
-                  <span>Repeating Schedules & Activities Tab</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#4A90E2]" />
-                  <span>Custom Vacation Cover Photos</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  setIsPremium(true);
-                  setPremiumModal({ open: false, feature: '' });
-                  showToast('Study Sakha PRO unlocked!');
+                <Text style={styles.primaryButtonText}>
+                  {activeTab === 'Tasks' && !isPremium
+                    ? `Save (${freeTasksRemaining} free tasks remaining)`
+                    : activeTab === 'Tasks'
+                      ? 'Save Task'
+                      : `Save ${activeTab === 'Classes' ? 'Class' : activeTab === 'Exams' ? 'Exam' : activeTab === 'Vacations' ? 'Vacation' : 'Activity'}`}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  clearActiveForm();
+                  showStatus('Form cleared.');
                 }}
-                className="w-full bg-[#4A90E2] hover:bg-[#357ABD] text-white font-semibold py-3.5 rounded-2xl shadow-sm transition-all text-sm"
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  { borderColor: palette.blue, opacity: pressed ? 0.75 : 1 },
+                ]}
               >
-                Enable Pro Mode (Free Demo)
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+                <Text style={[styles.cancelButtonText, { color: palette.blue }]}>Cancel</Text>
+              </Pressable>
+            </View>
+            {savedItems.length > 0 ? (
+              <Text style={[styles.savedCount, { color: palette.muted }]}>
+                {savedItems.length} saved {savedItems.length === 1 ? 'item' : 'items'}
+              </Text>
+            ) : null}
+          </View>
+          ) : (
+            <View
+              style={[
+                styles.formSheet,
+                {
+                  backgroundColor: palette.card,
+                  borderColor: width >= 768 ? palette.border : 'transparent',
+                },
+                width >= 768 && styles.desktopSheet,
+              ]}
+            >
+              <Text style={{ color: palette.text, fontSize: 22, fontWeight: '700', marginBottom: 16 }}>
+                My Schedule
+              </Text>
+              {savedItems.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: 36 }}>
+                  <Ionicons name="calendar-outline" size={28} color={palette.muted} />
+                  <Text style={{ color: palette.text, fontSize: 14, fontWeight: '700', marginTop: 10 }}>
+                    No schedule items found
+                  </Text>
+                  <Text style={{ color: palette.muted, fontSize: 12, marginTop: 4 }}>
+                    Add a task or another planner item to see it here.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {savedItems.map((item) => (
+                    <View
+                      key={item.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: palette.border,
+                        borderRadius: 14,
+                        padding: 14,
+                        backgroundColor: palette.card,
+                      }}
+                    >
+                      <Text style={{ color: palette.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>
+                        {item.category}{item.subject ? ` · ${item.subject}` : ''}
+                      </Text>
+                      <Text style={{ color: palette.text, fontSize: 15, fontWeight: '700', marginTop: 5 }}>
+                        {item.title}
+                      </Text>
+                      {item.date ? (
+                        <Text style={{ color: palette.muted, fontSize: 12, marginTop: 5 }}>
+                          {formatDate(item.date)}
+                          {item.time ? ` · ${formatTime(item.time)}` : ''}
+                          {item.startTime ? ` · ${formatTimeRange(item.startTime, item.endTime ?? '')}` : ''}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+        </ScrollView>
+
+        {statusMessage ? (
+          <View style={[styles.toast, { backgroundColor: palette.text }]}>
+            <Ionicons name="checkmark-circle" size={18} color="#34D399" />
+            <Text style={styles.toastText}>{statusMessage}</Text>
+          </View>
+        ) : null}
+
+        <Modal
+          visible={pickerModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPickerModal((modal) => ({ ...modal, visible: false }))}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{pickerModal.title}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={() => setPickerModal((modal) => ({ ...modal, visible: false }))}
+                >
+                  <Ionicons name="close" size={22} color={palette.muted} />
+                </Pressable>
+              </View>
+              <ScrollView style={styles.modalOptions} showsVerticalScrollIndicator={false}>
+                {pickerModal.options.map((option) => {
+                  const selected = pickerModal.selected === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        pickerModal.onSelect(option);
+                        setPickerModal((modal) => ({ ...modal, visible: false }));
+                      }}
+                      style={[
+                        styles.optionRow,
+                        { backgroundColor: selected ? palette.softBlue : 'transparent' },
+                      ]}
+                    >
+                      <Text style={[styles.optionText, { color: selected ? palette.blue : palette.text }]}>
+                        {option}
+                      </Text>
+                      {selected ? <Ionicons name="checkmark" size={18} color={palette.blue} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={dateModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDateModal((modal) => ({ ...modal, visible: false }))}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{dateModal.title}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={() => setDateModal((modal) => ({ ...modal, visible: false }))}
+                >
+                  <Ionicons name="close" size={22} color={palette.muted} />
+                </Pressable>
+              </View>
+              <Text style={[styles.modalHint, { color: palette.muted }]}>Enter a date as YYYY-MM-DD or choose a quick date.</Text>
+              <SoftInput
+                value={dateModal.value}
+                onChangeText={(value) => setDateModal((modal) => ({ ...modal, value, error: '' }))}
+                placeholder="YYYY-MM-DD"
+                palette={palette}
+                accessibilityLabel="Date"
+              />
+              {dateModal.error ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>{dateModal.error}</Text>
+              ) : null}
+              <View style={styles.quickDateRow}>
+                {dateOptions.map((option) => (
+                  <Pressable
+                    key={option.label}
+                    accessibilityRole="button"
+                    onPress={() => setDateModal((modal) => ({ ...modal, value: option.value, error: '' }))}
+                    style={[styles.quickDate, { backgroundColor: palette.field }]}
+                  >
+                    <Text style={[styles.quickDateTitle, { color: palette.text }]}>{option.label}</Text>
+                    <Text style={[styles.quickDateValue, { color: palette.blue }]}>{formatDate(option.value)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (!parseLocalDate(dateModal.value)) {
+                    setDateModal((modal) => ({ ...modal, error: 'Enter a valid date in YYYY-MM-DD format.' }));
+                    return;
+                  }
+                  dateModal.onSave(dateModal.value);
+                  setDateModal((modal) => ({ ...modal, visible: false, error: '' }));
+                }}
+                style={[styles.primaryButton, { backgroundColor: palette.blue }]}
+              >
+                <Text style={styles.primaryButtonText}>Confirm Date</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={timeModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>{timeModal.title}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
+                >
+                  <Ionicons name="close" size={22} color={palette.muted} />
+                </Pressable>
+              </View>
+              {timeModal.allowRange ? (
+                <View style={styles.timeModeToggle}>
+                  {([
+                    { mode: 'single', label: 'Single Time' },
+                    { mode: 'range', label: 'Timeframe / Range' },
+                  ] as const).map(({ mode, label }) => (
+                    <Pressable
+                      key={mode}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: timeModal.mode === mode }}
+                      onPress={() => setTimeModal((modal) => ({ ...modal, mode, error: '' }))}
+                      style={[
+                        styles.timeModeButton,
+                        {
+                          backgroundColor: timeModal.mode === mode ? palette.blue : palette.field,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.timeModeText,
+                          { color: timeModal.mode === mode ? '#FFFFFF' : palette.muted },
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              <Text style={[styles.modalHint, { color: palette.muted }]}>
+                {timeModal.mode === 'range'
+                  ? 'Choose a start and end time.'
+                  : 'Choose a time or enter it below.'}
+              </Text>
+              <TimeEntryGroup
+                label={timeModal.mode === 'range' ? 'START TIME' : 'TIME'}
+                hour={timeModal.startHour}
+                minute={timeModal.startMinute}
+                period={timeModal.startPeriod}
+                palette={palette}
+                onHourChange={(startHour) =>
+                  setTimeModal((modal) => ({ ...modal, startHour, error: '' }))
+                }
+                onMinuteChange={(startMinute) =>
+                  setTimeModal((modal) => ({ ...modal, startMinute, error: '' }))
+                }
+                onPeriodChange={(startPeriod) =>
+                  setTimeModal((modal) => ({ ...modal, startPeriod, error: '' }))
+                }
+              />
+              {timeModal.mode === 'range' ? (
+                <TimeEntryGroup
+                  label="END TIME"
+                  hour={timeModal.endHour}
+                  minute={timeModal.endMinute}
+                  period={timeModal.endPeriod}
+                  palette={palette}
+                  onHourChange={(endHour) =>
+                    setTimeModal((modal) => ({ ...modal, endHour, error: '' }))
+                  }
+                  onMinuteChange={(endMinute) =>
+                    setTimeModal((modal) => ({ ...modal, endMinute, error: '' }))
+                  }
+                  onPeriodChange={(endPeriod) =>
+                    setTimeModal((modal) => ({ ...modal, endPeriod, error: '' }))
+                  }
+                />
+              ) : null}
+              {timeModal.error || rangeValidationError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {timeModal.error || rangeValidationError}
+                </Text>
+              ) : null}
+              <View style={styles.quickTimeRow}>
+                {timeModal.mode === 'range'
+                  ? [
+                      { start: '18:00', end: '20:00' },
+                      { start: '09:00', end: '11:00' },
+                      { start: '16:00', end: '18:00' },
+                    ].map(({ start, end }) => (
+                      <Pressable
+                        key={`${start}-${end}`}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          timeModal.onSaveRange?.(start, end);
+                          setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
+                        }}
+                        style={[styles.quickTime, { backgroundColor: palette.field }]}
+                      >
+                        <Text style={[styles.quickTimeText, { color: palette.text }]}>
+                          {formatTimeRange(start, end)}
+                        </Text>
+                      </Pressable>
+                    ))
+                  : ['09:00', '10:30', '13:30', '17:00', '19:00', '20:30'].map((time) => (
+                      <Pressable
+                        key={time}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          timeModal.onSave(time);
+                          setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
+                        }}
+                        style={[styles.quickTime, { backgroundColor: palette.field }]}
+                      >
+                        <Text style={[styles.quickTimeText, { color: palette.text }]}>
+                          {formatTime(time)}
+                        </Text>
+                      </Pressable>
+                    ))}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  const startTime = to24HourTime(
+                    timeModal.startHour,
+                    timeModal.startMinute,
+                    timeModal.startPeriod
+                  );
+                  if (!startTime) {
+                    setTimeModal((modal) => ({
+                      ...modal,
+                      error: 'Enter valid hours from 1–12 and minutes from 00–59.',
+                    }));
+                    return;
+                  }
+                  if (timeModal.mode === 'range') {
+                    const endTime = to24HourTime(
+                      timeModal.endHour,
+                      timeModal.endMinute,
+                      timeModal.endPeriod
+                    );
+                    if (!endTime) {
+                      setTimeModal((modal) => ({
+                        ...modal,
+                        error: 'Enter valid hours from 1–12 and minutes from 00–59.',
+                      }));
+                      return;
+                    }
+                    if ((timeToMinutes(endTime) ?? 0) <= (timeToMinutes(startTime) ?? 0)) {
+                      setTimeModal((modal) => ({
+                        ...modal,
+                        error: 'End time must be after start time.',
+                      }));
+                      return;
+                    }
+                    timeModal.onSaveRange?.(startTime, endTime);
+                  } else {
+                    timeModal.onSave(startTime);
+                  }
+                  setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
+                }}
+                style={[styles.primaryButton, { backgroundColor: palette.blue }]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {timeModal.mode === 'range' ? 'Set Timeframe' : 'Set Time'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={proModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setProModal({ visible: false, feature: '' })}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <View style={[styles.proIcon, { backgroundColor: palette.softBlue }]}>
+                <MaterialCommunityIcons name="crown" size={24} color={palette.blue} />
+              </View>
+              <Text style={[styles.proEyebrow, { color: palette.blue }]}>STUDY SAKHA PRO</Text>
+              <Text style={[styles.proTitle, { color: palette.text }]}>Unlock {proModal.feature}</Text>
+              <Text style={[styles.proDescription, { color: palette.muted }]}>
+                Get repeating schedules, activities, custom covers, unlimited saved tasks, and more.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setIsPremium(true);
+                  setProModal({ visible: false, feature: '' });
+                  showStatus('Sakha Pro mode enabled.');
+                }}
+                style={[styles.primaryButton, { backgroundColor: palette.blue }]}
+              >
+                <Text style={styles.primaryButtonText}>Activate Sakha Pro (Demo)</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setProModal({ visible: false, feature: '' })}
+                style={styles.maybeLater}
+              >
+                <Text style={[styles.cancelButtonText, { color: palette.muted }]}>Maybe Later</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </Shell>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    width: '100%',
+  },
+  page: {
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 36,
+    alignItems: 'center',
+  },
+  desktopPage: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+  },
+  formSheet: {
+    width: '100%',
+    maxWidth: 620,
+    borderRadius: 24,
+  },
+  desktopSheet: {
+    padding: 24,
+    borderWidth: 1,
+  },
+  tabBarOuter: {
+    alignSelf: 'stretch',
+    borderRadius: 30,
+  },
+  tabBar: {
+    alignItems: 'center',
+    padding: 4,
+    gap: 2,
+  },
+  tab: {
+    minHeight: 40,
+    paddingHorizontal: 11,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  activeTab: {
+    backgroundColor: '#FFFFFF',
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  activeTabText: {
+    fontWeight: '700',
+  },
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 22,
+    marginBottom: 22,
+  },
+  form: {
+    gap: 18,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  textInput: {
+    minHeight: 52,
+    borderWidth: 0,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  textArea: {
+    minHeight: 104,
+    borderWidth: 0,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  inputText: {
+    fontSize: 15,
+    fontWeight: '500',
+    flexShrink: 1,
+  },
+  select: {
+    minHeight: 52,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  dateButton: {
+    minHeight: 46,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
+  timeButton: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  choicePill: {
+    minHeight: 40,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  outlineChoice: {
+    minWidth: 100,
+  },
+  choiceText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sectionCard: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    gap: 16,
+  },
+  columns: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  column: {
+    flex: 1,
+    minWidth: 0,
+  },
+  threeColumns: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  dayButton: {
+    minWidth: 35,
+    minHeight: 36,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smallChoiceText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stepperRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 22,
+  },
+  stepperButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  durationText: {
+    minWidth: 75,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  presetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  durationSummary: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  labelWithCrown: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 5,
+  },
+  uploadCard: {
+    minHeight: 68,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  uploadLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  imageBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  uploadAction: {
+    fontSize: 14,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  actions: {
+    gap: 10,
+    marginTop: 24,
+  },
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  cancelButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  savedCount: {
+    marginTop: 16,
+    textAlign: 'center',
+    fontSize: 12,
+  },
+  toast: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    elevation: 5,
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    gap: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    paddingRight: 12,
+  },
+  modalHint: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  timeModeToggle: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  timeModeButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 13,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeModeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  modalOptions: {
+    maxHeight: 340,
+  },
+  optionRow: {
+    minHeight: 48,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  optionText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 12,
+  },
+  quickDateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickDate: {
+    flexGrow: 1,
+    minWidth: '46%',
+    padding: 10,
+    borderRadius: 12,
+  },
+  quickDateTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quickDateValue: {
+    fontSize: 11,
+    marginTop: 3,
+  },
+  timeEntryGroup: {
+    gap: 8,
+  },
+  timeEntryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  timeEntry: {
+    flex: 1,
+    minWidth: 0,
+  },
+  periodPicker: {
+    gap: 6,
+    paddingBottom: 1,
+  },
+  periodButton: {
+    minWidth: 50,
+    height: 25,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  periodText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  quickTimeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickTime: {
+    minWidth: '30%',
+    flexGrow: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  quickTimeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  proIcon: {
+    width: 52,
+    height: 52,
+    alignSelf: 'center',
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proEyebrow: {
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  proTitle: {
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  proDescription: {
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  maybeLater: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+});

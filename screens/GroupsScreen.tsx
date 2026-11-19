@@ -332,7 +332,21 @@ export default function GroupsScreen() {
           </ScrollView>
 
           <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, borderTopWidth: 1, borderTopColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-            <Button label={isFocusing ? 'Focusing • Tap to open timer' : 'Start Focus'} icon={isFocusing ? 'timer-outline' : 'play'} onPress={() => isFocusing ? nav.navigate('FocusCenter') : setIsFocusing(true)} full size="lg" style={{ borderRadius: radii.pill }} />
+            <Button
+              label={isFocusing ? 'Focusing • Tap to open timer' : 'Start Focus'}
+              icon={isFocusing ? 'timer-outline' : 'play'}
+              onPress={() => {
+                if (isFocusing) {
+                  nav.navigate('FocusCenter');
+                  return;
+                }
+                setIsFocusing(true);
+                nav.navigate('FocusCenter', { openStudySetup: true });
+              }}
+              full
+              size="lg"
+              style={{ borderRadius: radii.pill }}
+            />
           </View>
         </View>
 
