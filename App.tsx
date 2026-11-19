@@ -35,6 +35,7 @@ import CurrentAffairsScreen from './screens/CurrentAffairsScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import FocusCenterScreen from './screens/FocusCenterScreen';
 import FocusLockScreen from './screens/FocusLockScreen';
+import GroupsScreen from './screens/GroupsScreen';
 import HobbiesScreen from './screens/HobbiesScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import MoreScreen from './screens/MoreScreen';
@@ -49,7 +50,7 @@ import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
 import TaskPerformanceScreen from './screens/TaskPerformanceScreen';
-import StudyPlannerScreen from './screens/StudyPlannerScreen';
+import StudyPlanner from './screens/StudyPlanner';
 import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
@@ -85,6 +86,7 @@ const linking: AppLinkingOptions = {
             screens: {
               DashboardRoot: '',
               Library: 'library',
+              Groups: 'groups',
               More: 'more',
               LibraryNotes: 'library/notes',
               LibraryBooks: 'library/books',
@@ -260,6 +262,7 @@ function AuthenticatedStackNavigator() {
     >
       <AppStack.Screen name="DashboardRoot" component={DashboardScreen} />
       <AppStack.Screen name="Library" component={LibraryScreen} />
+      <AppStack.Screen name="Groups" component={GroupsScreen} />
       <AppStack.Screen name="More" component={MoreScreen} />
       <AppStack.Screen name="LibraryNotes" component={LibraryNotesScreen} />
       <AppStack.Screen name="LibraryBooks" component={LibraryBooksScreen} />
@@ -278,7 +281,7 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Notifications" component={NotificationsScreen} />
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
-      <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
+      <AppStack.Screen name="StudyPlanner" component={StudyPlanner} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
       <AppStack.Screen name="FocusLock" component={FocusLockScreen} />
       <AppStack.Screen name="Hobbies" component={HobbiesScreen} />

@@ -21,6 +21,7 @@ const LIBRARY_SECTIONS = [
   { route: 'LibraryNotes', key: 'note', label: 'Notes', icon: 'document-text-outline', description: 'Your revision notes and study material.' },
   { route: 'LibraryBooks', key: 'book', label: 'Books & PDFs', icon: 'book-outline', description: 'Browse books and PDF resources.' },
   { route: 'LibraryPYQSets', key: 'pyq-set', label: 'PYQ Sets', icon: 'albums-outline', description: 'Practice previous-year question sets.' },
+  { route: 'Tests', key: 'tests', label: 'Tests', icon: 'timer-outline', description: 'Practice timed tests and track your results.' },
   { route: 'LibraryStarred', key: 'starred', label: 'Starred', icon: 'star-outline', description: 'Quick access to resources you starred.' },
   { route: 'LibraryDownloads', key: 'downloads', label: 'Downloads', icon: 'cloud-download-outline', description: 'Saved offline files on this device.' },
 ] as const;
@@ -43,7 +44,7 @@ const BOOK_CATEGORIES = [
 function getSectionResources(section: LibrarySectionKey, state: State): Resource[] {
   const resources = getResources(state.managedContent);
   if (section === 'starred') return resources.filter((resource) => state.starred.includes(resource.id));
-  if (section === 'downloads') return [];
+  if (section === 'downloads' || section === 'tests') return [];
   return resources.filter((resource) => resource.type === section);
 }
 
@@ -51,7 +52,11 @@ function SectionCount({ section, state }: { section: LibrarySection; state: Stat
   const count = getSectionResources(section.key, state).length;
   return (
     <Txt size={12} weight="700" color={useTheme().colors.textMuted}>
-      {section.key === 'downloads' ? 'Manage saved files' : `${count} resource${count === 1 ? '' : 's'}`}
+      {section.key === 'downloads'
+        ? 'Manage saved files'
+        : section.key === 'tests'
+          ? 'Open test series'
+          : `${count} resource${count === 1 ? '' : 's'}`}
     </Txt>
   );
 }
@@ -86,7 +91,13 @@ export default function LibraryScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open ${section.label}`}
-              onPress={() => nav.navigate(section.route, route.params)}
+              onPress={() => {
+                if (section.route === 'Tests') {
+                  nav.navigate('Tests', route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : undefined);
+                } else {
+                  nav.navigate(section.route, route.params);
+                }
+              }}
               style={({ pressed }) => ({
                 minHeight: 160,
                 padding: 16,

@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from 'react-native';
 import {
@@ -52,7 +53,28 @@ export default function FocusCenterScreen() {
 
   const [activity, setActivity] = useState<FocusActivity | null>(null);
 
-  // Meditation configuration state (defaults to new Pure Cosmic Waves experience)
+  // Focus for Study Popup & Active Session States
+  const [showStudySetupModal, setShowStudySetupModal] = useState(false);
+  const [timerMode, setTimerMode] = useState<'timer' | 'stopwatch' | 'pomodoro'>('timer');
+  const [selectedTag, setSelectedTag] = useState('History');
+  const [tagModalVisible, setTagModalVisible] = useState(false);
+  const [customTagInput, setCustomTagInput] = useState('');
+  const [studyDurationMinutes, setStudyDurationMinutes] = useState(25);
+  const [isStudySessionActive, setIsStudySessionActive] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
+
+  // 3-Line Menu Modal States (Music, Themes, Blocked Apps)
+  const [menuModalVisible, setMenuModalVisible] = useState(false);
+  const [selectedMusic, setSelectedMusic] = useState('Lofi Beats');
+  const [selectedTheme, setSelectedTheme] = useState('Starry Sky');
+  const [blockedAppsCount, setBlockedAppsCount] = useState(5);
+
+  // Group Selection State
+const [groupSelectModalVisible, setGroupSelectModalVisible] = useState(false);
+const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
+
+  // Meditation configuration state
   const [showMeditationConfig, setShowMeditationConfig] = useState(false);
   const selectedPresetId: MeditationPresetId = 'pure_cosmic_waves';
   const [meditationDuration, setMeditationDuration] = useState(10);
@@ -73,6 +95,40 @@ export default function FocusCenterScreen() {
     });
     return unsub;
   }, []);
+
+  // Study Timer Countdown Effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isStudySessionActive && !isPaused && timerMode !== 'stopwatch') {
+      interval = setInterval(() => {
+        setSecondsRemaining((prev) => {
+          if (prev <= 1) {
+            setIsStudySessionActive(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (isStudySessionActive && !isPaused && timerMode === 'stopwatch') {
+      interval = setInterval(() => {
+        setSecondsRemaining((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isStudySessionActive, isPaused, timerMode]);
+
+  const handleStartStudySession = () => {
+    setSecondsRemaining(timerMode === 'stopwatch' ? 0 : studyDurationMinutes * 60);
+    setShowStudySetupModal(false);
+    setIsStudySessionActive(true);
+    setIsPaused(false);
+  };
+
+  const formatTime = (totalSecs: number) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const handleDownloadCosmic = async () => {
     await AudioDownloadManager.download({
@@ -106,14 +162,11 @@ export default function FocusCenterScreen() {
     })();
   }, []);
 
-  // Save preferences
   const savePrefs = async (duration: number) => {
     try {
       await AsyncStorage.setItem(
         MEDITATION_PREFS_KEY,
-        JSON.stringify({
-          durationMinutes: duration,
-        })
+        JSON.stringify({ durationMinutes: duration })
       );
     } catch (e) {
       console.warn('Could not save meditation prefs:', e);
@@ -124,12 +177,32 @@ export default function FocusCenterScreen() {
     return navigation.addListener('blur', () => {
       setActivity(null);
       setShowMeditationConfig(false);
+      setShowStudySetupModal(false);
+      setIsStudySessionActive(false);
       setFullScreenMeditationActive(false);
+      setTagModalVisible(false);
+      setMenuModalVisible(false);
     });
   }, [navigation]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (tagModalVisible) {
+        setTagModalVisible(false);
+        return true;
+      }
+      if (menuModalVisible) {
+        setMenuModalVisible(false);
+        return true;
+      }
+      if (isStudySessionActive) {
+        setIsStudySessionActive(false);
+        return true;
+      }
+      if (showStudySetupModal) {
+        setShowStudySetupModal(false);
+        return true;
+      }
       if (fullScreenMeditationActive) {
         setFullScreenMeditationActive(false);
         setShowMeditationConfig(true);
@@ -146,10 +219,12 @@ export default function FocusCenterScreen() {
       return false;
     });
     return () => subscription.remove();
-  }, [activity, fullScreenMeditationActive, showMeditationConfig]);
+  }, [activity, fullScreenMeditationActive, showMeditationConfig, isStudySessionActive, showStudySetupModal, tagModalVisible, menuModalVisible]);
 
   const handleCardPress = (id: FocusActivity | 'hobbies') => {
-    if (id === 'meditation') {
+    if (id === 'study') {
+      setShowStudySetupModal(true);
+    } else if (id === 'meditation') {
       setShowMeditationConfig(true);
     } else if (id === 'hobbies') {
       navigation.navigate('Hobbies');
@@ -158,7 +233,6 @@ export default function FocusCenterScreen() {
     }
   };
 
-  // Change duration
   const handleSelectDuration = (duration: number) => {
     setMeditationDuration(duration);
     savePrefs(duration);
@@ -205,9 +279,244 @@ export default function FocusCenterScreen() {
   };
 
   const selectedPreset = getPresetById(selectedPresetId);
+  const greenAccent = '#4ADE80';
+  const surfaceBg = isDark ? '#18191C' : colors.surface;
+  const surfaceAltBg = isDark ? '#202225' : colors.surfaceAlt;
 
+  // ==================== 1. ACTIVE FULL-SCREEN FOCUS VIEW (TRUE FULLSCREEN) ====================
+  if (isStudySessionActive) {
+    return (
+      <View style={styles.trueFullScreenRoot}>
+        
+                  {/* Top Group / Live Status Feature */}
+          <View style={styles.activeTopHeader}>
+            <Pressable
+              onPress={() => setGroupSelectModalVisible(true)}
+              style={styles.activeGroupPill}
+            >
+              <View style={[styles.liveDot, { backgroundColor: greenAccent }]} />
+              <Txt color="#F8FAFC" size={12.5} weight="700">
+                {currentSelectedGroup} • Active session
+              </Txt>
+              <Ionicons name="chevron-down" size={13} color="#94A3B8" />
+            </Pressable>
+          </View>
+
+        {/* Center Circle with Tag at Top */}
+        <View style={styles.timerCenterContainer}>
+          <View style={styles.timerOuterRing}>
+            <Pressable
+              onPress={() => setTagModalVisible(true)}
+              style={styles.circleTopTagRow}
+            >
+              <Txt color="#94A3B8" size={12} weight="600">
+                {selectedTag}
+              </Txt>
+              <Ionicons name="chevron-down" size={12} color="#94A3B8" />
+            </Pressable>
+
+            <Txt color="#94A3B8" size={11} weight="700" style={{ letterSpacing: 1.2, marginTop: 6 }}>
+              {timerMode.toUpperCase()}
+            </Txt>
+
+            <Txt color="#FFFFFF" size={56} weight="800" style={{ letterSpacing: -1, marginVertical: 8 }}>
+              {formatTime(secondsRemaining)}
+            </Txt>
+
+            <Pressable
+              onPress={() => setIsPaused(!isPaused)}
+              style={styles.takeBreakPill}
+            >
+              <Txt color="#CBD5E1" size={12} weight="600">
+                {isPaused ? 'Paused' : 'Take a break'}
+              </Txt>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Bottom Controls: 3-Line Menu (Left) & Pause/Stop */}
+        <View style={styles.activeBottomBar}>
+          <Pressable
+            onPress={() => setMenuModalVisible(true)}
+            style={styles.controlIconBtn}
+          >
+            <Ionicons name="menu" size={22} color="#FFFFFF" />
+          </Pressable>
+
+          <Pressable
+            onPress={() => setIsStudySessionActive(false)}
+            style={styles.stopFocusBtn}
+          >
+            <Txt color="#0F172A" size={14.5} weight="800">
+              Stop Focus
+            </Txt>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setIsPaused(!isPaused)}
+            style={[styles.resumeBtn, { backgroundColor: isPaused ? greenAccent : '#334155' }]}
+          >
+            <Txt color={isPaused ? '#052E16' : '#FFFFFF'} size={14.5} weight="800">
+              {isPaused ? 'Resume' : 'Pause'}
+            </Txt>
+          </Pressable>
+        </View>
+
+        {/* ================= MODALS INSIDE FULLSCREEN VIEW ================= */}
+        {/* Tag Selection Modal */}
+        <Modal animationType="fade" transparent visible={tagModalVisible} onRequestClose={() => setTagModalVisible(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Txt color={colors.text} size={18} weight="800">Select Subject Tag</Txt>
+                <Pressable onPress={() => setTagModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
+                <Pressable
+                  key={tag}
+                  onPress={() => {
+                    setSelectedTag(tag);
+                    setTagModalVisible(false);
+                  }}
+                  style={[styles.modalTagItem, { backgroundColor: surfaceAltBg }]}
+                >
+                  <Txt color={colors.text} size={14} weight="700">{tag}</Txt>
+                  {selectedTag === tag && <Ionicons name="checkmark" size={18} color={colors.blue} />}
+                </Pressable>
+              ))}
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                <TextInput
+                  style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text }]}
+                  placeholder="Add custom tag..."
+                  placeholderTextColor={colors.textMuted}
+                  value={customTagInput}
+                  onChangeText={setCustomTagInput}
+                />
+                <Pressable
+                  onPress={() => {
+                    if (customTagInput.trim()) {
+                      setSelectedTag(customTagInput.trim());
+                      setCustomTagInput('');
+                      setTagModalVisible(false);
+                    }
+                  }}
+                  style={[styles.addTagBtn, { backgroundColor: colors.blue }]}
+                >
+                  <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* 3-Line Menu Modal */}
+        <Modal animationType="fade" transparent visible={menuModalVisible} onRequestClose={() => setMenuModalVisible(false)}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Txt color={colors.text} size={18} weight="800">Focus Settings & Menu</Txt>
+                <Pressable onPress={() => setMenuModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              <View style={[styles.menuItemRow, { backgroundColor: surfaceAltBg }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="musical-notes-outline" size={18} color={colors.blue} />
+                  <Txt color={colors.text} size={14} weight="700">Music ({selectedMusic})</Txt>
+                </View>
+                <Pressable onPress={() => setSelectedMusic(selectedMusic === 'Lofi Beats' ? 'White Noise' : 'Lofi Beats')}>
+                  <Txt color={colors.blue} size={13} weight="700">Change</Txt>
+                </Pressable>
+              </View>
+
+              <View style={[styles.menuItemRow, { backgroundColor: surfaceAltBg }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="color-palette-outline" size={18} color="#A855F7" />
+                  <Txt color={colors.text} size={14} weight="700">Themes ({selectedTheme})</Txt>
+                </View>
+                <Pressable onPress={() => setSelectedTheme(selectedTheme === 'Starry Sky' ? 'Deep Forest' : 'Starry Sky')}>
+                  <Txt color="#A855F7" size={13} weight="700">Switch</Txt>
+                </Pressable>
+              </View>
+
+              <View style={[styles.menuItemRow, { backgroundColor: surfaceAltBg }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="shield-outline" size={18} color="#EF4444" />
+                  <Txt color={colors.text} size={14} weight="700">Blocked Apps ({blockedAppsCount} Apps)</Txt>
+                </View>
+                <Pressable onPress={() => setBlockedAppsCount(blockedAppsCount === 5 ? 8 : 5)}>
+                  <Txt color="#EF4444" size={13} weight="700">Manage</Txt>
+                </Pressable>
+              </View>
+
+              <View style={{ marginTop: 14 }}>
+                <Button label="Done" full onPress={() => setMenuModalVisible(false)} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ================= 3. GROUP SELECTOR BOTTOM SHEET MODAL ================= */}
+        <Modal
+          animationType="slide"
+          transparent
+          visible={groupSelectModalVisible}
+          onRequestClose={() => setGroupSelectModalVisible(false)}
+        >
+          <View style={styles.bottomSheetBackdrop}>
+            <View style={[styles.bottomSheetCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+              <View style={styles.sheetHandleBar} />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <Txt color={colors.text} size={18} weight="800">Select Active Study Group</Txt>
+                <Pressable onPress={() => setGroupSelectModalVisible(false)}>
+                  <Ionicons name="close" size={20} color={colors.textMuted} />
+                </Pressable>
+              </View>
+
+              <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 10 }}>YOUR JOINED GROUPS</Txt>
+
+              {['ras', 'upsc 2027', '12 hours study group', 'CDS aspirants'].map((grp) => (
+                <Pressable
+                  key={grp}
+                  onPress={() => {
+                    setCurrentSelectedGroup(grp);
+                    setGroupSelectModalVisible(false);
+                  }}
+                  style={[
+                    styles.modalTagItem,
+                    { backgroundColor: surfaceAltBg, borderWidth: currentSelectedGroup === grp ? 1.5 : 0, borderColor: colors.blue }
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={[styles.liveDot, { backgroundColor: currentSelectedGroup === grp ? greenAccent : colors.textFaint }]} />
+                    <Txt color={colors.text} size={14.5} weight="700">{grp}</Txt>
+                  </View>
+                  {currentSelectedGroup === grp && <Ionicons name="checkmark-circle" size={20} color={colors.blue} />}
+                </Pressable>
+              ))}
+
+              <View style={{ marginTop: 16 }}>
+                <Button label="Done" full onPress={() => setGroupSelectModalVisible(false)} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+        
+      </View>
+    );
+  }
+
+  // ==================== MAIN FOCUS CENTER VIEW ====================
   return (
     <Shell active="FocusCenter" title="Focus & Wellness" subtitle="Choose a session for your next study moment">
+
+      {/* Focus Lock Banner */}
       <Pressable
         onPress={() => navigation.navigate('FocusLock')}
         accessibilityRole="button"
@@ -233,7 +542,7 @@ export default function FocusCenterScreen() {
         <View style={{ flex: 1, gap: 4 }}>
           <Txt size={18} weight="800" color="#FFFFFF">Focus Lock</Txt>
           <Txt size={12.5} color="rgba(255,255,255,0.78)">Set a focus timer and choose what you want to avoid.</Txt>
-          <Txt size={11} weight="700" color="#FFFFFF" style={{ marginTop: 4 }}>SET UP SESSION  &gt;</Txt>
+          <Txt size={11} weight="700" color="#FFFFFF" style={{ marginTop: 4 }}>SET UP SESSION &gt;</Txt>
         </View>
         <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
       </Pressable>
@@ -271,6 +580,94 @@ export default function FocusCenterScreen() {
           );
         })}
       </View>
+
+      {/* ================= 2. BOTTOM POPUP SHEET FOR STUDY SETUP ================= */}
+      <Modal
+        visible={showStudySetupModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowStudySetupModal(false)}
+      >
+        <View style={styles.bottomSheetBackdrop}>
+          <View style={[styles.bottomSheetCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+            <View style={styles.sheetHandleBar} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Txt color={colors.text} size={18} weight="800">Focus Session Setup</Txt>
+              <Pressable onPress={() => setShowStudySetupModal(false)}>
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            {/* Timer Modes */}
+            <View style={[styles.modeTabsRow, { backgroundColor: surfaceAltBg, marginBottom: 16 }]}>
+              {(['timer', 'stopwatch', 'pomodoro'] as const).map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => setTimerMode(m)}
+                  style={[
+                    styles.modeTabItem,
+                    timerMode === m && { backgroundColor: surfaceBg },
+                  ]}
+                >
+                  <Txt
+                    color={timerMode === m ? colors.text : colors.textMuted}
+                    size={13}
+                    weight={timerMode === m ? '800' : '600'}
+                  >
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </Txt>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Subject Tag Selector */}
+            <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>SUBJECT TAG</Txt>
+            <Pressable
+              onPress={() => setTagModalVisible(true)}
+              style={[styles.tagSelectTrigger, { backgroundColor: surfaceAltBg, borderColor: colors.border, marginBottom: 16 }]}
+            >
+              <Txt color={colors.text} size={14} weight="700">{selectedTag}</Txt>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+
+            {/* Duration Pills */}
+            {timerMode !== 'stopwatch' && (
+              <>
+                <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>DURATION (MINUTES)</Txt>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+                  {[15, 25, 40, 50].map((mins) => (
+                    <Pressable
+                      key={mins}
+                      onPress={() => setStudyDurationMinutes(mins)}
+                      style={[
+                        styles.durationPill,
+                        {
+                          backgroundColor: studyDurationMinutes === mins ? colors.blue : surfaceAltBg,
+                          borderColor: studyDurationMinutes === mins ? colors.blue : colors.border,
+                        },
+                      ]}
+                    >
+                      <Txt color={studyDurationMinutes === mins ? '#FFFFFF' : colors.text} size={13} weight="700">
+                        {mins}m
+                      </Txt>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Continue Button */}
+            <Button
+              label="Continue to Full Focus"
+              icon="arrow-forward-outline"
+              full
+              size="lg"
+              onPress={handleStartStudySession}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Pre-Session Setup Modal for Meditation Gallery */}
       <Modal
@@ -374,15 +771,12 @@ export default function FocusCenterScreen() {
                   borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
                 }}
               >
-                {/* Embedded Live 60fps Animation Preview */}
                 <MeditationSceneRenderer
                   presetId={selectedPresetId}
                   isPlaying={showMeditationConfig}
                   width={580}
                   height={180}
                 />
-
-                {/* Live Preview Floating Badge & Meta */}
                 <View
                   pointerEvents="none"
                   style={{
@@ -403,229 +797,98 @@ export default function FocusCenterScreen() {
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#34C759' }} />
                   <Txt size={10} weight="800" color="#FFFFFF">LIVE PREVIEW</Txt>
                 </View>
-
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    bottom: 10,
-                    left: 12,
-                    right: 12,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(0,0,0,0.65)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.12)',
-                  }}
-                >
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <Txt size={12.5} weight="800" color="#FFFFFF">{selectedPreset.title}</Txt>
-                    <Txt size={10} color="rgba(255,255,255,0.7)" numberOfLines={1}>
-                      {selectedPreset.subtitle}
-                    </Txt>
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingHorizontal: 7,
-                      paddingVertical: 3,
-                      borderRadius: 8,
-                      backgroundColor: `${selectedPreset.accentColor}30`,
-                    }}
-                  >
-                    <Ionicons name="volume-medium-outline" size={12} color={selectedPreset.accentColor} />
-                    <Txt size={10} weight="700" color={selectedPreset.accentColor}>
-                      Pure Cosmic Waves
-                    </Txt>
-                  </View>
-                </View>
               </View>
 
-              {/* The Studio has one focused experience: Pure Cosmic Waves. */}
+              {/* Downloadable Offline Audio Card */}
               <View
                 style={{
-                  gap: 6,
-                  padding: 14,
                   borderRadius: 16,
-                  borderWidth: 1.5,
-                  borderColor: selectedPreset.accentColor,
-                  backgroundColor: isDark ? `${selectedPreset.accentColor}18` : `${selectedPreset.accentColor}10`,
+                  padding: 14,
+                  backgroundColor: isDark ? 'rgba(255, 184, 0, 0.08)' : 'rgba(255, 184, 0, 0.09)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255, 184, 0, 0.25)' : 'rgba(255, 184, 0, 0.3)',
+                  gap: 10,
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="cloud-download-outline" size={18} color="#FFB800" />
+                    <Txt size={13} weight="800">
+                      Pure Cosmic Waves (Offline Audio)
+                    </Txt>
+                  </View>
                   <View
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      backgroundColor: `${selectedPreset.accentColor}25`,
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 8,
+                      backgroundColor: cosmicDownloadState.status === 'downloaded' ? '#34C75920' : 'rgba(255, 184, 0, 0.18)',
                     }}
                   >
-                    <Ionicons name={selectedPreset.icon} size={18} color={selectedPreset.accentColor} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Txt size={13} weight="800" color={selectedPreset.accentColor}>
-                      {selectedPreset.title}
+                    <Txt
+                      size={10.5}
+                      weight="800"
+                      color={cosmicDownloadState.status === 'downloaded' ? '#34C759' : '#FFB800'}
+                    >
+                      {cosmicDownloadState.status === 'downloaded'
+                        ? 'Downloaded ✓'
+                        : cosmicDownloadState.status === 'downloading'
+                        ? `${Math.round(cosmicDownloadState.progress * 100)}%`
+                        : '9.3 MB'}
                     </Txt>
-                    <Txt size={10.5} color={colors.textMuted} numberOfLines={2}>
-                      {selectedPreset.subtitle}
-                    </Txt>
                   </View>
-                  <Ionicons name="checkmark-circle" size={20} color={selectedPreset.accentColor} />
-                </View>
-                <Txt size={11} color={colors.textMuted}>
-                  {selectedPreset.description}
-                </Txt>
-              </View>
-
-              {/* Pure Cosmic Waves is the only available meditation audio. */}
-              <View style={{ gap: 8 }}>
-                <Txt size={12} weight="800" color={colors.textMuted} style={{ letterSpacing: 0.5 }}>
-                  CALMING AUDIO SOUNDSCAPE
-                </Txt>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 12,
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F2F4F7',
-                  }}
-                >
-                  <Ionicons name="sparkles" size={14} color={selectedPreset.accentColor} />
-                  <Txt size={11} color={colors.textMuted} style={{ flex: 1 }}>
-                    Pure Cosmic Waves · default audio
-                  </Txt>
                 </View>
 
-                {/* Downloadable Offline Audio Card for Pure Cosmic Waves */}
-                <View
-                    style={{
-                      borderRadius: 16,
-                      padding: 14,
-                      backgroundColor: isDark ? 'rgba(255, 184, 0, 0.08)' : 'rgba(255, 184, 0, 0.09)',
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(255, 184, 0, 0.25)' : 'rgba(255, 184, 0, 0.3)',
-                      gap: 10,
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Ionicons name="cloud-download-outline" size={18} color="#FFB800" />
-                        <Txt size={13} weight="800">
-                          Pure Cosmic Waves (Offline Audio)
-                        </Txt>
-                      </View>
+                {cosmicDownloadState.status === 'downloading' && (
+                  <View style={{ gap: 6 }}>
+                    <View
+                      style={{
+                        height: 6,
+                        width: '100%',
+                        backgroundColor: isDark ? '#1F293D' : '#E2E8F0',
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                      }}
+                    >
                       <View
                         style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 8,
-                          backgroundColor: cosmicDownloadState.status === 'downloaded' ? '#34C75920' : 'rgba(255, 184, 0, 0.18)',
+                          height: '100%',
+                          width: `${Math.round(cosmicDownloadState.progress * 100)}%`,
+                          backgroundColor: '#FFB800',
+                          borderRadius: 3,
                         }}
-                      >
-                        <Txt
-                          size={10.5}
-                          weight="800"
-                          color={cosmicDownloadState.status === 'downloaded' ? '#34C759' : '#FFB800'}
-                        >
-                          {cosmicDownloadState.status === 'downloaded'
-                            ? 'Downloaded ✓'
-                            : cosmicDownloadState.status === 'downloading'
-                            ? `${Math.round(cosmicDownloadState.progress * 100)}%`
-                            : '9.3 MB'}
-                        </Txt>
-                      </View>
-                    </View>
-
-                    {/* Progress Bar while downloading */}
-                    {cosmicDownloadState.status === 'downloading' && (
-                      <View style={{ gap: 6 }}>
-                        <View
-                          style={{
-                            height: 6,
-                            width: '100%',
-                            backgroundColor: isDark ? '#1F293D' : '#E2E8F0',
-                            borderRadius: 3,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <View
-                            style={{
-                              height: '100%',
-                              width: `${Math.round(cosmicDownloadState.progress * 100)}%`,
-                              backgroundColor: '#FFB800',
-                              borderRadius: 3,
-                            }}
-                          />
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                          <Txt size={11} color={colors.textMuted}>Downloading high-fidelity audio...</Txt>
-                          <Txt size={11} weight="700" color="#FFB800">
-                            {`${(cosmicDownloadState.bytesWritten / (1024 * 1024)).toFixed(1)} / ${(cosmicDownloadState.totalBytes / (1024 * 1024)).toFixed(1)} MB`}
-                          </Txt>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Download / Delete Action Buttons */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Txt size={11} color={colors.textMuted} style={{ flex: 1, marginRight: 8 }}>
-                        {cosmicDownloadState.status === 'downloaded'
-                          ? 'Saved to local device storage. Plays 100% offline without network.'
-                          : 'Plays directly or download once for 100% offline meditation.'}
-                      </Txt>
-
-                      {cosmicDownloadState.status === 'downloaded' ? (
-                        <Pressable
-                          onPress={handleDeleteCosmic}
-                          hitSlop={6}
-                          style={({ pressed }) => ({
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 10,
-                            backgroundColor: pressed ? 'rgba(255, 59, 48, 0.18)' : 'rgba(255, 59, 48, 0.1)',
-                          })}
-                        >
-                          <Ionicons name="trash-outline" size={13} color="#FF3B30" />
-                          <Txt size={11} weight="700" color="#FF3B30">Delete Audio</Txt>
-                        </Pressable>
-                      ) : cosmicDownloadState.status === 'downloading' ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Txt size={11} weight="700" color="#FFB800">Downloading...</Txt>
-                        </View>
-                      ) : (
-                        <Pressable
-                          onPress={handleDownloadCosmic}
-                          style={({ pressed }) => ({
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 6,
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 10,
-                            backgroundColor: pressed ? '#E0A300' : '#FFB800',
-                          })}
-                        >
-                          <Ionicons name="arrow-down-circle-outline" size={15} color="#000000" />
-                          <Txt size={11.5} weight="800" color="#000000">Download Audio</Txt>
-                        </Pressable>
-                      )}
+                      />
                     </View>
                   </View>
+                )}
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt size={11} color={colors.textMuted} style={{ flex: 1, marginRight: 8 }}>
+                    {cosmicDownloadState.status === 'downloaded'
+                      ? 'Saved to local device storage. Plays 100% offline.'
+                      : 'Download once for 100% offline meditation.'}
+                  </Txt>
+
+                  {cosmicDownloadState.status === 'downloaded' ? (
+                    <Pressable
+                      onPress={handleDeleteCosmic}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(255, 59, 48, 0.1)' }}
+                    >
+                      <Ionicons name="trash-outline" size={13} color="#FF3B30" />
+                      <Txt size={11} weight="700" color="#FF3B30">Delete</Txt>
+                    </Pressable>
+                  ) : cosmicDownloadState.status === 'downloading' ? (
+                    <Txt size={11} weight="700" color="#FFB800">Downloading...</Txt>
+                  ) : (
+                    <Pressable
+                      onPress={handleDownloadCosmic}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: '#FFB800' }}
+                    >
+                      <Ionicons name="arrow-down-circle-outline" size={15} color="#000000" />
+                      <Txt size={11.5} weight="800" color="#000000">Download</Txt>
+                    </Pressable>
+                  )}
+                </View>
               </View>
 
             </ScrollView>
@@ -633,7 +896,7 @@ export default function FocusCenterScreen() {
         </View>
       </Modal>
 
-      {/* Dedicated Automatic Full-Screen Meditation Experience */}
+      {/* Full-Screen Meditation */}
       <FullScreenMeditation
         visible={fullScreenMeditationActive}
         presetId={selectedPresetId}
@@ -653,6 +916,195 @@ export default function FocusCenterScreen() {
           onClose={() => setActivity(null)}
         />
       ) : null}
+
     </Shell>
   );
 }
+
+const styles = StyleSheet.create({
+  trueFullScreenRoot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    backgroundColor: '#090A0F',
+    justifyContent: 'space-between',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  activeTopHeader: {
+    alignItems: 'center',
+  },
+  activeGroupPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    gap: 8,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  timerCenterContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerOuterRing: {
+    width: 270,
+    height: 270,
+    borderRadius: 135,
+    borderWidth: 2,
+    borderColor: '#27272A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  circleTopTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  takeBreakPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  activeBottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  controlIconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopFocusBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resumeBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheetCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  sheetHandleBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modeTabsRow: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+  },
+  modeTabItem: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  tagSelectTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  durationPill: {
+    flex: 1,
+    height: 38,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1,
+  },
+  modalTagItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  modalInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 13.5,
+  },
+  addTagBtn: {
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+});

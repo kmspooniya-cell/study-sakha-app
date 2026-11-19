@@ -10,6 +10,7 @@ type LibraryParams = HeaderParams & { exam?: ExamId; subject?: string; category?
 export type AppStackParamList = {
   DashboardRoot: OptionalScreenParams;
   Library: LibraryParams | undefined;
+  Groups: OptionalScreenParams;
   More: OptionalScreenParams;
   LibraryNotes: LibraryParams | undefined;
   LibraryBooks: LibraryParams | undefined;

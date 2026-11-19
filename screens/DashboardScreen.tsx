@@ -73,93 +73,146 @@ export default function DashboardScreen() {
   }, [state.studyLog]);
   const weeklyTotal = week.reduce((total, day) => total + day.value, 0);
   const dailyAverage = Math.round(weeklyTotal / 7);
+
   const continueItems = Object.entries(state.progress)
     .sort((a, b) => (Number(b[1].at) || 0) - (Number(a[1].at) || 0))
     .slice(0, 3)
     .map(([id, progress]) => ({ id, ...progress, percent: clamp(Number(progress.percent) || 0, 0, 100), res: resources.find((resource) => resource.id === id) }))
     .filter((item) => item.res);
+
   const liveTests = tests.filter((test) => Boolean(test.liveAt));
   const recent = resources.filter((resource) => resource.exam === exam.id).slice(0, isWide ? 4 : 3);
+
   const quickActions = [
     { label: 'Notes', icon: 'document-text' as const, tint: stitch.blue, onPress: () => nav.navigate('NoteEditor', {}) },
     { label: 'Quiz', icon: 'help-circle' as const, tint: stitch.orange, onPress: () => nav.navigate('Tests') },
     { label: 'Revision', icon: 'refresh-circle' as const, tint: stitch.green, onPress: () => nav.navigate('Library') },
     { label: 'Sakha AI', icon: 'sparkles' as const, tint: stitch.purple, onPress: () => nav.navigate('SakhaAI') },
   ];
+
   const openPlanItem = (item: (typeof TODAY_PLAN)[number]) => {
     if (item.kind === 'note') nav.navigate('NoteEditor', { resourceId: item.refId });
     else if (item.kind === 'pyq') nav.navigate('PYQ', { subject: item.refId });
     else if (item.kind === 'ca') nav.navigate('CurrentAffairs');
     else nav.navigate('TestPlayer', { testId: item.refId });
   };
+
   const openResource = (resource: (typeof resources)[number]) => nav.navigate(resource.type === 'book' ? 'BookReader' : 'NoteEditor', { resourceId: resource.id });
+
   const radius = 15.9;
   const circumference = 2 * Math.PI * radius;
 
   return (
     <Shell active="Dashboard" title="" subtitle="" scroll={false} contentPadding={0}>
       <View style={styles.mainContainer}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={[styles.contentWidth, !isTabletOrLarger && styles.mobileContentWidth]}>
-          <LinearGradient colors={['#1E1B2E', '#2A1D33', '#171224']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
-            <View pointerEvents="none" style={styles.heroGlowTop} />
-            <View pointerEvents="none" style={styles.heroGlowBottom} />
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroCopy}>
-                <Text style={styles.heroGreetingTitle}>{greeting()}, {first} 👋</Text>
-                <Text style={styles.heroGreetingSub}>Small steps. Consistent progress.</Text>
-                <View style={styles.missionBadge}><Text style={styles.missionBadgeText}>TODAY'S MISSION</Text></View>
-                <Text style={styles.heroTitle}>Make today count.</Text>
-                <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={[styles.contentWidth, !isTabletOrLarger && styles.mobileContentWidth]}>
+            
+            <LinearGradient colors={['#1E1B2E', '#2A1D33', '#171224']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
+              <View pointerEvents="none" style={styles.heroGlowTop} />
+              <View pointerEvents="none" style={styles.heroGlowBottom} />
+              <View style={styles.heroTopRow}>
+                <View style={styles.heroCopy}>
+                  <Text style={styles.heroGreetingTitle}>{greeting()}, {first} 👋</Text>
+                  <Text style={styles.heroGreetingSub}>Small steps. Consistent progress.</Text>
+                  <View style={styles.missionBadge}><Text style={styles.missionBadgeText}>TODAY'S MISSION</Text></View>
+                  <Text style={styles.heroTitle}>Make today count.</Text>
+                  <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
+                </View>
+                <View style={styles.progressCircleContainer}>
+                  <Svg width={48} height={48} viewBox="0 0 36 36">
+                    <Circle cx="18" cy="18" r={radius} stroke="rgba(255,255,255,0.15)" strokeWidth="3" fill="none" />
+                    <Circle cx="18" cy="18" r={radius} stroke="#007AFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} transform="rotate(-90 18 18)" />
+                  </Svg>
+                  <View style={styles.progressCircleTextWrap}><Text style={styles.progressCircleText}>{Math.round(target * 100)}%</Text></View>
+                </View>
               </View>
-              <View style={styles.progressCircleContainer}>
-                <Svg width={48} height={48} viewBox="0 0 36 36">
-                  <Circle cx="18" cy="18" r={radius} stroke="rgba(255,255,255,0.15)" strokeWidth="3" fill="none" />
-                  <Circle cx="18" cy="18" r={radius} stroke="#007AFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} transform="rotate(-90 18 18)" />
-                </Svg>
-                <View style={styles.progressCircleTextWrap}><Text style={styles.progressCircleText}>{Math.round(target * 100)}%</Text></View>
+              <View style={styles.heroStatsRow}>
+                <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="time" size={14} color="#5AC8FA" /><Text style={styles.heroStatValue}>{safeTodayMinutes} min</Text></View><Text style={styles.heroStatLabel}>Studied today</Text></View>
+                <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="flame" size={14} color="#FF9500" /><Text style={styles.heroStatValue}>{streak} day</Text></View><Text style={styles.heroStatLabel}>Study streak</Text></View>
               </View>
+              <View style={styles.linearTrack}><LinearGradient colors={['#2DD4BF', '#38BDF8']} style={[styles.linearFill, { width: `${target * 100}%` }]} /></View>
+              <Pressable accessibilityRole="button" onPress={() => nav.navigate('Library')} style={styles.resumeBtn}><Ionicons name="book-outline" size={16} color="#CBD5E1" /><Text style={styles.resumeBtnText}>Resume learning</Text></Pressable>
+            </LinearGradient>
+
+            <SectionHeader icon="grid" title="Quick actions" action="Explore tools" onPress={() => nav.navigate('Library')} styles={styles} />
+            <View style={styles.quickActionsGrid}>{quickActions.map((item) => <Pressable accessibilityRole="button" key={item.label} onPress={item.onPress} style={[styles.quickActionCard, styles.card]}><View style={[styles.quickActionIcon, { backgroundColor: item.tint + '22' }]}><Ionicons name={item.icon} size={20} color={item.tint} /></View><Text style={[styles.quickActionText, { color: item.tint }]}>{item.label}</Text></Pressable>)}</View>
+
+            <View style={styles.layoutFlex, isTabletOrLarger && styles.tabletLayout}>
+              <View style={styles.layoutCol}>
+                
+                <View style={styles.plannerWrap}>
+                  <CustomStudyPlan 
+                    plan={TODAY_PLAN.filter((task) => task.id !== 'tp4')} 
+                    planDone={state.planDone} 
+                    tasks={state.plannerTasks} 
+                    tasksLoaded={state.plannerTasksLoaded} 
+                    taskLoadError={state.plannerTaskLoadError} 
+                    persistenceError={state.plannerPersistenceError} 
+                    defaultOverrides={state.plannerDefaultOverrides} 
+                    deletedDefaults={state.plannerDeletedDefaults} 
+                    dispatch={dispatch} 
+                    onOpenItem={openPlanItem} 
+                    onOpenFocus={() => nav.navigate('FocusCenter')} 
+                    onOpenPlanner={() => nav.navigate('StudyPlanner')} 
+                  />
+                </View>
+
+                {/* Schedule Shortcut Card navigating to StudyPlanner */}
+                <View style={{ marginBottom: 14 }}>
+                  <Pressable
+                    onPress={() => nav.navigate('StudyPlanner')}
+                    style={({ pressed }) => ({
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.borderSubtle,
+                      borderRadius: 16,
+                      padding: 16,
+                      gap: 14,
+                      opacity: pressed ? 0.9 : 1,
+                    })}
+                  >
+                    <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(0,122,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="calendar-outline" size={22} color={colors.blue} />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>Schedule</Text>
+                      <Text style={{ fontSize: 12, color: colors.textMuted }}>Plan your study routines & timetables.</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={stitch.muted} />
+                  </Pressable>
+                </View>
+
+                <View style={[styles.card, styles.sectionCard]}>
+                  <SectionHeader icon="play-circle" title="Continue learning" action="Library" onPress={() => nav.navigate('Library')} styles={styles} />
+                  {continueItems.length === 0 ? <Text style={styles.emptyText}>Start a resource to see it here.</Text> : continueItems.map((item) => <Pressable accessibilityRole="button" key={item.id} onPress={() => openResource(item.res!)} style={styles.listItem}><Image source={{ uri: item.res!.cover }} style={styles.listImage} /><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{item.res!.title}</Text><Text style={styles.listSub}>{item.res!.subject} · {item.percent}% complete</Text><ProgressBar value={item.percent} height={5} /></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}
+                </View>
+
+                <View style={[styles.card, styles.sectionCard]}>
+                  <SectionHeader icon="bar-chart" title="Weekly activity" action="Statistics" onPress={() => nav.navigate('Statistics')} styles={styles} />
+                  <View style={styles.statsRow}><View><Text style={styles.statLarge}>{weeklyTotal}m</Text><Text style={styles.statSmall}>this week</Text></View><View style={styles.averageStat}><Text style={[styles.statLarge, { color: stitch.green }]}>{dailyAverage}m</Text><Text style={styles.statSmall}>daily average</Text></View></View>
+                  <WeeklyActivityStrip data={week} styles={styles} color={stitch.teal} />
+                </View>
+
+              </View>
+
+              <View style={styles.layoutCol}>
+                <View style={styles.testsSection}>
+                  <SectionHeader icon="radio" title="Upcoming Live Tests" action="All tests" onPress={() => nav.navigate('Tests')} styles={styles} />
+                  {liveTests.length === 0 ? <View style={[styles.card, styles.sectionCard]}><Text style={styles.emptyText}>No live tests scheduled.</Text></View> : liveTests.map((test) => <View key={test.id} style={styles.testCard}><View style={styles.testHeader}><Text style={styles.testTime}>● {test.liveAt}</Text><Tag label={test.kind} color={stitch.blue} /></View><Text style={styles.testTitle}>{test.title}</Text><Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text><Pressable accessibilityRole="button" onPress={() => nav.navigate('TestPlayer', { testId: test.id })} style={styles.primaryBtn}><Text style={styles.primaryBtnText}>Enter test</Text></Pressable></View>)}
+                </View>
+
+                <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{currentAffairs.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
+
+                <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="library" title="Fresh in library" action="See all" onPress={() => nav.navigate('Library')} styles={styles} />{recent.map((resource) => <Pressable accessibilityRole="button" key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}><View style={[styles.iconBox, { backgroundColor: `${stitch.blue}18` }]}><Ionicons name="book" size={18} color={stitch.blue} /></View><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text><Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}</View>
+              </View>
+
             </View>
-            <View style={styles.heroStatsRow}>
-              <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="time" size={14} color="#5AC8FA" /><Text style={styles.heroStatValue}>{safeTodayMinutes} min</Text></View><Text style={styles.heroStatLabel}>Studied today</Text></View>
-              <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="flame" size={14} color="#FF9500" /><Text style={styles.heroStatValue}>{streak} day</Text></View><Text style={styles.heroStatLabel}>Study streak</Text></View>
-            </View>
-            <View style={styles.linearTrack}><LinearGradient colors={['#2DD4BF', '#38BDF8']} style={[styles.linearFill, { width: `${target * 100}%` }]} /></View>
-            <Pressable accessibilityRole="button" onPress={() => nav.navigate('Library')} style={styles.resumeBtn}><Ionicons name="book-outline" size={16} color="#CBD5E1" /><Text style={styles.resumeBtnText}>Resume learning</Text></Pressable>
-          </LinearGradient>
 
-          <SectionHeader icon="grid" title="Quick actions" action="Explore tools" onPress={() => nav.navigate('Library')} styles={styles} />
-          <View style={styles.quickActionsGrid}>{quickActions.map((item) => <Pressable accessibilityRole="button" key={item.label} onPress={item.onPress} style={[styles.quickActionCard, styles.card]}><View style={[styles.quickActionIcon, { backgroundColor: item.tint + '22' }]}><Ionicons name={item.icon} size={20} color={item.tint} /></View><Text style={[styles.quickActionText, { color: item.tint }]}>{item.label}</Text></Pressable>)}</View>
-
-          <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
-            <View style={styles.layoutCol}>
-              <View style={styles.plannerWrap}><CustomStudyPlan plan={TODAY_PLAN.filter((task) => task.id !== 'tp4')} planDone={state.planDone} tasks={state.plannerTasks} tasksLoaded={state.plannerTasksLoaded} taskLoadError={state.plannerTaskLoadError} persistenceError={state.plannerPersistenceError} defaultOverrides={state.plannerDefaultOverrides} deletedDefaults={state.plannerDeletedDefaults} dispatch={dispatch} onOpenItem={openPlanItem} onOpenFocus={() => nav.navigate('FocusCenter')} onOpenPlanner={() => nav.navigate('StudyPlanner')} /></View>
-
-              <View style={[styles.card, styles.sectionCard]}>
-                <SectionHeader icon="play-circle" title="Continue learning" action="Library" onPress={() => nav.navigate('Library')} styles={styles} />
-                {continueItems.length === 0 ? <Text style={styles.emptyText}>Start a resource to see it here.</Text> : continueItems.map((item) => <Pressable accessibilityRole="button" key={item.id} onPress={() => openResource(item.res!)} style={styles.listItem}><Image source={{ uri: item.res!.cover }} style={styles.listImage} /><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{item.res!.title}</Text><Text style={styles.listSub}>{item.res!.subject} · {item.percent}% complete</Text><ProgressBar value={item.percent} height={5} /></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}
-              </View>
-
-              <View style={[styles.card, styles.sectionCard]}>
-                <SectionHeader icon="bar-chart" title="Weekly activity" action="Statistics" onPress={() => nav.navigate('Statistics')} styles={styles} />
-                <View style={styles.statsRow}><View><Text style={styles.statLarge}>{weeklyTotal}m</Text><Text style={styles.statSmall}>this week</Text></View><View style={styles.averageStat}><Text style={[styles.statLarge, { color: stitch.green }]}>{dailyAverage}m</Text><Text style={styles.statSmall}>daily average</Text></View></View>
-                <WeeklyActivityStrip data={week} styles={styles} color={stitch.teal} />
-              </View>
-            </View>
-
-            <View style={styles.layoutCol}>
-              <View style={styles.testsSection}>
-                <SectionHeader icon="radio" title="Upcoming Live Tests" action="All tests" onPress={() => nav.navigate('Tests')} styles={styles} />
-                {liveTests.length === 0 ? <View style={[styles.card, styles.sectionCard]}><Text style={styles.emptyText}>No live tests scheduled.</Text></View> : liveTests.map((test) => <View key={test.id} style={styles.testCard}><View style={styles.testHeader}><Text style={styles.testTime}>● {test.liveAt}</Text><Tag label={test.kind} color={stitch.blue} /></View><Text style={styles.testTitle}>{test.title}</Text><Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text><Pressable accessibilityRole="button" onPress={() => nav.navigate('TestPlayer', { testId: test.id })} style={styles.primaryBtn}><Text style={styles.primaryBtnText}>Enter test</Text></Pressable></View>)}
-              </View>
-
-              <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{currentAffairs.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
-
-              <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="library" title="Fresh in library" action="See all" onPress={() => nav.navigate('Library')} styles={styles} />{recent.map((resource) => <Pressable accessibilityRole="button" key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}><View style={[styles.iconBox, { backgroundColor: `${stitch.blue}18` }]}><Ionicons name="book" size={18} color={stitch.blue} /></View><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text><Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}</View>
-            </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
       </View>
     </Shell>
   );
