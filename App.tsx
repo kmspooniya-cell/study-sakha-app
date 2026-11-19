@@ -50,7 +50,7 @@ import SignInScreen from './screens/SignInScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
 import TaskPerformanceScreen from './screens/TaskPerformanceScreen';
-import StudyPlanner from './screens/StudyPlanner';
+import StudyPlannerScreen from './screens/StudyPlannerScreen';
 import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
@@ -281,7 +281,7 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Notifications" component={NotificationsScreen} />
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
-      <AppStack.Screen name="StudyPlanner" component={StudyPlanner} />
+      <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
       <AppStack.Screen name="FocusLock" component={FocusLockScreen} />
       <AppStack.Screen name="Hobbies" component={HobbiesScreen} />

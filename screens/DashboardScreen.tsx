@@ -138,7 +138,7 @@ export default function DashboardScreen() {
             <SectionHeader icon="grid" title="Quick actions" action="Explore tools" onPress={() => nav.navigate('Library')} styles={styles} />
             <View style={styles.quickActionsGrid}>{quickActions.map((item) => <Pressable accessibilityRole="button" key={item.label} onPress={item.onPress} style={[styles.quickActionCard, styles.card]}><View style={[styles.quickActionIcon, { backgroundColor: item.tint + '22' }]}><Ionicons name={item.icon} size={20} color={item.tint} /></View><Text style={[styles.quickActionText, { color: item.tint }]}>{item.label}</Text></Pressable>)}</View>
 
-            <View style={styles.layoutFlex, isTabletOrLarger && styles.tabletLayout}>
+            <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
               <View style={styles.layoutCol}>
                 
                 <View style={styles.plannerWrap}>
