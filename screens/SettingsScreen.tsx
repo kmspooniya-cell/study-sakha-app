@@ -1,364 +1,449 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CommonActions, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, Switch, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, Switch, View } from 'react-native';
 import { Shell } from '../components/Shell';
-import { Button, Card, Chip, SectionHeader, Tag, Txt } from '../components/ui';
+import { Txt } from '../components/ui';
 import { EXAMS } from '../lib/data';
 import { t } from '../lib/i18n';
 import { useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
-import { AppGuideContent } from './AppGuideScreen';
+import { radii, useTheme, type ThemeMode } from '../lib/theme';
 
-const SETTINGS_SECTIONS = [
-  { id: 'appearance', title: 'Appearance', icon: 'color-palette-outline', summary: 'Theme, text size, and language' },
-  { id: 'study', title: 'Study', icon: 'school-outline', summary: 'Daily goal and target exam' },
-  { id: 'notifications', title: 'Notifications', icon: 'notifications-outline', summary: 'Notification preferences and inbox' },
-  { id: 'account', title: 'Account', icon: 'person-circle-outline', summary: 'Profile and sign out' },
-  { id: 'data', title: 'Data', icon: 'server-outline', summary: 'Reset and on-device storage' },
-  { id: 'about', title: 'About', icon: 'information-circle-outline', summary: 'App version and information' },
-  { id: 'guide', title: 'How to Use the App', icon: 'help-circle-outline', summary: 'Explore a quick guide to the app' },
-] as const;
+type SettingsIcon = keyof typeof Ionicons.glyphMap;
 
-type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id'];
+function SettingsSection({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: SettingsIcon;
+  children: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2 }}>
+        <Ionicons name={icon} size={16} color={colors.blue} />
+        <Txt size={13} weight="800" color={colors.textMuted}>{title}</Txt>
+      </View>
+      <View
+        style={{
+          overflow: 'hidden',
+          borderRadius: radii.lg,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+        }}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function SettingsRow({
+  title,
+  subtitle,
+  icon,
+  onPress,
+  right,
+  last = false,
+  danger = false,
+}: {
+  title: string;
+  subtitle?: string;
+  icon: SettingsIcon;
+  onPress?: () => void;
+  right?: React.ReactNode;
+  last?: boolean;
+  danger?: boolean;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <View>
+      <View style={{ minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, paddingVertical: 8 }}>
+        <View
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: danger ? `${colors.danger}18` : colors.surfaceAlt,
+          }}
+        >
+          <Ionicons name={icon} size={17} color={danger ? colors.danger : colors.textMuted} />
+        </View>
+        <Pressable
+          accessibilityRole={onPress ? 'button' : undefined}
+          disabled={!onPress}
+          onPress={onPress}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 42,
+            justifyContent: 'center',
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Txt size={13.5} weight="700" color={danger ? colors.danger : colors.text}>
+            {title}
+          </Txt>
+          {subtitle ? (
+            <Txt size={11.5} color={colors.textMuted} numberOfLines={2} style={{ marginTop: 2 }}>
+              {subtitle}
+            </Txt>
+          ) : null}
+        </Pressable>
+        {right}
+        {onPress ? <Ionicons name="chevron-forward" size={16} color={colors.textFaint} /> : null}
+      </View>
+      {!last ? <View style={{ height: 1, marginLeft: 56, backgroundColor: colors.border }} /> : null}
+    </View>
+  );
+}
+
+function SettingsChoice({
+  label,
+  selected,
+  onPress,
+  accessibilityLabel,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minWidth: 34,
+        height: 32,
+        paddingHorizontal: 7,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: selected ? colors.tint : 'transparent',
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Txt size={11} weight="800" color={selected ? colors.blue : colors.textMuted}>{label}</Txt>
+    </Pressable>
+  );
+}
 
 export default function SettingsScreen() {
   const { colors, mode } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, dispatch, signOut, saveProfile } = useStore();
   const lang = state.settings.language;
-  const [cleared, setCleared] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [picker, setPicker] = useState<'theme' | 'category' | null>(null);
+  const [resetComplete, setResetComplete] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [resetError, setResetError] = useState('');
   const [profileError, setProfileError] = useState('');
-  const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
 
-  const set = (patch: Partial<typeof state.settings>) => dispatch({ type: 'settings', patch });
-  const handleSignOut = async () => {
-    setAuthError('');
-    try {
-      const result = await signOut();
-      if (!result.ok) setAuthError(result.error ?? 'Unable to sign out.');
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Unable to sign out.');
-    }
-  };
+  const setSettings = (patch: Partial<typeof state.settings>) => dispatch({ type: 'settings', patch });
   const updateExam = async (exam: (typeof EXAMS)[number]['id']) => {
     if (!state.user) return;
     setProfileError('');
-    const result = await saveProfile({ exam });
-    if (!result.ok) setProfileError(result.error);
+    try {
+      const result = await saveProfile({ exam });
+      if (!result.ok) setProfileError(result.error);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Unable to save your study category.');
+    }
   };
 
-  const Row = ({ title, body, right }: { title: string; body?: string; right: React.ReactNode }) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 }}>
-      <View style={{ flex: 1 }}>
-        <Txt size={14} weight="700">{title}</Txt>
-        {body ? (
-          <Txt size={12.5} color={colors.textMuted} style={{ marginTop: 2 }}>
-            {body}
-          </Txt>
-        ) : null}
-      </View>
-      {right}
-    </View>
-  );
-
-  const sectionContent: Record<SettingsSection, React.ReactNode> = {
-    appearance: (
-      <Card>
-        <SectionHeader title={t('appearance', lang)} icon="color-palette-outline" />
-        <Row
-          title={t('theme', lang)}
-          body={`Currently following ${mode === 'system' ? 'your device setting' : mode}`}
-          right={
-            <View style={{ flexDirection: 'row', gap: 7 }}>
-              {(['light', 'dark', 'system'] as const).map((themeMode) => (
-                <Chip
-                  key={themeMode}
-                  label={t(themeMode, lang)}
-                  icon={themeMode === 'light' ? 'sunny-outline' : themeMode === 'dark' ? 'moon-outline' : 'contrast-outline'}
-                  active={state.settings.themeMode === themeMode}
-                  onPress={() => set({ themeMode })}
-                />
-              ))}
-            </View>
+  const handleSignOut = () => {
+    Alert.alert('Sign out?', 'You can sign back in at any time.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: t('signOut', lang),
+        style: 'destructive',
+        onPress: async () => {
+          setActionError('');
+          try {
+            const result = await signOut();
+            if (!result.ok) setActionError(result.error ?? 'Unable to sign out.');
+          } catch (error) {
+            setActionError(error instanceof Error ? error.message : 'Unable to sign out.');
           }
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <Row
-          title={t('textSize', lang)}
-          body="Scales every text style across the app"
-          right={
-            <View style={{ flexDirection: 'row', gap: 7 }}>
-              {[
-                { label: 'A', value: 0.92 },
-                { label: 'A', value: 1 },
-                { label: 'A', value: 1.12 },
-              ].map((option, index) => (
-                <Pressable
-                  key={option.value}
-                  onPress={() => set({ textScale: option.value })}
-                  style={{
-                    width: 44,
-                    height: 40,
-                    borderRadius: radii.control,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderWidth: 1,
-                    borderColor: state.settings.textScale === option.value ? colors.blue : colors.borderSubtle,
-                    backgroundColor: state.settings.textScale === option.value ? colors.tint : colors.surface,
-                  }}
-                >
-                  <Txt size={11 + index * 3} weight="800" color={state.settings.textScale === option.value ? colors.blue : colors.textMuted}>
-                    {option.label}
-                  </Txt>
-                </Pressable>
-              ))}
-            </View>
-          }
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <Row
-          title={t('language', lang)}
-          body="Interface language for labels and settings"
-          right={
-            <View style={{ flexDirection: 'row', gap: 7 }}>
-              <Chip label="English" active={lang === 'en'} onPress={() => set({ language: 'en' })} />
-              <Chip label="हिंदी" active={lang === 'hi'} onPress={() => set({ language: 'hi' })} />
-            </View>
-          }
-        />
-      </Card>
-    ),
-    study: (
-      <Card>
-        <SectionHeader title={t('study', lang)} icon="school-outline" />
-        <Row
-          title={t('dailyGoal', lang)}
-          body={`${state.settings.dailyGoalMin} minutes per day`}
-          right={
-            <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {[60, 90, 120, 180, 240, 360, 480, 720].map((goal) => (
-                <Chip
-                  key={goal}
-                  label={`${goal}m`}
-                  active={state.settings.dailyGoalMin === goal}
-                  onPress={() => {
-                    set({ dailyGoalMin: goal });
-                    dispatch({ type: 'plannerSettings', patch: { dailyTargetHours: goal / 60 } });
-                  }}
-                />
-              ))}
-            </View>
-          }
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <View style={{ paddingVertical: 12, gap: 10 }}>
-          <Txt size={14} weight="700">{t('targetExam', lang)}</Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {EXAMS.map((exam) => (
-              <Chip
-                key={exam.id}
-                label={exam.short}
-                tone={exam.color}
-                active={state.user?.exam === exam.id}
-                onPress={() => void updateExam(exam.id)}
-              />
-            ))}
-          </View>
-        </View>
-        {profileError ? <Txt size={12.5} color={colors.danger}>{profileError}</Txt> : null}
-      </Card>
-    ),
-    notifications: (
-      <Card>
-        <SectionHeader title={t('notifications', lang)} icon="notifications-outline" />
-        <Row
-          title="In-app notifications"
-          body="Controls the notification inbox. Remote push delivery is not configured."
-          right={
-            <Switch
-              value={state.settings.notifications}
-              onValueChange={(value) => set({ notifications: value })}
-              trackColor={{ true: colors.blue, false: colors.border }}
-              thumbColor="#fff"
-            />
-          }
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <Row
-          title="Notification inbox"
-          body={`${state.notifications.length} messages stored on this device`}
-          right={<Button label="Open" size="sm" variant="outline" onPress={() => nav.navigate('Notifications')} />}
-        />
-      </Card>
-    ),
-    account: (
-      <Card>
-        <SectionHeader title={t('account', lang)} icon="person-circle-outline" />
-        <Row
-          title={state.user?.name ?? 'Guest'}
-          body={state.user?.email ?? '—'}
-          right={<Tag label={state.user?.role === 'admin' ? 'Admin' : 'Learner'} color={state.user?.role === 'admin' ? colors.violet : colors.teal} />}
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <View style={{ gap: 10, paddingTop: 12 }}>
-          {state.user?.role === 'admin' ? (
-            <Button label="Admin portal" icon="shield-checkmark-outline" variant="soft" full onPress={() => nav.navigate('Admin')} />
-          ) : null}
-          <Button label="View profile" icon="person-outline" variant="outline" full onPress={() => nav.navigate('Profile')} />
-            {authError ? <Txt size={12.5} color={colors.danger}>{authError}</Txt> : null}
-            <Button label={t('signOut', lang)} icon="log-out-outline" variant="danger" full onPress={handleSignOut} />
-        </View>
-      </Card>
-    ),
-    data: (
-      <Card>
-        <SectionHeader title="Data" icon="server-outline" />
-        <Row
-          title={t('resetData', lang)}
-          body={t('resetBody', lang)}
-          right={
-            <Button
-              label={cleared ? 'Cleared' : 'Reset'}
-              size="sm"
-              variant="outline"
-              onPress={async () => {
-                await AsyncStorage.clear();
-                setCleared(true);
-                setTimeout(() => setCleared(false), 2200);
-              }}
-            />
-          }
-        />
-        <View style={{ height: 1, backgroundColor: colors.border }} />
-        <Row title="Storage" body="Notes, progress, streaks, results, chat and announcements" right={<Tag label="On-device" color={colors.teal} />} />
-      </Card>
-    ),
-    about: (
-      <Card style={{ gap: 10 }}>
-        <SectionHeader title={t('about', lang)} icon="information-circle-outline" />
-        <Txt size={13} color={colors.textMuted}>{t('previewBody', lang)}</Txt>
-        <View style={{ gap: 8, marginTop: 4 }}>
-          {[
-            ['Version', '1.0.0'],
-            ['Build', 'Sakha Web · iOS · Android'],
-            ['Content partners', 'Sakha Press, Sakha Research'],
-          ].map(([label, value]) => (
-            <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Txt size={13} color={colors.textMuted}>{label}</Txt>
-              <Txt size={13} weight="700">{value}</Txt>
-            </View>
-          ))}
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
-          <Ionicons name="shield-checkmark-outline" size={16} color={colors.teal} />
-          <Txt size={12.5} color={colors.textMuted}>Offline-first. No account data leaves your device.</Txt>
-        </View>
-      </Card>
-    ),
-    guide: <AppGuideContent onOpen={(route) => nav.dispatch(CommonActions.navigate(route))} />,
+        },
+      },
+    ]);
   };
 
-  const selectedSection = SETTINGS_SECTIONS.find((section) => section.id === openSection);
+  const handleReset = () => {
+    Alert.alert('Reset saved data?', 'This removes saved Study Sakha data from this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset data',
+        style: 'destructive',
+        onPress: () => {
+          setResetError('');
+          setResetComplete(false);
+          void AsyncStorage.clear().then(
+            () => setResetComplete(true),
+            (error: unknown) => setResetError(error instanceof Error ? error.message : 'Unable to reset saved data.'),
+          );
+        },
+      },
+    ]);
+  };
+
+  const exam = EXAMS.find((item) => item.id === state.user?.exam) ?? EXAMS[0];
+  const themeModes: { value: ThemeMode; label: string; icon: SettingsIcon }[] = [
+    { value: 'light', label: 'Light', icon: 'sunny-outline' },
+    { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+    { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+  ];
 
   return (
-    <Shell active="Settings" title={t('settings', lang)} subtitle="Personalise theme, language, goals and reading comfort">
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {SETTINGS_SECTIONS.map((section) => (
-          <Pressable
-            key={section.id}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${section.title} settings`}
-            onPress={() => setOpenSection(section.id)}
-            style={({ pressed }) => ({
-              width: '47.5%',
-              flexGrow: 1,
-              minHeight: 118,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: colors.borderSubtle,
-              backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
-              padding: 14,
-              gap: 10,
-              justifyContent: 'space-between',
-              transform: [{ scale: pressed ? 0.985 : 1 }],
-            })}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
-                  backgroundColor: colors.tint,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons name={section.icon} size={20} color={colors.blue} />
+    <Shell active="Settings" title={t('settings', lang)} subtitle="Personalise your Study Sakha experience">
+      <View style={{ gap: 20, width: '100%', maxWidth: 760, alignSelf: 'center' }}>
+        <SettingsSection title="Personal Settings" icon="person-outline">
+          <SettingsRow
+            title="Appearance"
+            subtitle="Choose how Study Sakha looks"
+            icon="color-palette-outline"
+            onPress={() => setPicker('theme')}
+            right={<Txt size={12} weight="700" color={colors.textMuted}>{mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light'}</Txt>}
+          />
+          <SettingsRow
+            title="Theme Settings"
+            icon="contrast-outline"
+            right={
+              <View style={{ flexDirection: 'row', gap: 1 }}>
+                {themeModes.map((option) => (
+                  <SettingsChoice
+                    key={option.value}
+                    label={option.label === 'System' ? 'Auto' : option.label}
+                    accessibilityLabel={`${option.label} theme`}
+                    selected={state.settings.themeMode === option.value}
+                    onPress={() => setSettings({ themeMode: option.value })}
+                  />
+                ))}
               </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+            }
+          />
+          <SettingsRow
+            title="Text Size"
+            icon="text-outline"
+            right={
+              <View style={{ flexDirection: 'row', gap: 1 }}>
+                {[
+                  { label: 'A−', value: 0.92 },
+                  { label: 'A', value: 1 },
+                  { label: 'A+', value: 1.12 },
+                ].map((option) => (
+                  <SettingsChoice
+                    key={option.value}
+                    label={option.label}
+                    accessibilityLabel={`Text size ${option.value}`}
+                    selected={state.settings.textScale === option.value}
+                    onPress={() => setSettings({ textScale: option.value })}
+                  />
+                ))}
+              </View>
+            }
+          />
+          <SettingsRow
+            title="Study Preferences"
+            subtitle="Plan your study schedule and targets"
+            icon="school-outline"
+            onPress={() => nav.navigate('StudyPlanner')}
+          />
+          <SettingsRow
+            title="Category"
+            subtitle={`Current study focus: ${exam.short}`}
+            icon="list-outline"
+            onPress={() => setPicker('category')}
+            right={<Txt size={12} weight="700" color={colors.textMuted}>{exam.short}</Txt>}
+          />
+          {profileError ? (
+            <View accessibilityRole="alert" style={{ paddingHorizontal: 56, paddingBottom: 8 }}>
+              <Txt size={12} color={colors.danger}>{profileError}</Txt>
             </View>
-            <View style={{ gap: 2 }}>
-              <Txt size={13.5} weight="700">{section.title}</Txt>
-              <Txt size={11.5} color={colors.textMuted} numberOfLines={2}>{section.summary}</Txt>
+          ) : null}
+          <SettingsRow
+            title="Select Language"
+            icon="language-outline"
+            last
+            right={
+              <View style={{ flexDirection: 'row', gap: 1 }}>
+                <SettingsChoice label="EN" accessibilityLabel="English" selected={lang === 'en'} onPress={() => setSettings({ language: 'en' })} />
+                <SettingsChoice label="हि" accessibilityLabel="Hindi" selected={lang === 'hi'} onPress={() => setSettings({ language: 'hi' })} />
+              </View>
+            }
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Group Settings" icon="people-outline">
+          <SettingsRow
+            title="My Groups"
+            subtitle="View joined groups and open a group's profile"
+            icon="people-circle-outline"
+            onPress={() => nav.navigate('Groups')}
+            last
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Personal Account Settings" icon="person-circle-outline">
+          <SettingsRow
+            title="Nickname"
+            subtitle={state.user?.name ?? 'Guest'}
+            icon="create-outline"
+            onPress={() => nav.navigate('Profile')}
+          />
+          <SettingsRow
+            title="Account Settings"
+            subtitle="Profile and account information"
+            icon="settings-outline"
+            onPress={() => nav.navigate('Profile')}
+          />
+          <SettingsRow
+            title={t('signOut', lang)}
+            icon="log-out-outline"
+            onPress={handleSignOut}
+            danger
+            last
+          />
+          {actionError ? (
+            <View accessibilityRole="alert" style={{ paddingHorizontal: 56, paddingBottom: 10 }}>
+              <Txt size={12} color={colors.danger}>{actionError}</Txt>
             </View>
-          </Pressable>
-        ))}
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection title="Notifications" icon="notifications-outline">
+          <SettingsRow
+            title="Notification Preferences"
+            subtitle="Controls the notification inbox on this device"
+            icon="notifications-outline"
+            last
+            right={
+              <Switch
+                accessibilityLabel="Notification Preferences"
+                value={state.settings.notifications}
+                onValueChange={(notifications) => setSettings({ notifications })}
+                trackColor={{ true: colors.blue, false: colors.border }}
+                thumbColor="#fff"
+              />
+            }
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Privacy & Community" icon="shield-checkmark-outline">
+          <SettingsRow
+            title="Wall of Love"
+            subtitle="Read stories from the Study Sakha community"
+            icon="heart-outline"
+            onPress={() => nav.navigate('StudentTestimonials')}
+          />
+          <SettingsRow
+            title="Data & Storage"
+            subtitle="Reset locally saved Study Sakha data"
+            icon="server-outline"
+            onPress={handleReset}
+            right={<Txt size={11.5} weight="700" color={resetComplete ? colors.green : colors.textMuted}>{resetComplete ? 'Reset' : 'On device'}</Txt>}
+            danger
+            last
+          />
+          {resetError ? (
+            <View accessibilityRole="alert" style={{ paddingHorizontal: 56, paddingBottom: 10 }}>
+              <Txt size={12} color={colors.danger}>{resetError}</Txt>
+            </View>
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection title="About & Support" icon="information-circle-outline">
+          <SettingsRow
+            title="How to Use the App"
+            subtitle="Explore a quick guide to Study Sakha"
+            icon="help-circle-outline"
+            onPress={() => nav.navigate('AppGuide')}
+          />
+          <SettingsRow
+            title="App Version"
+            icon="phone-portrait-outline"
+            last
+            right={<Txt size={12} weight="700" color={colors.textMuted}>1.0.0</Txt>}
+          />
+        </SettingsSection>
       </View>
 
       <Modal
-        visible={openSection !== null}
+        visible={picker !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setOpenSection(null)}
+        onRequestClose={() => setPicker(null)}
       >
-        <View style={{ flex: 1, justifyContent: 'center', padding: 16, backgroundColor: colors.overlay }}>
-          <View
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close settings options"
+          onPress={() => setPicker(null)}
+          style={{ flex: 1, justifyContent: 'center', padding: 18, backgroundColor: colors.overlay }}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
             style={{
               width: '100%',
-              maxWidth: 680,
-              maxHeight: '88%',
+              maxWidth: 420,
+              maxHeight: '80%',
               alignSelf: 'center',
               borderRadius: radii.dialog,
-              backgroundColor: colors.bg,
               borderWidth: 1,
-              borderColor: colors.borderSubtle,
-              overflow: 'hidden',
+              borderColor: colors.border,
+              padding: 18,
+              backgroundColor: colors.surface,
             }}
           >
-            <View style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              <Txt size={16} weight="800" display style={{ flex: 1 }}>
-                {selectedSection?.title ?? 'Settings'}
-              </Txt>
-              <Pressable
-                onPress={() => setOpenSection(null)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Back to Settings"
-                style={({ pressed }) => ({
-                  width: 36,
-                  height: 36,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.borderSubtle,
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                })}
-              >
-                <Ionicons name="arrow-back" size={18} color={colors.text} />
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-              {openSection ? sectionContent[openSection] : null}
+            <Txt size={17} weight="800" style={{ marginBottom: 12 }}>
+              {picker === 'theme' ? 'Appearance' : 'Select Category'}
+            </Txt>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {picker === 'theme'
+                ? themeModes.map((option) => (
+                    <SettingsRow
+                      key={option.value}
+                      title={option.label}
+                      icon={option.icon}
+                      last={option.value === 'system'}
+                      right={state.settings.themeMode === option.value ? <Ionicons name="checkmark" size={18} color={colors.blue} /> : undefined}
+                      onPress={() => {
+                        setSettings({ themeMode: option.value });
+                        setPicker(null);
+                      }}
+                    />
+                  ))
+                : EXAMS.map((option, index) => (
+                    <SettingsRow
+                      key={option.id}
+                      title={option.name}
+                      subtitle={`${option.aspirants} aspirants`}
+                      icon="school-outline"
+                      last={index === EXAMS.length - 1}
+                      right={exam.id === option.id ? <Ionicons name="checkmark" size={18} color={colors.blue} /> : undefined}
+                      onPress={() => {
+                        void updateExam(option.id);
+                        setPicker(null);
+                      }}
+                    />
+                  ))}
             </ScrollView>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </Shell>
   );

@@ -67,6 +67,42 @@ export type PlannerSettings = {
   aiSuggestions: boolean;
 };
 
+export type PlannerScheduleCategory = 'Tasks' | 'Classes' | 'Exams' | 'Vacations' | 'Activities';
+
+export type PlannerScheduleItem = {
+  id: string;
+  category: PlannerScheduleCategory;
+  title: string;
+  subject?: string;
+  type?: string;
+  teacher?: string;
+  date?: string;
+  time?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  duration?: number;
+  occurs?: 'Once' | 'Repeating';
+  days?: string[];
+  dateRange?: 'None' | 'Term' | 'Manual';
+  whereType?: 'In Person' | 'Online';
+  room?: string;
+  building?: string;
+  seat?: string;
+  notes?: string;
+  daysCount?: number;
+  hasCoverPhoto?: boolean;
+  completed?: boolean;
+  timeSlots?: {
+    id: string;
+    days: string[];
+    startTime: string;
+    endTime: string;
+  }[];
+  fromDate?: string;
+  untilDate?: string;
+};
+
 export type State = {
   hydrated: boolean;
   storageReady: boolean;
@@ -93,6 +129,7 @@ export type State = {
   plannerDefaultOverrides: Record<string, Partial<Pick<PlannerTask, 'label' | 'minutes' | 'category' | 'taskType' | 'priority' | 'targetDate'>>>;
   plannerDeletedDefaults: string[];
   plannerSettings: PlannerSettings;
+  plannerScheduleItems: PlannerScheduleItem[];
   plannerCompletions: Record<string, PlannerCompletion[]>;
   plannerMinutesCredited: Record<string, string[]>;
   plannerTaskStudySeconds: Record<string, number>;
@@ -118,6 +155,7 @@ type LegacyLearningData = Pick<
   | 'plannerTasks'
   | 'plannerDefaultOverrides'
   | 'plannerDeletedDefaults'
+  | 'plannerScheduleItems'
   | 'plannerCompletions'
   | 'plannerMinutesCredited'
   | 'plannerTaskStudySeconds'
@@ -148,6 +186,111 @@ function isPlannerDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isPlannerScheduleCategory(value: unknown): value is PlannerScheduleCategory {
+  return value === 'Tasks' || value === 'Classes' || value === 'Exams' || value === 'Vacations' || value === 'Activities';
+}
+
+function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim() ||
+    !isPlannerScheduleCategory(value.category) || typeof value.title !== 'string') return null;
+
+  const optionalStrings = [
+    value.subject,
+    value.type,
+    value.teacher,
+    value.date,
+    value.time,
+    value.endDate,
+    value.startTime,
+    value.endTime,
+    value.fromDate,
+    value.untilDate,
+    value.room,
+    value.building,
+    value.seat,
+    value.notes,
+  ];
+  if (optionalStrings.some((field) => field !== undefined && typeof field !== 'string')) return null;
+  if (
+    (value.date !== undefined && !isPlannerDate(value.date)) ||
+    (value.endDate !== undefined && !isPlannerDate(value.endDate)) ||
+    (value.fromDate !== undefined && !isPlannerDate(value.fromDate)) ||
+    (value.untilDate !== undefined && !isPlannerDate(value.untilDate)) ||
+    (value.duration !== undefined &&
+      (typeof value.duration !== 'number' || !Number.isFinite(value.duration) || value.duration <= 0)) ||
+    (value.daysCount !== undefined &&
+      (typeof value.daysCount !== 'number' || !Number.isInteger(value.daysCount) || value.daysCount < 1)) ||
+    (value.occurs !== undefined && value.occurs !== 'Once' && value.occurs !== 'Repeating') ||
+    (value.dateRange !== undefined && value.dateRange !== 'None' && value.dateRange !== 'Term' && value.dateRange !== 'Manual') ||
+    (value.whereType !== undefined && value.whereType !== 'In Person' && value.whereType !== 'Online') ||
+    (value.hasCoverPhoto !== undefined && typeof value.hasCoverPhoto !== 'boolean') ||
+    (value.completed !== undefined && typeof value.completed !== 'boolean') ||
+    (value.days !== undefined &&
+      (!Array.isArray(value.days) || !value.days.every((day) => typeof day === 'string'))) ||
+    (value.timeSlots !== undefined &&
+      (!Array.isArray(value.timeSlots) ||
+        !value.timeSlots.every((slot) =>
+          isRecord(slot) &&
+          typeof slot.id === 'string' &&
+          Array.isArray(slot.days) &&
+          slot.days.every((day) => typeof day === 'string') &&
+          typeof slot.startTime === 'string' &&
+          typeof slot.endTime === 'string'
+        )))
+  ) return null;
+
+  return {
+    id: value.id,
+    category: value.category,
+    title: value.title,
+    ...(typeof value.subject === 'string' ? { subject: value.subject } : {}),
+    ...(typeof value.type === 'string' ? { type: value.type } : {}),
+    ...(typeof value.teacher === 'string' ? { teacher: value.teacher } : {}),
+    ...(typeof value.date === 'string' ? { date: value.date } : {}),
+    ...(typeof value.time === 'string' ? { time: value.time } : {}),
+    ...(typeof value.endDate === 'string' ? { endDate: value.endDate } : {}),
+    ...(typeof value.startTime === 'string' ? { startTime: value.startTime } : {}),
+    ...(typeof value.endTime === 'string' ? { endTime: value.endTime } : {}),
+    ...(typeof value.duration === 'number' ? { duration: value.duration } : {}),
+    ...(value.occurs === 'Once' || value.occurs === 'Repeating' ? { occurs: value.occurs } : {}),
+    ...(Array.isArray(value.days) ? { days: value.days } : {}),
+    ...(Array.isArray(value.timeSlots)
+      ? {
+          timeSlots: value.timeSlots.map((slot) => ({
+            id: slot.id,
+            days: slot.days,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+          })),
+        }
+      : {}),
+    ...(value.dateRange === 'None' || value.dateRange === 'Term' || value.dateRange === 'Manual'
+      ? { dateRange: value.dateRange }
+      : {}),
+    ...(typeof value.fromDate === 'string' ? { fromDate: value.fromDate } : {}),
+    ...(typeof value.untilDate === 'string' ? { untilDate: value.untilDate } : {}),
+    ...(value.whereType === 'In Person' || value.whereType === 'Online' ? { whereType: value.whereType } : {}),
+    ...(typeof value.room === 'string' ? { room: value.room } : {}),
+    ...(typeof value.building === 'string' ? { building: value.building } : {}),
+    ...(typeof value.seat === 'string' ? { seat: value.seat } : {}),
+    ...(typeof value.notes === 'string' ? { notes: value.notes } : {}),
+    ...(typeof value.daysCount === 'number' ? { daysCount: value.daysCount } : {}),
+    ...(typeof value.hasCoverPhoto === 'boolean' ? { hasCoverPhoto: value.hasCoverPhoto } : {}),
+    ...(typeof value.completed === 'boolean' ? { completed: value.completed } : {}),
+  };
+}
+
+function normalizePlannerScheduleItems(value: unknown): PlannerScheduleItem[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('Saved planner schedule items have an invalid format.');
+  const items = value.map(migratePlannerScheduleItem);
+  if (items.some((item) => item === null)) {
+    throw new Error('A saved planner schedule item has an invalid format.');
+  }
+  const validItems = items.filter((item): item is PlannerScheduleItem => item !== null);
+  return Array.from(new Map(validItems.map((item) => [item.id, item])).values());
 }
 
 function migratePlannerTask(value: unknown): PlannerTask | null {
@@ -308,6 +451,7 @@ const initialState: State = {
     autoScheduling: false,
     aiSuggestions: false,
   },
+  plannerScheduleItems: [],
   plannerCompletions: {},
   plannerMinutesCredited: {},
   plannerTaskStudySeconds: {},
@@ -366,6 +510,7 @@ type Action =
   | { type: 'plannerDefaultOverride'; id: string; patch: Partial<Pick<PlannerTask, 'label' | 'minutes' | 'category' | 'taskType' | 'priority' | 'targetDate'>> }
   | { type: 'deletePlannerDefault'; id: string }
   | { type: 'plannerSettings'; patch: Partial<PlannerSettings> }
+  | { type: 'addPlannerScheduleItem'; item: PlannerScheduleItem }
   | { type: 'creditPlanMinutes'; id: string; date: string; minutes: number }
   | {
       type: 'recordFocusStudy';
@@ -405,6 +550,7 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'plannerDefaultOverride',
   'deletePlannerDefault',
   'plannerSettings',
+  'addPlannerScheduleItem',
   'creditPlanMinutes',
   'recordFocusStudy',
   'plannerCompletion',
@@ -493,6 +639,7 @@ function reducer(state: State, action: Action): State {
           ])
         ),
         plannerTasks: mergeById(state.plannerTasks, imported.plannerTasks),
+        plannerScheduleItems: mergeById(state.plannerScheduleItems, imported.plannerScheduleItems),
         plannerDefaultOverrides: { ...imported.plannerDefaultOverrides, ...state.plannerDefaultOverrides },
         plannerDeletedDefaults: Array.from(new Set([...state.plannerDeletedDefaults, ...imported.plannerDeletedDefaults])),
         plannerCompletions,
@@ -573,6 +720,7 @@ function reducer(state: State, action: Action): State {
         plannerDefaultOverrides: {},
         plannerDeletedDefaults: [],
         plannerSettings: initialState.plannerSettings,
+        plannerScheduleItems: [],
         plannerCompletions: {},
         plannerMinutesCredited: {},
         plannerTaskStudySeconds: {},
@@ -728,6 +876,10 @@ function reducer(state: State, action: Action): State {
           : { ...state.settings, dailyGoalMin: Math.round(plannerSettings.dailyTargetHours * 60) },
       };
     }
+    case 'addPlannerScheduleItem':
+      return state.plannerScheduleItems.some((item) => item.id === action.item.id)
+        ? state
+        : { ...state, plannerScheduleItems: [action.item, ...state.plannerScheduleItems] };
     case 'creditPlanMinutes': {
       const credited = state.plannerMinutesCredited[action.date] ?? [];
       if (credited.includes(action.id)) return state;
@@ -1024,6 +1176,7 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
         Array.isArray(ids) ? ids : [],
       ])
     );
+  const plannerScheduleItems = normalizePlannerScheduleItems(saved.plannerScheduleItems);
 
   return {
     tasks,
@@ -1043,6 +1196,7 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
       plannerPersistenceError: null,
       plannerDefaultOverrides: saved.plannerDefaultOverrides ?? {},
       plannerDeletedDefaults: saved.plannerDeletedDefaults ?? [],
+      plannerScheduleItems,
       plannerCompletions: saved.plannerCompletions ?? {},
       plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
       plannerMinutesCredited,
@@ -1251,6 +1405,7 @@ function legacyLearningDataFrom(snapshot: RecoverySnapshot): LegacyLearningData 
     plannerTasks: snapshot.tasks,
     plannerDefaultOverrides,
     plannerDeletedDefaults: requireStringArray(saved.plannerDeletedDefaults, 'planner defaults'),
+    plannerScheduleItems: saved.plannerScheduleItems ?? [],
     plannerCompletions,
     plannerMinutesCredited: stringMap(saved.plannerMinutesCredited, 'credited planner minutes'),
     plannerTaskStudySeconds: secondsMap(saved.plannerTaskStudySeconds),

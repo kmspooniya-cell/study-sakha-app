@@ -3,14 +3,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { CustomStudyPlan } from '../components/DashboardStudyTools';
 import { Shell, useLayout } from '../components/Shell';
-import { ProgressBar, Tag } from '../components/ui';
-import { EXAMS, getCurrentAffairs, getResources, getTests, TODAY_PLAN } from '../lib/data';
-import { dayKey, getDisplayName, useStore } from '../lib/store';
+import { TODAY_PLAN } from '../lib/data';
+import { getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
 
 const greeting = () => {
@@ -36,12 +35,8 @@ export default function DashboardScreen() {
   const { colors, scheme } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, streak, todayMinutes, dispatch } = useStore();
-  const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
-  const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
-  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
   const { isTablet, isDesktop } = useLayout();
   const isTabletOrLarger = isTablet || isDesktop;
-  const isWide = isDesktop;
   const stitch = scheme === 'light' ? stitchLight : stitchDark;
   const styles = useMemo(() => makeStyles(colors, scheme), [colors, scheme]);
 
@@ -60,28 +55,7 @@ export default function DashboardScreen() {
     return () => clearInterval(id);
   }, [target]);
 
-  const exam = EXAMS.find((item) => item.id === (state.user?.exam ?? 'upsc')) ?? EXAMS[0];
   const first = getDisplayName(state.user).split(/\s+/)[0];
-  const week = useMemo(() => {
-    const out: { label: string; value: number }[] = [];
-    for (let i = 6; i >= 0; i -= 1) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      out.push({ label: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()], value: Math.max(0, Number(state.studyLog[dayKey(date)]) || 0) });
-    }
-    return out;
-  }, [state.studyLog]);
-  const weeklyTotal = week.reduce((total, day) => total + day.value, 0);
-  const dailyAverage = Math.round(weeklyTotal / 7);
-
-  const continueItems = Object.entries(state.progress)
-    .sort((a, b) => (Number(b[1].at) || 0) - (Number(a[1].at) || 0))
-    .slice(0, 3)
-    .map(([id, progress]) => ({ id, ...progress, percent: clamp(Number(progress.percent) || 0, 0, 100), res: resources.find((resource) => resource.id === id) }))
-    .filter((item) => item.res);
-
-  const liveTests = tests.filter((test) => Boolean(test.liveAt));
-  const recent = resources.filter((resource) => resource.exam === exam.id).slice(0, isWide ? 4 : 3);
 
   const quickActions = [
     { label: 'Notes', icon: 'document-text' as const, tint: stitch.blue, onPress: () => nav.navigate('NoteEditor', {}) },
@@ -96,8 +70,6 @@ export default function DashboardScreen() {
     else if (item.kind === 'ca') nav.navigate('CurrentAffairs');
     else nav.navigate('TestPlayer', { testId: item.refId });
   };
-
-  const openResource = (resource: (typeof resources)[number]) => nav.navigate(resource.type === 'book' ? 'BookReader' : 'NoteEditor', { resourceId: resource.id });
 
   const radius = 15.9;
   const circumference = 2 * Math.PI * radius;
@@ -159,7 +131,7 @@ export default function DashboardScreen() {
                 </View>
 
                 {/* Schedule Shortcut Card navigating to StudyPlanner */}
-                <View style={{ marginBottom: 14 }}>
+                <View>
                   <Pressable
                     onPress={() => nav.navigate('StudyPlanner')}
                     accessibilityRole="button"
@@ -187,28 +159,6 @@ export default function DashboardScreen() {
                   </Pressable>
                 </View>
 
-                <View style={[styles.card, styles.sectionCard]}>
-                  <SectionHeader icon="play-circle" title="Continue learning" action="Library" onPress={() => nav.navigate('Library')} styles={styles} />
-                  {continueItems.length === 0 ? <Text style={styles.emptyText}>Start a resource to see it here.</Text> : continueItems.map((item) => <Pressable accessibilityRole="button" key={item.id} onPress={() => openResource(item.res!)} style={styles.listItem}><Image source={{ uri: item.res!.cover }} style={styles.listImage} /><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{item.res!.title}</Text><Text style={styles.listSub}>{item.res!.subject} · {item.percent}% complete</Text><ProgressBar value={item.percent} height={5} /></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}
-                </View>
-
-                <View style={[styles.card, styles.sectionCard]}>
-                  <SectionHeader icon="bar-chart" title="Weekly activity" action="Statistics" onPress={() => nav.navigate('Statistics')} styles={styles} />
-                  <View style={styles.statsRow}><View><Text style={styles.statLarge}>{weeklyTotal}m</Text><Text style={styles.statSmall}>this week</Text></View><View style={styles.averageStat}><Text style={[styles.statLarge, { color: stitch.green }]}>{dailyAverage}m</Text><Text style={styles.statSmall}>daily average</Text></View></View>
-                  <WeeklyActivityStrip data={week} styles={styles} color={stitch.teal} />
-                </View>
-
-              </View>
-
-              <View style={styles.layoutCol}>
-                <View style={styles.testsSection}>
-                  <SectionHeader icon="radio" title="Upcoming Live Tests" action="All tests" onPress={() => nav.navigate('Tests')} styles={styles} />
-                  {liveTests.length === 0 ? <View style={[styles.card, styles.sectionCard]}><Text style={styles.emptyText}>No live tests scheduled.</Text></View> : liveTests.map((test) => <View key={test.id} style={styles.testCard}><View style={styles.testHeader}><Text style={styles.testTime}>● {test.liveAt}</Text><Tag label={test.kind} color={stitch.blue} /></View><Text style={styles.testTitle}>{test.title}</Text><Text style={styles.testSub}>{test.questions.length} Qs · {test.durationMin} min</Text><Pressable accessibilityRole="button" onPress={() => nav.navigate('TestPlayer', { testId: test.id })} style={styles.primaryBtn}><Text style={styles.primaryBtnText}>Enter test</Text></Pressable></View>)}
-                </View>
-
-                <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="newspaper" title="Current affairs" action="Open" onPress={() => nav.navigate('CurrentAffairs')} styles={styles} />{currentAffairs.slice(0, 3).map((affair) => <Pressable accessibilityRole="button" key={affair.id} onPress={() => nav.navigate('CurrentAffairs')} style={styles.caItem}><View style={styles.caHeader}><Tag label={affair.category} color={stitch.green} /><Text style={styles.caDate}>{affair.date}</Text></View><Text style={styles.caTitle} numberOfLines={2}>{affair.title}</Text></Pressable>)}</View>
-
-                <View style={[styles.card, styles.sectionCard]}><SectionHeader icon="library" title="Fresh in library" action="See all" onPress={() => nav.navigate('Library')} styles={styles} />{recent.map((resource) => <Pressable accessibilityRole="button" key={resource.id} onPress={() => openResource(resource)} style={styles.listItem}><View style={[styles.iconBox, { backgroundColor: `${stitch.blue}18` }]}><Ionicons name="book" size={18} color={stitch.blue} /></View><View style={styles.listTextContainer}><Text style={styles.listTitle} numberOfLines={1}>{resource.title}</Text><Text style={styles.listSub}>{resource.subject} · ★ {resource.rating}</Text></View><Ionicons name="chevron-forward" size={16} color={stitch.muted} /></Pressable>)}</View>
               </View>
 
             </View>

@@ -2,6 +2,8 @@ import type { DrawerContentComponentProps } from '@react-navigation/drawer';
 import type { LinkingOptions, NavigatorScreenParams, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ExamId } from './types';
+import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
+import type { GroupRoomId } from './groupRooms';
 
 type HeaderParams = { headerBrand?: 'SakhaAI' };
 type OptionalScreenParams = HeaderParams | undefined;
@@ -30,7 +32,10 @@ export type AppStackParamList = {
   Statistics: OptionalScreenParams;
   TaskPerformance: (HeaderParams & { startDate?: string; endDate?: string }) | undefined;
   StudyPlanner: OptionalScreenParams;
-  FocusCenter: (HeaderParams & { openStudySetup?: boolean }) | undefined;
+  FocusCenter: (HeaderParams & {
+    focusSession?: FocusSessionSetup;
+    roomFocus?: { groupId: string; roomId: GroupRoomId; roomSessionId: string };
+  }) | undefined;
   FocusLock: OptionalScreenParams;
   Hobbies: OptionalScreenParams;
   Profile: OptionalScreenParams;

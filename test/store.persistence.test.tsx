@@ -81,6 +81,10 @@ const userATask = {
   id: 'task-a', label: 'A private task', minutes: 30, category: 'Polity', completed: false, completedOn: null,
   targetDate: '2026-11-03', taskType: 'Study' as const, priority: 'High' as const, scope: 'daily' as const, periodKey: '2026-11-03',
 };
+const userAScheduleItem = {
+  id: 'schedule-a', category: 'Classes' as const, title: 'A private class', date: '2026-11-03',
+  startTime: '09:00', endTime: '10:00', occurs: 'Repeating' as const, days: ['Mon', 'Wed'],
+};
 const userAResult = {
   id: 'result-a', testId: 'test-a', title: 'A private result', exam: 'upsc' as const, takenAt: 1, score: 1, maxScore: 1,
   correct: 1, wrong: 0, skipped: 0, accuracy: 100, percentile: 0, rank: 0, totalAspirants: 0, comparisonStatus: 'unavailable' as const,
@@ -91,12 +95,14 @@ const legacyTask = { ...userATask, id: 'legacy-task', label: 'Legacy task' };
 const legacyResult = { ...userAResult, id: 'legacy-result', title: 'Legacy result' };
 
 function Harness() {
-  const { state, dispatch, importLegacyData, legacyMigrationAvailable, signOut } = useStore();
+  const { state, hydrationError, dispatch, importLegacyData, legacyMigrationAvailable, signOut } = useStore();
   const snapshot = JSON.stringify({
     userId: state.user?.id ?? null,
     hydrated: state.hydrated && state.storageReady,
+    hydrationError,
     noteIds: state.notes.map((note) => note.id),
     taskIds: state.plannerTasks.map((task) => task.id),
+    scheduleItemIds: state.plannerScheduleItems.map((item) => item.id),
     resultIds: state.results.map((result) => result.id),
     legacyMigrationAvailable,
   });
@@ -106,6 +112,7 @@ function Harness() {
     <Pressable testID="seed-user-a" onPress={() => {
       dispatch({ type: 'saveNote', note: userANote });
       dispatch({ type: 'savePlannerTasks', tasks: [userATask] });
+      dispatch({ type: 'addPlannerScheduleItem', item: userAScheduleItem });
       dispatch({ type: 'result', result: userAResult });
     }}><Text>seed</Text></Pressable>
     <Pressable testID="import-legacy" onPress={() => void importLegacyData()}><Text>import</Text></Pressable>
@@ -117,8 +124,10 @@ function readSnapshot(getByTestId: ReturnType<typeof render>['getByTestId']) {
   return JSON.parse(getByTestId('snapshot').props.children as string) as {
     userId: string | null;
     hydrated: boolean;
+    hydrationError: string | null;
     noteIds: string[];
     taskIds: string[];
+    scheduleItemIds: string[];
     resultIds: string[];
     legacyMigrationAvailable: boolean;
   };
@@ -151,6 +160,7 @@ describe('StoreProvider account-scoped persistence', () => {
       const saved = JSON.parse(mockStorage.get(userAKey) ?? '{}');
       expect(saved.notes.some((note: { id: string }) => note.id === userANote.id)).toBe(true);
       expect(saved.plannerTasks.some((task: { id: string }) => task.id === userATask.id)).toBe(true);
+      expect(saved.plannerScheduleItems.some((item: { id: string }) => item.id === userAScheduleItem.id)).toBe(true);
       expect(saved.results.some((result: { id: string }) => result.id === userAResult.id)).toBe(true);
     });
 
@@ -165,6 +175,7 @@ describe('StoreProvider account-scoped persistence', () => {
     let snapshot = readSnapshot(view.getByTestId);
     expect(snapshot.noteIds).not.toContain(userANote.id);
     expect(snapshot.taskIds).not.toContain(userATask.id);
+    expect(snapshot.scheduleItemIds).not.toContain(userAScheduleItem.id);
     expect(snapshot.resultIds).not.toContain(userAResult.id);
     expect(snapshot.noteIds).not.toContain(legacyNote.id);
     expect(snapshot.taskIds).not.toContain(legacyTask.id);
@@ -185,9 +196,27 @@ describe('StoreProvider account-scoped persistence', () => {
     snapshot = readSnapshot(view.getByTestId);
     expect(snapshot.noteIds).toContain(userANote.id);
     expect(snapshot.taskIds).toContain(userATask.id);
+    expect(snapshot.scheduleItemIds).toContain(userAScheduleItem.id);
     expect(snapshot.resultIds).toContain(userAResult.id);
     expect(snapshot.noteIds).not.toContain(legacyNote.id);
     expect(snapshot.taskIds).not.toContain(legacyTask.id);
     expect(snapshot.resultIds).not.toContain(legacyResult.id);
+  });
+
+  it('does not overwrite saved data when a planner schedule item is malformed', async () => {
+    const storageKey = getUserScopedStorageKey('sakha-store-v1', 'user-a');
+    const saved = JSON.stringify({
+      plannerScheduleItems: [{ id: 'bad-item', category: 'Unknown', title: 'Invalid category' }],
+    });
+    mockStorage.set(storageKey, saved);
+
+    const view = render(<StoreProvider><Harness /></StoreProvider>);
+    await waitFor(() => {
+      const snapshot = readSnapshot(view.getByTestId);
+      expect(snapshot.userId).toBe('user-a');
+      expect(snapshot.hydrationError).toContain('planner schedule item has an invalid format');
+    });
+
+    expect(mockStorage.get(storageKey)).toBe(saved);
   });
 });

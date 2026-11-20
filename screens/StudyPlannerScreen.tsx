@@ -9,6 +9,7 @@ import { Button, Card, SectionHeader, Txt } from '../components/ui';
 import { TODAY_PLAN } from '../lib/data';
 import { useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
+import StudyPlannerSchedule from './StudyPlanner';
 
 type SettingsPanel = 'targets' | 'times' | 'preferences';
 const STUDY_TIMES = ['Morning', 'Afternoon', 'Evening'] as const;
@@ -20,7 +21,7 @@ function isValidTime(value: string) {
   return hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60;
 }
 
-export default function StudyPlannerScreen() {
+function StudyPlanContent() {
   const { colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
@@ -138,7 +139,12 @@ export default function StudyPlannerScreen() {
   );
 
   return (
-    <Shell active="StudyPlanner" title="Study Planner" subtitle="Your study plan and planner controls">
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: 36, gap: 12 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       {state.plannerPersistenceError ? (
         <Card>
           <Txt size={13} weight="700" color={colors.danger}>Changes could not be saved</Txt>
@@ -311,6 +317,20 @@ export default function StudyPlannerScreen() {
           </View>
         </View>
       </Modal>
+    </ScrollView>
+  );
+}
+
+export default function StudyPlannerScreen() {
+  return (
+    <Shell
+      active="StudyPlanner"
+      title="Study Planner"
+      subtitle="Plan tasks, classes, exams and activities"
+      scroll={false}
+      contentPadding={0}
+    >
+      <StudyPlannerSchedule embedded />
     </Shell>
   );
 }

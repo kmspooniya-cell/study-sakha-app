@@ -1,0 +1,93 @@
+{
+  "version": 2,
+  "skills": {
+    "better-typography": {
+      "source": "jakubkrehel/skills",
+      "commit": "672ae44ace6aaed65b86cbb1e2fd6fbea0e79578",
+      "sourceType": "github",
+      "skillPath": "skills/better-typography/SKILL.md",
+      "computedHash": "4a1b00bc0f9c3c7a83f9cb94dfa67359bdd12e160afc3cd69a01c0c1f6d240ff",
+      "installMode": "copy"
+    },
+    "design-taste-frontend": {
+      "source": "Leonxlnx/taste-skill",
+      "commit": "f6b76575f949707b4e3c37cd86cb44b0b98643e8",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill/SKILL.md",
+      "computedHash": "b10eab0a9684cd09cf34c31ef04a3bf530a5f4404422f9c520d42372d670c7fc",
+      "installMode": "copy"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "83485963700bcf11d5bf78118facb301676b69d918fee2e45a95e7f1a2840f6c",
+      "installMode": "copy"
+    },
+    "hallmark": {
+      "source": "Nutlope/hallmark",
+      "commit": "04977e15f3dfd6ee4b74c887dac3eb52665d6c92",
+      "sourceType": "github",
+      "skillPath": "skills/hallmark/SKILL.md",
+      "computedHash": "e5d4ee5cf0af2dcc81a23ef49b587fbfd71236ff9f9df9da12d3bf347e26e572",
+      "installMode": "copy"
+    },
+    "hooked-ux": {
+      "source": "mikeoptimax/hooked-ux",
+      "commit": "a7b080b7bc579e2d881b45c60cfeb7e24d08a151",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "5210932d0bffcfa49f348866fef0e3233ddaa1c80335a7206820472286f0a0e0",
+      "installMode": "copy"
+    },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "commit": "b49177d32788f2dc585c42831d845dacf1ebed2c",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "08bd5bf141cb507f46bd8347890cd985865606f15adf88295ed3a73bc9ad5d96",
+      "installMode": "copy"
+    },
+    "interface-design": {
+      "source": "Dammyjay93/interface-design",
+      "commit": "2f9be3206855bcb2d1d0af262c8bae25cba6658d",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/interface-design/SKILL.md",
+      "computedHash": "1491bb966a2c289550e0d6eb25c19b0570ead479240f6b2ba5766d94599ea744",
+      "installMode": "copy"
+    },
+    "ios-hig-design": {
+      "source": "mikeoptimax/ios-hig-design",
+      "commit": "393826d190a3343ef71ca4e5116e98fb05a6c572",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "fa21aff9f14b56fc3c0e74935b72a69f278811649208da6e74ede2b3ebf9d36a",
+      "installMode": "copy"
+    },
+    "shadcn": {
+      "source": "shadcn-ui/ui",
+      "commit": "f50887ae68d0fdcbfbe86b57be08af94a4c88a68",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "388962d16c7a4f13aaeee0d8f128e50a87df8553d42ef7988c39c0e1c74a40e8",
+      "installMode": "copy"
+    },
+    "stitch::extract-design-md": {
+      "source": "google-labs-code/stitch-skills",
+      "commit": "4cf4db8e4143b09e40f9bc887429d81f41ab3947",
+      "sourceType": "github",
+      "skillPath": "plugins/stitch-design/skills/extract-design-md/SKILL.md",
+      "computedHash": "ebbb969798ca2c97764cc42f1378bdb532202bfa40d0d393414a46857d303454",
+      "installMode": "copy"
+    },
+    "ux-heuristics": {
+      "source": "mikeoptimax/ux-heuristics",
+      "commit": "36c778084183c08aad7fc12a76bb7647e6f169d7",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "b4bc628ac5decf1f2749ac6c66477b21d54345e58d465f85844fc83fea840ffd",
+      "installMode": "copy"
+    }
+  }
+}

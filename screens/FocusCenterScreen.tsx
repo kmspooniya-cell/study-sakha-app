@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AppState,
   BackHandler,
   Modal,
   Pressable,
@@ -21,12 +22,19 @@ import {
 } from '../components/MeditationPresets';
 import { MeditationSceneRenderer } from '../components/MeditationSceneRenderer';
 import { FocusActivity, FocusActivityTimer } from '../components/DashboardStudyTools';
+import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
+import type { FocusSessionMode, FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell } from '../components/Shell';
-import { Button, Card, Chip, SectionHeader, Txt } from '../components/ui';
+import { Button, Chip, Txt } from '../components/ui';
 import { appendFocusHistory } from '../lib/focusHistory';
 import { dayKey, getUserScopedStorageKey, PlannerTask, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { AudioDownloadManager, AudioDownloadState } from '../lib/audioDownloadManager';
+import {
+  endGroupRoomFocus,
+  publishGroupRoomFocus,
+} from '../lib/groupRoomFocusBridge';
+import type { GroupRoomFocusStatus } from '../lib/groupRoomFocusBridge';
 
 const MEDITATION_HISTORY_KEY = 'study-sakha-meditation-history-v1';
 const MEDITATION_PREFS_KEY = 'study-sakha-meditation-prefs-v2';
@@ -58,26 +66,52 @@ export default function FocusCenterScreen() {
 
   // Focus for Study Popup & Active Session States
   const [showStudySetupModal, setShowStudySetupModal] = useState(false);
-  const [timerMode, setTimerMode] = useState<'timer' | 'stopwatch' | 'pomodoro'>('timer');
+  const [timerMode, setTimerMode] = useState<FocusSessionMode>('timer');
   const [selectedTag, setSelectedTag] = useState('History');
   const [selectedTask, setSelectedTask] = useState<PlannerTask | null>(null);
   const [studySelection, setStudySelection] = useState<'schedule' | 'manual' | null>(null);
   const [tagModalVisible, setTagModalVisible] = useState(false);
-  const [scheduleTaskModalVisible, setScheduleTaskModalVisible] = useState(false);
   const [customTagInput, setCustomTagInput] = useState('');
   const [studyDurationMinutes, setStudyDurationMinutes] = useState(25);
   const [isStudySessionActive, setIsStudySessionActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [roomFocusStatus, setRoomFocusStatus] = useState<GroupRoomFocusStatus>('focusing');
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
   const studySessionStartedAt = React.useRef<string | null>(null);
   const studySessionSaved = React.useRef(false);
-
+  const studyTimerLastUpdatedAt = React.useRef<number | null>(null);
+  const elapsedSecondsRef = React.useRef(0);
   useEffect(() => {
-    if (route.params?.openStudySetup) {
-      setShowStudySetupModal(true);
-      navigation.setParams({ openStudySetup: undefined });
-    }
-  }, [navigation, route.params?.openStudySetup]);
+    elapsedSecondsRef.current = timerMode === 'stopwatch'
+      ? secondsRemaining
+      : Math.max(0, studyDurationMinutes * 60 - secondsRemaining);
+  }, [secondsRemaining, studyDurationMinutes, timerMode]);
+
+  const publishLinkedRoomFocus = useCallback((
+    status: GroupRoomFocusStatus,
+    elapsedSeconds: number,
+    subject: string,
+    eventType: 'start' | 'pause' | 'resume' | 'break' | 'update' = 'update'
+  ) => {
+    const roomFocus = route.params?.roomFocus;
+    const startedAt = studySessionStartedAt.current;
+    if (!roomFocus || !startedAt) return;
+    publishGroupRoomFocus({
+      ...roomFocus,
+      subject,
+      status,
+      startedAt,
+      elapsedSeconds,
+      updatedAt: new Date().toISOString(),
+    }, eventType);
+  }, [route.params?.roomFocus]);
+
+  const endLinkedRoomFocus = useCallback(() => {
+    const roomFocus = route.params?.roomFocus;
+    if (!roomFocus) return;
+    endGroupRoomFocus(roomFocus.roomSessionId);
+    navigation.setParams({ roomFocus: undefined });
+  }, [navigation, route.params?.roomFocus]);
 
   // 3-Line Menu Modal States (Music, Themes, Blocked Apps)
   const [menuModalVisible, setMenuModalVisible] = useState(false);
@@ -116,30 +150,60 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     let interval: NodeJS.Timeout;
     if (isStudySessionActive && !isPaused && timerMode !== 'stopwatch') {
       interval = setInterval(() => {
+        const now = Date.now();
+        const lastUpdatedAt = studyTimerLastUpdatedAt.current ?? now - 1000;
+        const elapsed = Math.max(1, Math.floor((now - lastUpdatedAt) / 1000));
+        studyTimerLastUpdatedAt.current = now;
         setSecondsRemaining((prev) => {
-          if (prev <= 1) {
+          if (prev <= elapsed) {
             setIsStudySessionActive(false);
             return 0;
           }
-          return prev - 1;
+          return prev - elapsed;
         });
       }, 1000);
     } else if (isStudySessionActive && !isPaused && timerMode === 'stopwatch') {
       interval = setInterval(() => {
-        setSecondsRemaining((prev) => prev + 1);
+        const now = Date.now();
+        const lastUpdatedAt = studyTimerLastUpdatedAt.current ?? now - 1000;
+        const elapsed = Math.max(1, Math.floor((now - lastUpdatedAt) / 1000));
+        studyTimerLastUpdatedAt.current = now;
+        setSecondsRemaining((prev) => prev + elapsed);
       }, 1000);
     }
     return () => clearInterval(interval);
   }, [isStudySessionActive, isPaused, timerMode]);
 
-  const handleStartStudySession = () => {
-    setSecondsRemaining(timerMode === 'stopwatch' ? 0 : studyDurationMinutes * 60);
+  const handleStartStudySession = useCallback((setup: FocusSessionSetup) => {
+    setTimerMode(setup.mode);
+    setStudyDurationMinutes(setup.durationMinutes);
+    setStudySelection(setup.selection);
+    setSelectedTag(setup.tag);
+    setSelectedTask(setup.task);
+    setSecondsRemaining(setup.mode === 'stopwatch' ? 0 : setup.durationMinutes * 60);
     studySessionStartedAt.current = new Date().toISOString();
+    studyTimerLastUpdatedAt.current = Date.now();
     studySessionSaved.current = false;
     setShowStudySetupModal(false);
     setIsStudySessionActive(true);
     setIsPaused(false);
-  };
+    setRoomFocusStatus('focusing');
+    if (route.params?.roomFocus) {
+      const subject = setup.selection === 'schedule' && setup.task
+        ? setup.task.category
+        : setup.tag.trim() || 'General Study';
+      publishLinkedRoomFocus('focusing', 0, subject, 'start');
+    }
+  }, [publishLinkedRoomFocus, route.params?.roomFocus]);
+
+  useEffect(() => {
+    const setup = route.params?.focusSession;
+    if (!setup) return;
+    // Consume this one-shot navigation command into the existing focus session state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    handleStartStudySession(setup);
+    navigation.setParams({ focusSession: undefined });
+  }, [handleStartStudySession, navigation, route.params?.focusSession]);
 
   const saveStudySession = useCallback((actualSeconds: number) => {
     const recordedSeconds = Math.max(0, Math.round(actualSeconds));
@@ -186,14 +250,49 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       ? secondsRemaining
       : studyDurationMinutes * 60 - secondsRemaining;
     saveStudySession(actualSeconds);
+    studySessionStartedAt.current = null;
     setIsStudySessionActive(false);
-  }, [saveStudySession, secondsRemaining, studyDurationMinutes, timerMode]);
+    studyTimerLastUpdatedAt.current = null;
+    endLinkedRoomFocus();
+  }, [endLinkedRoomFocus, saveStudySession, secondsRemaining, studyDurationMinutes, timerMode]);
+
+  const toggleStudyPause = useCallback(() => {
+    const nextPaused = !isPaused;
+    const nextStatus: GroupRoomFocusStatus = nextPaused ? 'paused' : 'focusing';
+    setIsPaused(nextPaused);
+    setRoomFocusStatus(nextStatus);
+    studyTimerLastUpdatedAt.current = Date.now();
+    const subject = studySelection === 'schedule' && selectedTask
+      ? selectedTask.category
+      : selectedTag.trim() || 'General Study';
+    publishLinkedRoomFocus(nextStatus, elapsedSecondsRef.current, subject, nextPaused ? 'pause' : 'resume');
+  }, [isPaused, publishLinkedRoomFocus, selectedTag, selectedTask, studySelection]);
+
+  const handleTakeStudyBreak = useCallback(() => {
+    setIsPaused(true);
+    setRoomFocusStatus('break');
+    studyTimerLastUpdatedAt.current = Date.now();
+    const subject = studySelection === 'schedule' && selectedTask
+      ? selectedTask.category
+      : selectedTag.trim() || 'General Study';
+    publishLinkedRoomFocus('break', elapsedSecondsRef.current, subject, 'break');
+  }, [publishLinkedRoomFocus, selectedTag, selectedTask, studySelection]);
+
+  useEffect(() => {
+    if (!isStudySessionActive || !route.params?.roomFocus) return;
+    const subject = studySelection === 'schedule' && selectedTask
+      ? selectedTask.category
+      : selectedTag.trim() || 'General Study';
+    publishLinkedRoomFocus(roomFocusStatus, elapsedSecondsRef.current, subject);
+  }, [isStudySessionActive, isPaused, publishLinkedRoomFocus, roomFocusStatus, route.params?.roomFocus, selectedTag, selectedTask, studySelection]);
 
   useEffect(() => {
     if (!isStudySessionActive && timerMode !== 'stopwatch' && secondsRemaining === 0) {
       saveStudySession(studyDurationMinutes * 60);
+      studyTimerLastUpdatedAt.current = null;
+      endLinkedRoomFocus();
     }
-  }, [isStudySessionActive, secondsRemaining, saveStudySession, studyDurationMinutes, timerMode]);
+  }, [endLinkedRoomFocus, isStudySessionActive, secondsRemaining, saveStudySession, studyDurationMinutes, timerMode]);
 
   const formatTime = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);
@@ -249,21 +348,46 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       setActivity(null);
       setShowMeditationConfig(false);
       setShowStudySetupModal(false);
-      if (studySessionStartedAt.current) handleStopStudySession();
-      setIsStudySessionActive(false);
+      if (!route.params?.roomFocus && studySessionStartedAt.current) handleStopStudySession();
+      if (!route.params?.roomFocus) setIsStudySessionActive(false);
       setFullScreenMeditationActive(false);
       setTagModalVisible(false);
-      setScheduleTaskModalVisible(false);
       setMenuModalVisible(false);
     });
-  }, [handleStopStudySession, navigation]);
+  }, [handleStopStudySession, navigation, route.params?.roomFocus]);
+
+  useEffect(() => {
+    if (!route.params?.roomFocus || !isStudySessionActive) return;
+    return navigation.addListener('beforeRemove', handleStopStudySession);
+  }, [handleStopStudySession, isStudySessionActive, navigation, route.params?.roomFocus]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && isStudySessionActive && route.params?.roomFocus) {
+        const lastUpdatedAt = studyTimerLastUpdatedAt.current;
+        const pendingElapsedSeconds = isPaused || !lastUpdatedAt
+          ? 0
+          : Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000));
+        const elapsedSeconds = timerMode === 'stopwatch'
+          ? elapsedSecondsRef.current + pendingElapsedSeconds
+          : Math.min(
+              studyDurationMinutes * 60,
+              elapsedSecondsRef.current + pendingElapsedSeconds
+            );
+        publishLinkedRoomFocus(
+          roomFocusStatus,
+          elapsedSeconds,
+          studySelection === 'schedule' && selectedTask
+            ? selectedTask.category
+            : selectedTag.trim() || 'General Study'
+        );
+      }
+    });
+    return () => subscription.remove();
+  }, [isPaused, isStudySessionActive, publishLinkedRoomFocus, roomFocusStatus, route.params?.roomFocus, selectedTag, selectedTask, studyDurationMinutes, studySelection, timerMode]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (scheduleTaskModalVisible) {
-        setScheduleTaskModalVisible(false);
-        return true;
-      }
       if (tagModalVisible) {
         setTagModalVisible(false);
         return true;
@@ -296,7 +420,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       return false;
     });
     return () => subscription.remove();
-  }, [activity, fullScreenMeditationActive, showMeditationConfig, isStudySessionActive, showStudySetupModal, tagModalVisible, scheduleTaskModalVisible, menuModalVisible, handleStopStudySession]);
+  }, [activity, fullScreenMeditationActive, showMeditationConfig, isStudySessionActive, showStudySetupModal, tagModalVisible, menuModalVisible, handleStopStudySession]);
 
   const handleCardPress = (id: FocusActivity | 'hobbies') => {
     if (id === 'study') {
@@ -462,11 +586,11 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
             </Txt>
 
             <Pressable
-              onPress={() => setIsPaused(!isPaused)}
+              onPress={handleTakeStudyBreak}
               style={styles.takeBreakPill}
             >
               <Txt color="#CBD5E1" size={12} weight="600">
-                {isPaused ? 'Paused' : 'Take a break'}
+                {roomFocusStatus === 'break' ? 'On break' : 'Take a break'}
               </Txt>
             </Pressable>
           </View>
@@ -491,7 +615,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
           </Pressable>
 
           <Pressable
-            onPress={() => setIsPaused(!isPaused)}
+            onPress={toggleStudyPause}
             style={[styles.resumeBtn, { backgroundColor: isPaused ? greenAccent : '#334155' }]}
           >
             <Txt color={isPaused ? '#052E16' : '#FFFFFF'} size={14.5} weight="800">
@@ -672,200 +796,25 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
         })}
       </View>
 
-      {/* ================= 2. BOTTOM POPUP SHEET FOR STUDY SETUP ================= */}
-      <Modal
+      <FocusSessionSetupModal
         visible={showStudySetupModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowStudySetupModal(false)}
-      >
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={[styles.bottomSheetCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
-            <View style={styles.sheetHandleBar} />
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Txt color={colors.text} size={18} weight="800">Focus Session Setup</Txt>
-              <Pressable onPress={() => setShowStudySetupModal(false)}>
-                <Ionicons name="close" size={20} color={colors.textMuted} />
-              </Pressable>
-            </View>
-
-            {/* Timer Modes */}
-            <View style={[styles.modeTabsRow, { backgroundColor: surfaceAltBg, marginBottom: 16 }]}>
-              {(['timer', 'stopwatch', 'pomodoro'] as const).map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => setTimerMode(m)}
-                  style={[
-                    styles.modeTabItem,
-                    timerMode === m && { backgroundColor: surfaceBg },
-                  ]}
-                >
-                  <Txt
-                    color={timerMode === m ? colors.text : colors.textMuted}
-                    size={13}
-                    weight={timerMode === m ? '800' : '600'}
-                  >
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </Txt>
-                </Pressable>
-              ))}
-            </View>
-
-            <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>SUBJECT OR TASK (OPTIONAL)</Txt>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: studySelection === 'schedule' }}
-                onPress={() => {
-                  setStudySelection('schedule');
-                  setScheduleTaskModalVisible(true);
-                }}
-                style={[
-                  styles.studySourceButton,
-                  {
-                    backgroundColor: studySelection === 'schedule' ? colors.blue + '18' : surfaceAltBg,
-                    borderColor: studySelection === 'schedule' ? colors.blue : colors.border,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={17}
-                  color={studySelection === 'schedule' ? colors.blue : colors.textMuted}
-                />
-                <Txt
-                  color={studySelection === 'schedule' ? colors.blue : colors.text}
-                  size={12}
-                  weight="700"
-                  numberOfLines={1}
-                >
-                  Add from Schedule
-                </Txt>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: studySelection === 'manual' }}
-                onPress={() => {
-                  setStudySelection('manual');
-                  setTagModalVisible(true);
-                }}
-                style={[
-                  styles.studySourceButton,
-                  {
-                    backgroundColor: studySelection === 'manual' ? colors.blue + '18' : surfaceAltBg,
-                    borderColor: studySelection === 'manual' ? colors.blue : colors.border,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="pricetag-outline"
-                  size={17}
-                  color={studySelection === 'manual' ? colors.blue : colors.textMuted}
-                />
-                <Txt
-                  color={studySelection === 'manual' ? colors.blue : colors.text}
-                  size={12}
-                  weight="700"
-                  numberOfLines={1}
-                >
-                  Tag Manually
-                </Txt>
-              </Pressable>
-            </View>
-            {/* Duration Pills */}
-            {timerMode !== 'stopwatch' && (
-              <>
-                <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>DURATION (MINUTES)</Txt>
-                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-                  {[15, 25, 40, 50].map((mins) => (
-                    <Pressable
-                      key={mins}
-                      onPress={() => setStudyDurationMinutes(mins)}
-                      style={[
-                        styles.durationPill,
-                        {
-                          backgroundColor: studyDurationMinutes === mins ? colors.blue : surfaceAltBg,
-                          borderColor: studyDurationMinutes === mins ? colors.blue : colors.border,
-                        },
-                      ]}
-                    >
-                      <Txt color={studyDurationMinutes === mins ? '#FFFFFF' : colors.text} size={13} weight="700">
-                        {mins}m
-                      </Txt>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* Continue Button */}
-            <Button
-              label="Continue to Full Focus"
-              icon="arrow-forward-outline"
-              full
-              size="lg"
-              onPress={handleStartStudySession}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={scheduleTaskModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setScheduleTaskModalVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <Txt color={colors.text} size={18} weight="800">Select a Scheduled Task</Txt>
-              <Pressable onPress={() => setScheduleTaskModalVisible(false)} accessibilityRole="button" accessibilityLabel="Close scheduled task list">
-                <Ionicons name="close" size={20} color={colors.textMuted} />
-              </Pressable>
-            </View>
-            {!storeState.plannerTasksLoaded ? (
-              <Txt color={colors.textMuted} size={13}>Loading scheduled tasks...</Txt>
-            ) : storeState.plannerTaskLoadError ? (
-              <Txt color={colors.danger} size={13}>{storeState.plannerTaskLoadError}</Txt>
-            ) : storeState.plannerTasks.length === 0 ? (
-              <Txt color={colors.textMuted} size={13}>No scheduled tasks are available. You can continue without selecting one.</Txt>
-            ) : (
-              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-                {storeState.plannerTasks.map((task) => (
-                  <Pressable
-                    key={task.id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: selectedTask?.id === task.id }}
-                    onPress={() => {
-                      setSelectedTask(task);
-                      setStudySelection('schedule');
-                      setScheduleTaskModalVisible(false);
-                    }}
-                    style={[
-                      styles.modalTagItem,
-                      {
-                        backgroundColor: surfaceAltBg,
-                        borderWidth: selectedTask?.id === task.id ? 1 : 0,
-                        borderColor: colors.blue,
-                      },
-                    ]}
-                  >
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Txt color={colors.text} size={14} weight="700">{task.label}</Txt>
-                      <Txt color={colors.textMuted} size={12} style={{ marginTop: 3 }}>
-                        {task.category} · {task.targetDate}
-                      </Txt>
-                    </View>
-                    {selectedTask?.id === task.id && <Ionicons name="checkmark-circle" size={19} color={colors.blue} />}
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+        value={{
+          mode: timerMode,
+          durationMinutes: studyDurationMinutes,
+          selection: studySelection,
+          tag: selectedTag,
+          task: selectedTask,
+        }}
+        onChange={(setup) => {
+          setTimerMode(setup.mode);
+          setStudyDurationMinutes(setup.durationMinutes);
+          setStudySelection(setup.selection);
+          setSelectedTag(setup.tag);
+          setSelectedTask(setup.task);
+        }}
+        onClose={() => setShowStudySetupModal(false)}
+        onContinue={handleStartStudySession}
+      />
 
       {renderManualTagPicker()}
 
@@ -1232,36 +1181,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#CBD5E1',
     alignSelf: 'center',
     marginBottom: 14,
-  },
-  modeTabsRow: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 4,
-  },
-  modeTabItem: {
-    flex: 1,
-    paddingVertical: 9,
-    alignItems: 'center',
-    borderRadius: 10,
-  },
-  studySourceButton: {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-  },
-  durationPill: {
-    flex: 1,
-    height: 38,
-    borderWidth: 1,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   modalBackdrop: {
     flex: 1,

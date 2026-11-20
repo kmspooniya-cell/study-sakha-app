@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,39 +13,28 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Shell } from '../components/Shell';
+import {
+  NativeDatePicker,
+  NativeTimePicker,
+  WebDatePicker,
+  WebTimePicker,
+} from '../components/NativeSchedulePickers';
+import {
+  createDefaultSchedule,
+  UnifiedSchedulePicker,
+  type UnifiedSchedule,
+} from '../components/UnifiedSchedulePicker';
+import { useStore } from '../lib/store';
+import type { PlannerScheduleCategory, PlannerScheduleItem } from '../lib/store';
 import { useTheme } from '../lib/theme';
 
-export type PlannerCategory = 'Tasks' | 'Classes' | 'Exams' | 'Vacations' | 'Activities';
+export type PlannerCategory = PlannerScheduleCategory;
 type Occurrence = 'Once' | 'Repeating';
 type DateRange = 'None' | 'Term' | 'Manual';
 type LocationType = 'In Person' | 'Online';
 type VacationPreset = '1 day' | '1 week' | '2 weeks' | 'Custom';
 
-export interface PlannerItem {
-  id: string;
-  category: PlannerCategory;
-  title: string;
-  subject?: string;
-  type?: string;
-  teacher?: string;
-  date?: string;
-  time?: string;
-  endDate?: string;
-  startTime?: string;
-  endTime?: string;
-  duration?: number;
-  occurs?: Occurrence;
-  days?: string[];
-  dateRange?: DateRange;
-  whereType?: LocationType;
-  room?: string;
-  building?: string;
-  seat?: string;
-  notes?: string;
-  daysCount?: number;
-  hasCoverPhoto?: boolean;
-  completed?: boolean;
-}
+export type PlannerItem = PlannerScheduleItem;
 
 interface TaskForm {
   title: string;
@@ -57,6 +47,7 @@ interface TaskForm {
   timeMode: 'single' | 'range';
   occurs: Occurrence;
   notes: string;
+  schedule: UnifiedSchedule;
 }
 
 interface ClassForm {
@@ -73,6 +64,7 @@ interface ClassForm {
   room: string;
   building: string;
   notes: string;
+  schedule: UnifiedSchedule;
 }
 
 interface ExamForm {
@@ -95,6 +87,7 @@ interface VacationForm {
   endDate: string;
   notes: string;
   hasCoverPhoto: boolean;
+  schedule: UnifiedSchedule;
 }
 
 interface ActivityForm {
@@ -236,6 +229,37 @@ function timeToMinutes(value: string): number | null {
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
 }
 
+function scheduleValidationError(schedule: UnifiedSchedule): string | null {
+  if (schedule.occurs === 'Once') {
+    if (!parseLocalDate(schedule.date)) return 'Choose a valid schedule date.';
+    const start = timeToMinutes(schedule.startTime);
+    const end = timeToMinutes(schedule.endTime);
+    if (start === null || end === null) return 'Choose valid start and end times.';
+    if (end <= start) return 'End time must be later than start time.';
+  } else {
+    if (schedule.timeSlots.length === 0) return 'Add at least one time slot.';
+    const usedDays = new Set<string>();
+    for (const slot of schedule.timeSlots) {
+      if (slot.days.length === 0) return 'Select at least one weekday for every time slot.';
+      const start = timeToMinutes(slot.startTime);
+      const end = timeToMinutes(slot.endTime);
+      if (start === null || end === null || end <= start) {
+        return 'Every time slot must end after it starts.';
+      }
+      for (const day of slot.days) {
+        if (usedDays.has(day)) return 'A weekday can only belong to one time slot.';
+        usedDays.add(day);
+      }
+    }
+  }
+  if (schedule.dateRange === 'Manual') {
+    const from = parseLocalDate(schedule.fromDate);
+    const until = parseLocalDate(schedule.untilDate);
+    if (!from || !until || until < from) return 'The date range must have a valid end after its start.';
+  }
+  return null;
+}
+
 function to24HourTime(hourText: string, minuteText: string, period: 'AM' | 'PM'): string | null {
   const hour = Number(hourText);
   const minute = Number(minuteText);
@@ -261,6 +285,17 @@ function getTimeParts(value: string) {
     minute: minuteText,
     period: hour24 >= 12 ? 'PM' as const : 'AM' as const,
   };
+}
+
+function parsePickerTime(value: string): Date {
+  const [hours = '09', minutes = '00'] = value.split(':');
+  const date = new Date();
+  date.setHours(Number(hours), Number(minutes), 0, 0);
+  return date;
+}
+
+function formatPickerTime(value: Date): string {
+  return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
 }
 
 function formatTimeRange(startTime: string, endTime: string): string {
@@ -527,21 +562,30 @@ function SectionCard({
   title,
   children,
   palette,
+  compact = false,
 }: {
   title: string;
   children: React.ReactNode;
   palette: Palette;
+  compact?: boolean;
 }) {
   return (
-    <View style={[styles.sectionCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+    <View
+      style={[
+        styles.sectionCard,
+        compact && { padding: 12, gap: 10 },
+        { backgroundColor: palette.card, borderColor: palette.border },
+      ]}
+    >
       <FieldLabel palette={palette}>{title}</FieldLabel>
       {children}
     </View>
   );
 }
 
-export default function StudyPlanner() {
+export default function StudyPlanner({ embedded = false }: { embedded?: boolean }) {
   const { colors: themeColors, scheme } = useTheme();
+  const { state, dispatch } = useStore();
   const { width } = useWindowDimensions();
   const today = useMemo(() => formatLocalDate(new Date()), []);
   const isDark = scheme === 'dark';
@@ -563,7 +607,7 @@ export default function StudyPlanner() {
   const [currentScreen, setCurrentScreen] = useState<'create' | 'schedule'>('create');
   const [freeTasksRemaining, setFreeTasksRemaining] = useState(6);
   const [isPremium, setIsPremium] = useState(false);
-  const [savedItems, setSavedItems] = useState<PlannerItem[]>([]);
+  const savedItems = state.plannerScheduleItems;
   const [taskForm, setTaskForm] = useState<TaskForm>({
     title: '',
     subject: '',
@@ -575,6 +619,7 @@ export default function StudyPlanner() {
     timeMode: 'single',
     occurs: 'Once',
     notes: '',
+    schedule: createDefaultSchedule(today),
   });
   const [classForm, setClassForm] = useState<ClassForm>({
     name: '',
@@ -590,6 +635,7 @@ export default function StudyPlanner() {
     room: '',
     building: '',
     notes: '',
+    schedule: createDefaultSchedule(today),
   });
   const [examForm, setExamForm] = useState<ExamForm>({
     name: '',
@@ -610,6 +656,7 @@ export default function StudyPlanner() {
     endDate: today,
     notes: '',
     hasCoverPhoto: false,
+    schedule: { ...createDefaultSchedule(today), dateRange: 'Manual' },
   });
   const [activityForm, setActivityForm] = useState<ActivityForm>({
     name: '',
@@ -700,7 +747,7 @@ export default function StudyPlanner() {
     setTimeModal({
       visible: true,
       title,
-      mode: range?.startTime && range.endTime ? 'range' : 'single',
+      mode: onSaveRange ? 'range' : 'single',
       allowRange: Boolean(onSaveRange),
       startHour: startParts.hour,
       startMinute: startParts.minute,
@@ -733,6 +780,13 @@ export default function StudyPlanner() {
       ...current,
       preset,
       endDate: addDays(current.startDate, duration - 1),
+      schedule: {
+        ...current.schedule,
+        date: current.startDate,
+        dateRange: 'Manual',
+        fromDate: current.startDate,
+        untilDate: addDays(current.startDate, duration - 1),
+      },
     }));
   };
 
@@ -749,6 +803,7 @@ export default function StudyPlanner() {
         timeMode: 'single',
         occurs: 'Once',
         notes: '',
+        schedule: createDefaultSchedule(today),
       });
     } else if (activeTab === 'Classes') {
       setClassForm({
@@ -765,6 +820,7 @@ export default function StudyPlanner() {
         room: '',
         building: '',
         notes: '',
+        schedule: createDefaultSchedule(today),
       });
     } else if (activeTab === 'Exams') {
       setExamForm({
@@ -787,6 +843,7 @@ export default function StudyPlanner() {
         endDate: today,
         notes: '',
         hasCoverPhoto: false,
+        schedule: { ...createDefaultSchedule(today), dateRange: 'Manual' },
       });
     } else {
       setActivityForm({
@@ -809,12 +866,13 @@ export default function StudyPlanner() {
         showStatus('Please enter a task title.');
         return;
       }
-      if (!parseLocalDate(taskForm.date)) {
-        showStatus('Choose a valid due date.');
-        return;
-      }
       if (!isPremium && freeTasksRemaining <= 0) {
         setProModal({ visible: true, feature: 'Unlimited Tasks' });
+        return;
+      }
+      const scheduleError = scheduleValidationError(taskForm.schedule);
+      if (scheduleError) {
+        showStatus(scheduleError);
         return;
       }
       item = {
@@ -823,11 +881,16 @@ export default function StudyPlanner() {
         title: taskForm.title.trim(),
         subject: taskForm.subject || 'General',
         type: taskForm.type || 'Task',
-        date: taskForm.date,
-        time: taskForm.timeMode === 'single' ? taskForm.time || undefined : undefined,
-        startTime: taskForm.timeMode === 'range' ? taskForm.startTime : undefined,
-        endTime: taskForm.timeMode === 'range' ? taskForm.endTime : undefined,
-        occurs: taskForm.occurs,
+        date: taskForm.schedule.date,
+        time: taskForm.schedule.occurs === 'Once' ? taskForm.schedule.startTime : undefined,
+        startTime: taskForm.schedule.occurs === 'Once' ? taskForm.schedule.startTime : undefined,
+        endTime: taskForm.schedule.occurs === 'Once' ? taskForm.schedule.endTime : undefined,
+        occurs: taskForm.schedule.occurs,
+        days: taskForm.schedule.occurs === 'Repeating' ? taskForm.schedule.timeSlots[0].days : undefined,
+        timeSlots: taskForm.schedule.occurs === 'Repeating' ? taskForm.schedule.timeSlots : undefined,
+        dateRange: taskForm.schedule.dateRange,
+        fromDate: taskForm.schedule.dateRange === 'Manual' ? taskForm.schedule.fromDate : undefined,
+        untilDate: taskForm.schedule.dateRange === 'Manual' ? taskForm.schedule.untilDate : undefined,
         notes: taskForm.notes.trim(),
         completed: false,
       };
@@ -837,8 +900,9 @@ export default function StudyPlanner() {
         showStatus('Please enter a class name.');
         return;
       }
-      if (!parseLocalDate(classForm.date)) {
-        showStatus('Choose a valid class date.');
+      const scheduleError = scheduleValidationError(classForm.schedule);
+      if (scheduleError) {
+        showStatus(scheduleError);
         return;
       }
       item = {
@@ -847,12 +911,15 @@ export default function StudyPlanner() {
         title: classForm.name.trim(),
         subject: classForm.subject || 'General',
         teacher: classForm.teacher.trim(),
-        occurs: classForm.occurs,
-        date: classForm.date,
-        days: classForm.occurs === 'Repeating' ? classForm.days : undefined,
-        startTime: classForm.startTime,
-        endTime: classForm.endTime || undefined,
-        dateRange: classForm.dateRange,
+        occurs: classForm.schedule.occurs,
+        date: classForm.schedule.date,
+        days: classForm.schedule.occurs === 'Repeating' ? classForm.schedule.timeSlots[0].days : undefined,
+        startTime: classForm.schedule.occurs === 'Once' ? classForm.schedule.startTime : classForm.schedule.timeSlots[0].startTime,
+        endTime: classForm.schedule.occurs === 'Once' ? classForm.schedule.endTime : classForm.schedule.timeSlots[0].endTime,
+        timeSlots: classForm.schedule.occurs === 'Repeating' ? classForm.schedule.timeSlots : undefined,
+        dateRange: classForm.schedule.dateRange,
+        fromDate: classForm.schedule.dateRange === 'Manual' ? classForm.schedule.fromDate : undefined,
+        untilDate: classForm.schedule.dateRange === 'Manual' ? classForm.schedule.untilDate : undefined,
         whereType: classForm.whereType,
         room: classForm.whereType === 'In Person' ? classForm.room.trim() : undefined,
         building: classForm.whereType === 'In Person' ? classForm.building.trim() : undefined,
@@ -884,8 +951,8 @@ export default function StudyPlanner() {
       };
       successMessage = 'Exam saved successfully.';
     } else if (activeTab === 'Vacations') {
-      const start = parseLocalDate(vacationForm.startDate);
-      const end = parseLocalDate(vacationForm.endDate);
+      const start = parseLocalDate(vacationForm.schedule.fromDate);
+      const end = parseLocalDate(vacationForm.schedule.untilDate);
       if (!vacationForm.name.trim()) {
         showStatus('Please enter a vacation name.');
         return;
@@ -894,12 +961,22 @@ export default function StudyPlanner() {
         showStatus('Choose a valid vacation date range.');
         return;
       }
+      const scheduleError = scheduleValidationError(vacationForm.schedule);
+      if (scheduleError) {
+        showStatus(scheduleError);
+        return;
+      }
       item = {
         id: newId(),
         category: 'Vacations',
         title: vacationForm.name.trim(),
-        date: vacationForm.startDate,
-        endDate: vacationForm.endDate,
+        date: vacationForm.schedule.date,
+        endDate: vacationForm.schedule.untilDate || vacationForm.endDate,
+        occurs: vacationForm.schedule.occurs,
+        dateRange: vacationForm.schedule.dateRange,
+        fromDate: vacationForm.schedule.dateRange === 'Manual' ? vacationForm.schedule.fromDate : undefined,
+        untilDate: vacationForm.schedule.dateRange === 'Manual' ? vacationForm.schedule.untilDate : undefined,
+        timeSlots: vacationForm.schedule.occurs === 'Repeating' ? vacationForm.schedule.timeSlots : undefined,
         daysCount: daysInVacation,
         notes: vacationForm.notes.trim(),
         hasCoverPhoto: vacationForm.hasCoverPhoto,
@@ -927,7 +1004,7 @@ export default function StudyPlanner() {
       successMessage = 'Activity saved successfully.';
     }
 
-    setSavedItems((items) => [item, ...items]);
+    dispatch({ type: 'addPlannerScheduleItem', item });
     if (activeTab === 'Tasks' && !isPremium) {
       setFreeTasksRemaining((remaining) => Math.max(0, remaining - 1));
     }
@@ -980,14 +1057,7 @@ export default function StudyPlanner() {
     </View>
   );
 
-  return (
-    <Shell
-      active="StudyPlanner"
-      title="Study Planner"
-      subtitle="Plan your tasks, classes, exams and activities"
-      scroll={false}
-      contentPadding={0}
-    >
+  const screenContent = (
       <View style={[styles.root, { backgroundColor: palette.background }]}>
         <ScrollView
           contentContainerStyle={[
@@ -997,6 +1067,12 @@ export default function StudyPlanner() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {state.plannerPersistenceError ? (
+            <View accessibilityRole="alert" style={{ width: '100%', maxWidth: 620, padding: 12, marginBottom: 12, borderRadius: 12, borderWidth: 1, borderColor: themeColors.danger, backgroundColor: themeColors.surface }}>
+              <Text style={{ color: themeColors.danger, fontSize: 13, fontWeight: '700' }}>Changes could not be saved</Text>
+              <Text style={{ color: themeColors.textMuted, fontSize: 12, marginTop: 4 }}>{state.plannerPersistenceError}</Text>
+            </View>
+          ) : null}
           <View style={{ width: '100%', maxWidth: 620, flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
             <Pressable
               accessibilityRole="button"
@@ -1132,80 +1208,16 @@ export default function StudyPlanner() {
                     }
                   />
                 </View>
-                <View>
-                  <FieldLabel palette={palette}>DUE DATE</FieldLabel>
-                  <View style={styles.pillRow}>
-                    <DateButton
-                      value={taskForm.date}
-                      palette={palette}
-                      onPress={() =>
-                        openDatePicker('Select Due Date', taskForm.date, (date) =>
-                          setTaskForm((form) => ({ ...form, date }))
-                        )
-                      }
-                    />
-                    <TimeButton
-                      value={taskForm.time}
-                      displayValue={
-                        taskForm.timeMode === 'range' && taskForm.startTime && taskForm.endTime
-                          ? formatTimeRange(taskForm.startTime, taskForm.endTime)
-                          : undefined
-                      }
-                      palette={palette}
-                      icon
-                      onPress={() => {
-                        openTimePicker(
-                          'Add Due Time',
-                          taskForm.time || taskForm.startTime || '17:00',
-                          (time) => {
-                            setTaskForm((form) => ({
-                              ...form,
-                              time,
-                              startTime: '',
-                              endTime: '',
-                              timeMode: 'single',
-                            }));
-                          },
-                          (startTime, endTime) =>
-                            setTaskForm((form) => ({
-                              ...form,
-                              time: '',
-                              startTime,
-                              endTime,
-                              timeMode: 'range',
-                            })),
-                          taskForm.timeMode === 'range'
-                            ? { startTime: taskForm.startTime, endTime: taskForm.endTime }
-                            : undefined
-                        );
-                      }}
-                    />
-                  </View>
-                </View>
-                <View>
-                  <FieldLabel palette={palette}>OCCURS</FieldLabel>
-                  <View style={styles.pillRow}>
-                    <ChoicePill
-                      label="Once"
-                      selected={taskForm.occurs === 'Once'}
-                      palette={palette}
-                      onPress={() => setTaskForm((form) => ({ ...form, occurs: 'Once' }))}
-                    />
-                    <ChoicePill
-                      label="Repeating"
-                      selected={taskForm.occurs === 'Repeating'}
-                      palette={palette}
-                      crown
-                      onPress={() => {
-                        if (!isPremium) {
-                          setProModal({ visible: true, feature: 'Repeating Tasks' });
-                        } else {
-                          setTaskForm((form) => ({ ...form, occurs: 'Repeating' }));
-                        }
-                      }}
-                    />
-                  </View>
-                </View>
+                <SectionCard title="WHEN" palette={palette} compact>
+                  <UnifiedSchedulePicker
+                    value={taskForm.schedule}
+                    onChange={(schedule) => setTaskForm((form) => ({ ...form, schedule }))}
+                    palette={palette}
+                    showWhenLabel={false}
+                    openDatePicker={openDatePicker}
+                    openTimePicker={openTimePicker}
+                  />
+                </SectionCard>
                 <View>
                   <FieldLabel palette={palette}>DETAILS</FieldLabel>
                   <SoftInput
@@ -1257,108 +1269,15 @@ export default function StudyPlanner() {
                   </View>
                 </View>
 
-                <SectionCard title="WHEN" palette={palette}>
-                  <View style={styles.pillRow}>
-                    {(['Once', 'Repeating'] as const).map((option) => (
-                      <ChoicePill
-                        key={option}
-                        label={option}
-                        selected={classForm.occurs === option}
-                        palette={palette}
-                        variant="soft"
-                        onPress={() =>
-                          setClassForm((form) => ({ ...form, occurs: option }))
-                        }
-                      />
-                    ))}
-                  </View>
-                  {classForm.occurs === 'Repeating' ? (
-                    <View style={styles.dayRow}>
-                      {DAYS_OF_WEEK.map((day) => {
-                        const selected = classForm.days.includes(day);
-                        return (
-                          <Pressable
-                            key={day}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected }}
-                            onPress={() =>
-                              setClassForm((form) => ({
-                                ...form,
-                                days: selected
-                                  ? form.days.filter((item) => item !== day)
-                                  : [...form.days, day],
-                              }))
-                            }
-                            style={[
-                              styles.dayButton,
-                              {
-                                backgroundColor: selected ? palette.softBlue : palette.field,
-                                borderColor: selected ? palette.softBlueBorder : 'transparent',
-                              },
-                            ]}
-                          >
-                            <Text style={[styles.smallChoiceText, { color: selected ? palette.blue : palette.muted }]}>
-                              {day}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                  <View>
-                    <FieldLabel palette={palette}>DATE &amp; TIME</FieldLabel>
-                    <View style={styles.pillRow}>
-                      <DateButton
-                        value={classForm.date}
-                        palette={palette}
-                        onPress={() =>
-                          openDatePicker('Select Class Date', classForm.date, (date) =>
-                            setClassForm((form) => ({ ...form, date }))
-                          )
-                        }
-                      />
-                      <TimeButton
-                        value={classForm.startTime}
-                        displayValue={
-                          classForm.endTime
-                            ? formatTimeRange(classForm.startTime, classForm.endTime)
-                            : undefined
-                        }
-                        palette={palette}
-                        icon
-                        onPress={() =>
-                          openTimePicker(
-                            'Select Class Time',
-                            classForm.startTime,
-                            (startTime) =>
-                              setClassForm((form) => ({ ...form, startTime, endTime: '' })),
-                            (startTime, endTime) =>
-                              setClassForm((form) => ({ ...form, startTime, endTime })),
-                            classForm.endTime
-                              ? { startTime: classForm.startTime, endTime: classForm.endTime }
-                              : undefined
-                          )
-                        }
-                      />
-                    </View>
-                  </View>
-                  <View>
-                    <FieldLabel palette={palette}>DATE RANGE</FieldLabel>
-                    <View style={styles.threeColumns}>
-                      {(['None', 'Term', 'Manual'] as const).map((option) => (
-                        <ChoicePill
-                          key={option}
-                          label={option}
-                          selected={classForm.dateRange === option}
-                          palette={palette}
-                          variant="soft"
-                          onPress={() =>
-                            setClassForm((form) => ({ ...form, dateRange: option }))
-                          }
-                        />
-                      ))}
-                    </View>
-                  </View>
+                <SectionCard title="WHEN" palette={palette} compact>
+                  <UnifiedSchedulePicker
+                    value={classForm.schedule}
+                    onChange={(schedule) => setClassForm((form) => ({ ...form, schedule }))}
+                    palette={palette}
+                    showWhenLabel={false}
+                    openDatePicker={openDatePicker}
+                    openTimePicker={openTimePicker}
+                  />
                 </SectionCard>
 
                 <SectionCard title="WHERE" palette={palette}>
@@ -1555,7 +1474,7 @@ export default function StudyPlanner() {
                     accessibilityLabel="Vacation name"
                   />
                 </View>
-                <SectionCard title="DATES" palette={palette}>
+                <SectionCard title="DATES" palette={palette} compact>
                   <View style={styles.presetRow}>
                     {(['1 day', '1 week', '2 weeks', 'Custom'] as const).map((preset) => (
                       <ChoicePill
@@ -1567,47 +1486,21 @@ export default function StudyPlanner() {
                       />
                     ))}
                   </View>
-                  <View style={styles.columns}>
-                    <View style={styles.column}>
-                      <FieldLabel palette={palette}>START</FieldLabel>
-                      <DateButton
-                        value={vacationForm.startDate}
-                        palette={palette}
-                        soft
-                        onPress={() =>
-                          openDatePicker('Select Start Date', vacationForm.startDate, (startDate) =>
-                            setVacationForm((form) => ({
-                              ...form,
-                              preset: 'Custom',
-                              startDate,
-                              endDate:
-                                parseLocalDate(form.endDate) &&
-                                parseLocalDate(form.endDate)! >= (parseLocalDate(startDate) ?? new Date(0))
-                                  ? form.endDate
-                                  : startDate,
-                            }))
-                          )
-                        }
-                      />
-                    </View>
-                    <View style={styles.column}>
-                      <FieldLabel palette={palette}>END</FieldLabel>
-                      <DateButton
-                        value={vacationForm.endDate}
-                        palette={palette}
-                        soft
-                        onPress={() =>
-                          openDatePicker('Select End Date', vacationForm.endDate, (endDate) =>
-                            setVacationForm((form) => ({
-                              ...form,
-                              preset: 'Custom',
-                              endDate,
-                            }))
-                          )
-                        }
-                      />
-                    </View>
-                  </View>
+                  <UnifiedSchedulePicker
+                    value={vacationForm.schedule}
+                    onChange={(schedule) =>
+                      setVacationForm((form) => ({
+                        ...form,
+                        schedule,
+                        preset: 'Custom',
+                        startDate: schedule.fromDate,
+                        endDate: schedule.untilDate,
+                      }))
+                    }
+                    palette={palette}
+                    openDatePicker={openDatePicker}
+                    openTimePicker={openTimePicker}
+                  />
                   <Text style={[styles.durationSummary, { color: palette.blue }]}>
                     {daysInVacation} {daysInVacation === 1 ? 'day' : 'days'}
                   </Text>
@@ -1833,6 +1726,36 @@ export default function StudyPlanner() {
           </View>
         ) : null}
 
+        <NativeDatePicker
+          visible={Platform.OS === 'android' && dateModal.visible}
+          value={dateModal.value}
+          parseDate={parseLocalDate}
+          formatDate={formatLocalDate}
+          onSave={(date) => {
+            dateModal.onSave(date);
+            setDateModal((modal) => ({ ...modal, visible: false, error: '' }));
+          }}
+          onCancel={() => setDateModal((modal) => ({ ...modal, visible: false }))}
+        />
+        <NativeTimePicker
+          visible={Platform.OS === 'android' && timeModal.visible}
+          title={timeModal.title}
+          startTime={rangeStartValue || '09:00'}
+          endTime={rangeEndValue || '10:00'}
+          range={timeModal.mode === 'range'}
+          parseTime={parsePickerTime}
+          formatTime={formatPickerTime}
+          onSave={(time) => {
+            timeModal.onSave(time);
+            setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
+          }}
+          onSaveRange={(start, end) => {
+            timeModal.onSaveRange?.(start, end);
+            setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
+          }}
+          onCancel={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
+        />
+
         <Modal
           visible={pickerModal.visible}
           transparent
@@ -1880,245 +1803,38 @@ export default function StudyPlanner() {
           </View>
         </Modal>
 
-        <Modal
-          visible={dateModal.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setDateModal((modal) => ({ ...modal, visible: false }))}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>{dateModal.title}</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close"
-                  onPress={() => setDateModal((modal) => ({ ...modal, visible: false }))}
-                >
-                  <Ionicons name="close" size={22} color={palette.muted} />
-                </Pressable>
-              </View>
-              <Text style={[styles.modalHint, { color: palette.muted }]}>Enter a date as YYYY-MM-DD or choose a quick date.</Text>
-              <SoftInput
-                value={dateModal.value}
-                onChangeText={(value) => setDateModal((modal) => ({ ...modal, value, error: '' }))}
-                placeholder="YYYY-MM-DD"
-                palette={palette}
-                accessibilityLabel="Date"
-              />
-              {dateModal.error ? (
-                <Text accessibilityRole="alert" style={styles.errorText}>{dateModal.error}</Text>
-              ) : null}
-              <View style={styles.quickDateRow}>
-                {dateOptions.map((option) => (
-                  <Pressable
-                    key={option.label}
-                    accessibilityRole="button"
-                    onPress={() => setDateModal((modal) => ({ ...modal, value: option.value, error: '' }))}
-                    style={[styles.quickDate, { backgroundColor: palette.field }]}
-                  >
-                    <Text style={[styles.quickDateTitle, { color: palette.text }]}>{option.label}</Text>
-                    <Text style={[styles.quickDateValue, { color: palette.blue }]}>{formatDate(option.value)}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  if (!parseLocalDate(dateModal.value)) {
-                    setDateModal((modal) => ({ ...modal, error: 'Enter a valid date in YYYY-MM-DD format.' }));
-                    return;
-                  }
-                  dateModal.onSave(dateModal.value);
-                  setDateModal((modal) => ({ ...modal, visible: false, error: '' }));
-                }}
-                style={[styles.primaryButton, { backgroundColor: palette.blue }]}
-              >
-                <Text style={styles.primaryButtonText}>Confirm Date</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-
-        <Modal
-          visible={timeModal.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>{timeModal.title}</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close"
-                  onPress={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
-                >
-                  <Ionicons name="close" size={22} color={palette.muted} />
-                </Pressable>
-              </View>
-              {timeModal.allowRange ? (
-                <View style={styles.timeModeToggle}>
-                  {([
-                    { mode: 'single', label: 'Single Time' },
-                    { mode: 'range', label: 'Timeframe / Range' },
-                  ] as const).map(({ mode, label }) => (
-                    <Pressable
-                      key={mode}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: timeModal.mode === mode }}
-                      onPress={() => setTimeModal((modal) => ({ ...modal, mode, error: '' }))}
-                      style={[
-                        styles.timeModeButton,
-                        {
-                          backgroundColor: timeModal.mode === mode ? palette.blue : palette.field,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.timeModeText,
-                          { color: timeModal.mode === mode ? '#FFFFFF' : palette.muted },
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              <Text style={[styles.modalHint, { color: palette.muted }]}>
-                {timeModal.mode === 'range'
-                  ? 'Choose a start and end time.'
-                  : 'Choose a time or enter it below.'}
-              </Text>
-              <TimeEntryGroup
-                label={timeModal.mode === 'range' ? 'START TIME' : 'TIME'}
-                hour={timeModal.startHour}
-                minute={timeModal.startMinute}
-                period={timeModal.startPeriod}
-                palette={palette}
-                onHourChange={(startHour) =>
-                  setTimeModal((modal) => ({ ...modal, startHour, error: '' }))
-                }
-                onMinuteChange={(startMinute) =>
-                  setTimeModal((modal) => ({ ...modal, startMinute, error: '' }))
-                }
-                onPeriodChange={(startPeriod) =>
-                  setTimeModal((modal) => ({ ...modal, startPeriod, error: '' }))
-                }
-              />
-              {timeModal.mode === 'range' ? (
-                <TimeEntryGroup
-                  label="END TIME"
-                  hour={timeModal.endHour}
-                  minute={timeModal.endMinute}
-                  period={timeModal.endPeriod}
-                  palette={palette}
-                  onHourChange={(endHour) =>
-                    setTimeModal((modal) => ({ ...modal, endHour, error: '' }))
-                  }
-                  onMinuteChange={(endMinute) =>
-                    setTimeModal((modal) => ({ ...modal, endMinute, error: '' }))
-                  }
-                  onPeriodChange={(endPeriod) =>
-                    setTimeModal((modal) => ({ ...modal, endPeriod, error: '' }))
-                  }
-                />
-              ) : null}
-              {timeModal.error || rangeValidationError ? (
-                <Text accessibilityRole="alert" style={styles.errorText}>
-                  {timeModal.error || rangeValidationError}
-                </Text>
-              ) : null}
-              <View style={styles.quickTimeRow}>
-                {timeModal.mode === 'range'
-                  ? [
-                      { start: '18:00', end: '20:00' },
-                      { start: '09:00', end: '11:00' },
-                      { start: '16:00', end: '18:00' },
-                    ].map(({ start, end }) => (
-                      <Pressable
-                        key={`${start}-${end}`}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          timeModal.onSaveRange?.(start, end);
-                          setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
-                        }}
-                        style={[styles.quickTime, { backgroundColor: palette.field }]}
-                      >
-                        <Text style={[styles.quickTimeText, { color: palette.text }]}>
-                          {formatTimeRange(start, end)}
-                        </Text>
-                      </Pressable>
-                    ))
-                  : ['09:00', '10:30', '13:30', '17:00', '19:00', '20:30'].map((time) => (
-                      <Pressable
-                        key={time}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          timeModal.onSave(time);
-                          setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
-                        }}
-                        style={[styles.quickTime, { backgroundColor: palette.field }]}
-                      >
-                        <Text style={[styles.quickTimeText, { color: palette.text }]}>
-                          {formatTime(time)}
-                        </Text>
-                      </Pressable>
-                    ))}
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  const startTime = to24HourTime(
-                    timeModal.startHour,
-                    timeModal.startMinute,
-                    timeModal.startPeriod
-                  );
-                  if (!startTime) {
-                    setTimeModal((modal) => ({
-                      ...modal,
-                      error: 'Enter valid hours from 1–12 and minutes from 00–59.',
-                    }));
-                    return;
-                  }
-                  if (timeModal.mode === 'range') {
-                    const endTime = to24HourTime(
-                      timeModal.endHour,
-                      timeModal.endMinute,
-                      timeModal.endPeriod
-                    );
-                    if (!endTime) {
-                      setTimeModal((modal) => ({
-                        ...modal,
-                        error: 'Enter valid hours from 1–12 and minutes from 00–59.',
-                      }));
-                      return;
-                    }
-                    if ((timeToMinutes(endTime) ?? 0) <= (timeToMinutes(startTime) ?? 0)) {
-                      setTimeModal((modal) => ({
-                        ...modal,
-                        error: 'End time must be after start time.',
-                      }));
-                      return;
-                    }
-                    timeModal.onSaveRange?.(startTime, endTime);
-                  } else {
-                    timeModal.onSave(startTime);
-                  }
-                  setTimeModal((modal) => ({ ...modal, visible: false, error: '' }));
-                }}
-                style={[styles.primaryButton, { backgroundColor: palette.blue }]}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {timeModal.mode === 'range' ? 'Set Timeframe' : 'Set Time'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
+        <WebDatePicker
+          visible={Platform.OS === 'web' && dateModal.visible}
+          value={dateModal.value}
+          title={dateModal.title}
+          palette={palette}
+          parseDate={parseLocalDate}
+          formatDate={formatLocalDate}
+          onSave={(date) => {
+            dateModal.onSave(date);
+            setDateModal((modal) => ({ ...modal, visible: false }));
+          }}
+          onCancel={() => setDateModal((modal) => ({ ...modal, visible: false }))}
+        />
+        <WebTimePicker
+          visible={Platform.OS === 'web' && timeModal.visible}
+          title={timeModal.title}
+          mode={timeModal.mode}
+          startTime={rangeStartValue || '09:00'}
+          endTime={rangeEndValue || '10:00'}
+          palette={palette}
+          onSave={(time) => {
+            timeModal.onSave(time);
+            setTimeModal((modal) => ({ ...modal, visible: false }));
+          }}
+          onSaveRange={(start, end) => {
+            timeModal.onSaveRange?.(start, end);
+            setTimeModal((modal) => ({ ...modal, visible: false }));
+          }}
+          onCancel={() => setTimeModal((modal) => ({ ...modal, visible: false }))}
+          parseTime={parsePickerTime}
+          formatTime={formatPickerTime}
+        />
 
         <Modal
           visible={proModal.visible}
@@ -2158,8 +1874,20 @@ export default function StudyPlanner() {
           </View>
         </Modal>
       </View>
-    </Shell>
   );
+  return embedded
+    ? screenContent
+    : (
+      <Shell
+        active="StudyPlanner"
+        title="Study Planner"
+        subtitle="Plan your tasks, classes, exams and activities"
+        scroll={false}
+        contentPadding={0}
+      >
+        {screenContent}
+      </Shell>
+    );
 }
 
 const styles = StyleSheet.create({
