@@ -44,3 +44,27 @@ export function endGroupRoomFocus(roomSessionId: string) {
   currentActivity = null;
   listeners.forEach((listener) => listener({ type: 'stop', roomSessionId }));
 }
+
+// --- Control event mechanism ---
+
+export type GroupRoomFocusControlEvent =
+  | { type: 'togglePause'; roomSessionId: string }
+  | { type: 'end'; roomSessionId: string };
+
+let controlListeners = new Set<(event: GroupRoomFocusControlEvent) => void>;
+
+export function subscribeGroupRoomFocusControls(
+  listener: (event: GroupRoomFocusControlEvent) => void
+) {
+  controlListeners.add(listener);
+  return () => {
+    controlListeners.delete(listener);
+  };
+}
+
+export function publishGroupRoomFocusControl(event: GroupRoomFocusControlEvent) {
+  if (event.type === 'end') {
+    endGroupRoomFocus(event.roomSessionId);
+  }
+  controlListeners.forEach((listener) => listener(event));
+}

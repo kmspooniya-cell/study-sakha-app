@@ -31,7 +31,7 @@
     "express": "^5.3.0",
     "http-proxy": "^1.18.1",
     "lucide-react": "^1.75.0",
-    "lucide-react-native": "^1.76.0",
+    "lucide-react-native": "^1.77.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -49,11 +49,11 @@
     "@types/express": "^5.0.6",
     "@types/http-proxy": "^1.17.17",
     "@types/jest": "^29.5.14",
-    "@types/react": "~19.2.2",
+    "@types/react": "~18.2.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
     "jest-expo": "^57.0.6",
-    "react-test-renderer": "^19.2.3",
+    "react-test-renderer": "^18.2.0",
     "typescript": "~6.0.3"
   },
   "scripts": {

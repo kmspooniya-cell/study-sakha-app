@@ -33,6 +33,8 @@ import { AudioDownloadManager, AudioDownloadState } from '../lib/audioDownloadMa
 import {
   endGroupRoomFocus,
   publishGroupRoomFocus,
+  subscribeGroupRoomFocusControls,
+  publishGroupRoomFocusControl,
 } from '../lib/groupRoomFocusBridge';
 import type { GroupRoomFocusStatus } from '../lib/groupRoomFocusBridge';
 
@@ -140,6 +142,22 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
 
   useEffect(() => {
     const unsub = AudioDownloadManager.subscribe('pure_cosmic_waves', (st) => {
+
+  // Smart Study Room control events subscription
+  useEffect(() => {
+    const roomFocus = route.params?.roomFocus;
+    if (!roomFocus) return;
+    const unsub = subscribeGroupRoomFocusControls((event) => {
+      if (event.roomSessionId !== roomFocus.roomSessionId) return;
+      if (event.type === 'togglePause') {
+        toggleStudyPause();
+      }
+      if (event.type === 'end') {
+        handleStopStudySession();
+      }
+    });
+    return () => unsub();
+  }, [route.params?.roomFocus, toggleStudyPause, handleStopStudySession]);
       setCosmicDownloadState(st);
     });
     return unsub;

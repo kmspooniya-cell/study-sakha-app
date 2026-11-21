@@ -17,6 +17,8 @@ import {
 } from 'react-native';
 import Svg, { Ellipse, Rect, Circle } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
+import type { LucideIcon } from 'lucide-react-native';
+import type { ChairState, StudyMember } from '../lib/smartStudyRoomTypes';
 import {
   Search,
   Plus,
@@ -69,7 +71,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Shell } from '../components/Shell';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
-import { VirtualStudyHall } from '../components/VirtualStudyHall';
+import { SmartStudyRoomScreen } from '../screens/SmartStudyRoomScreen';
 import type { AppNavigation } from '../lib/navigation';
 import { useTheme } from '../lib/theme';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -97,6 +99,7 @@ import { StudyRoomParticipant, useGroupRoomRealtime } from '../lib/groupRoomReal
 import {
   endGroupRoomFocus,
   getGroupRoomFocusActivity,
+  publishGroupRoomFocusControl,
   subscribeGroupRoomFocus,
 } from '../lib/groupRoomFocusBridge';
 import type { GroupRoomFocusActivity } from '../lib/groupRoomFocusBridge';
@@ -878,7 +881,7 @@ const EmptyState = ({
   onSecondary,
   theme,
 }: {
-  icon: React.ComponentType<{ size?: number; color?: string }>;
+  icon: LucideIcon;
   title: string;
   description: string;
   primaryLabel?: string;
@@ -1983,6 +1986,90 @@ export default function StudySakhaGroupsRN() {
     });
   };
 
+// Smart Study Room participant mapping (outside JSX)
+  const currentUserChairForSmartRoom = useMemo(() => {
+    const focusing = currentRoomFocusActivity?.status === 'focusing';
+    const paused = currentRoomFocusActivity?.status === 'paused' || currentRoomFocusActivity?.status === 'break';
+    const available = !currentRoomFocusActivity;
+    const state: ChairState = focusing ? 'focusing' : paused ? 'paused' : 'available';
+    const member: StudyMember = {
+      id: roomUser?.id ?? 'self',
+      name: roomUser?.name ?? 'You',
+      initials: initialsForName(roomUser?.name ?? 'You'),
+      avatarBgColor: '#059669',
+      exam: null,
+      state,
+      subject: currentRoomFocusActivity?.subject ?? roomSubject ?? null,
+      topic: null,
+      mode: null,
+      targetSeconds: null,
+      elapsedSeconds: currentRoomFocusActivity?.elapsedSeconds ?? 0,
+      startedAt: currentRoomFocusActivity?.startedAt ?? null,
+    };
+    return member;
+  }, [roomUser?.id, roomUser?.name, currentRoomFocusActivity, roomSubject]);
+
+  const partnersForSmartRoom = useMemo(() => {
+    if (!roomRealtime?.participants) return [];
+    return roomRealtime.participants
+      .filter((p) => p.userId !== (roomUser?.id ?? ''))
+      .filter((p) => !hiddenRoomMembers?.includes(p.userId ?? ''))
+      .map((p) => ({
+        id: p.userId,
+        name: p.name,
+        initials: p.initials,
+        avatarBgColor: '#059669',
+        exam: null,
+        topic: null,
+        subject: p.subject ?? roomSubject ?? null,
+        focusSessionState: p.focusSessionState ?? 'available',
+        elapsedSeconds: p.focusElapsedSeconds ?? 0,
+        state: (p.focusSessionState === 'focusing'
+          ? 'focusing'
+          : p.focusSessionState === 'paused' || p.focusSessionState === 'break'
+            ? 'paused'
+            : 'available') as ChairState,
+        mode: null,
+        targetSeconds: null,
+        startedAt: null,
+      }));
+  }, [roomRealtime?.participants, roomUser?.id, hiddenRoomMembers]);
+
+  const handleStartFocusForSmartRoom = () => {
+    if (!activeRoom || activeRoom.id !== 'silent-focus' || !activeRoomGroupId || !roomSessionId) return;
+    if (focusLaunchRef.current) return;
+    if (currentRoomFocusActivity) {
+      navigation.navigate('FocusCenter');
+      return;
+    }
+    setShowRoomFocusSetup(true);
+  };
+
+  const handleTogglePauseForSmartRoom = () => {
+    if (!activeRoom || activeRoom.id !== 'silent-focus' || !roomSessionId) return;
+    publishGroupRoomFocusControl({
+      type: 'togglePause',
+      roomSessionId,
+    });
+  };
+
+  const handleEndSessionForSmartRoom = () => {
+    if (!activeRoom || activeRoom.id !== 'silent-focus' || !roomSessionId) return;
+    publishGroupRoomFocusControl({
+      type: 'end',
+      roomSessionId,
+    });
+  };
+
+  const handleExitHallForSmartRoom = () => {
+    if (!activeRoom || activeRoom.id !== 'silent-focus') return;
+    if (isLeavingRoom) return;
+    setIsLeavingRoom(true);
+    setTimeout(() => {
+      navigation.goBack();
+      setIsLeavingRoom(false);
+    }, 800);
+  };
   const handleAddMicroGoal = () => {
     const title = newRoomGoal.trim();
     if (!title || !roomSessionId) return;
@@ -4412,6 +4499,7 @@ export default function StudySakhaGroupsRN() {
                 behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
                 style={{ flex: 1 }}
               >
+              {activeRoom.id !== 'silent-focus' && (
               <View style={{
                 paddingHorizontal: 16,
                 paddingVertical: 12,
@@ -4421,26 +4509,14 @@ export default function StudySakhaGroupsRN() {
                 gap: 10,
               }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {activeRoom.id !== 'silent-focus' && (
-                    <Pressable
-                      onPress={() => setRoomMinimized(true)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Minimize study room"
-                      style={[styles.iconBoxBtn, { width: 44, height: 44, borderColor: activeRoom.id === 'exam-simulation' ? '#4B5563' : theme.border, backgroundColor: activeRoom.id === 'exam-simulation' ? '#1F2937' : theme.surfaceElevated }]}
-                    >
-                      <ChevronDown size={18} color={activeRoom.id === 'exam-simulation' ? '#FFFFFF' : theme.textPrimary} />
-                    </Pressable>
-                  )}
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '800', color: activeRoom.id === 'exam-simulation' ? '#FFFFFF' : theme.textPrimary }}>{activeRoom.name}</Text>
                     <Text style={{ fontSize: 11, color: activeRoom.id === 'exam-simulation' ? '#D1D5DB' : theme.textSecondary, marginTop: 2 }}>
-                      {activeRoom.id === 'silent-focus'
-                        ? `${liveRoomPeerCount} ${liveRoomPeerCount === 1 ? 'study partner' : 'study partners'} present`
-                        : activeRoom.id === 'pomodoro'
-                          ? 'Shared focus and break lounge'
-                          : activeRoom.id === 'exam-simulation'
-                            ? 'Strict Exam Hall · No Chat'
-                            : 'Camera off · Mic locked · No recording'}
+                      {activeRoom.id === 'pomodoro'
+                        ? 'Shared focus and break lounge'
+                        : activeRoom.id === 'exam-simulation'
+                          ? 'Strict Exam Hall · No Chat'
+                          : 'Camera off · Mic locked · No recording'}
                     </Text>
                   </View>
                   {activeRoom.id === 'pomodoro' && (
@@ -4482,19 +4558,19 @@ export default function StudySakhaGroupsRN() {
                   )}
                 </View>
               </View>
+              )}
 
               {activeRoom.id === 'silent-focus' ? (
-                <VirtualStudyHall
-                  width={width}
-                  userId={roomUser?.id ?? null}
-                  userName={roomUser?.name ?? 'You'}
-                  userInitials={initialsForName(roomUser?.name ?? 'You')}
-                  activity={currentRoomFocusActivity}
-                  participants={roomRealtime.participants}
-                  colors={theme}
-                  connectionMessage={roomError ?? (!roomRealtime.connected
-                    ? roomRealtime.error ?? 'Reconnecting to your study hall…'
-                    : null)}
+                <SmartStudyRoomScreen
+                  isDark={scheme === 'dark'}
+                  roomName={activeRoom.name}
+                  currentUserChair={currentUserChairForSmartRoom}
+                  partners={partnersForSmartRoom}
+                  onStartFocus={handleStartFocusForSmartRoom}
+                  onTogglePause={handleTogglePauseForSmartRoom}
+                  onEndSession={handleEndSessionForSmartRoom}
+                  onExitHall={handleExitHallForSmartRoom}
+                  navigation={navigation}
                 />
               ) : (
                 <ScrollView
@@ -4727,41 +4803,6 @@ export default function StudySakhaGroupsRN() {
                 )}
                 </ScrollView>
               )}
-
-              {activeRoom.id === 'silent-focus' && (
-                <View style={{
-                  paddingHorizontal: 16,
-                  paddingTop: 12,
-                  paddingBottom: Math.max(insets.bottom, 12),
-                  borderTopWidth: 1,
-                  borderTopColor: theme.border,
-                  backgroundColor: theme.surface,
-                }}>
-                  <Pressable
-                    onPress={handleStartFocusSessionInRoom}
-                    disabled={!roomSessionId || isLeavingRoom}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: !roomSessionId || isLeavingRoom }}
-                    accessibilityLabel={currentRoomFocusActivity ? 'Return to Focus Center' : 'Start Focusing'}
-                    style={{
-                      minHeight: 52,
-                      width: '100%',
-                      maxWidth: 520,
-                      alignSelf: 'center',
-                      borderRadius: 12,
-                      backgroundColor: currentRoomFocusActivity ? theme.successText : theme.primary,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      opacity: !roomSessionId || isLeavingRoom ? 0.55 : 1,
-                    }}
-                  >
-                    <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>
-                      {currentRoomFocusActivity ? 'Return to Focus Center' : 'Start Focusing'}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
-
               {activeRoom.id === 'pomodoro' && (
                 <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: Math.max(insets.bottom, 12), borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface }}>
                   {roomRealtime.phase === 'break' ? (
