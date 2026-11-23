@@ -1,0 +1,23 @@
+
+name: Build Study Sakha APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout latest source
+        uses: actions/checkout@v4
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build latest Android APK
+        run: eas build --platform android --profile preview --non-interactive --no-wait
