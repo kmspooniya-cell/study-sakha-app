@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs, react-hooks/immutability -- Animated values and web canvas nodes synchronize with native/web rendering APIs. */
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import {

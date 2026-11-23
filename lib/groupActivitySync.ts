@@ -1,8 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  getActiveStudyGroupIds,
-  submitStudyMemberActivityToGroups,
-} from './groupRooms';
+import { submitStudyMemberActivityToGroups } from './groupRooms';
 import type { StudyMemberActivity } from './groupRooms';
 
 type ActivitySyncFailure = {
@@ -11,13 +8,16 @@ type ActivitySyncFailure = {
   message: string;
 };
 
-type PendingStudyMemberActivity = StudyMemberActivity & { groupIds?: string[] };
+type PendingStudyMemberActivity = StudyMemberActivity & { groupIds: string[] };
 
-const pendingActivityKey = (userId: string) => `study-sakha-pending-group-activity-v1:${userId}`;
+const legacyPendingActivityKey = (userId: string) => `study-sakha-pending-group-activity-v1:${userId}`;
+const pendingActivityKey = (userId: string) => `study-sakha-pending-group-activity-v2:${userId}`;
+const focusHistoryKey = (userId: string) =>
+  `study-sakha-focus-history-v1:user:${encodeURIComponent(userId)}`;
 const pendingWrites = new Map<string, Promise<PendingStudyMemberActivity[]>>();
 const pendingRetries = new Map<string, Promise<ActivitySyncFailure[]>>();
 
-function isStudyMemberActivity(value: unknown): value is PendingStudyMemberActivity {
+function isStudyMemberActivity(value: unknown): value is StudyMemberActivity {
   if (!value || typeof value !== 'object') return false;
   const activity = value as Record<string, unknown>;
   return typeof activity.userId === 'string' &&
@@ -32,11 +32,17 @@ function isStudyMemberActivity(value: unknown): value is PendingStudyMemberActiv
       activity.plannedSeconds === null ||
       (typeof activity.plannedSeconds === 'number' && Number.isFinite(activity.plannedSeconds) && activity.plannedSeconds >= 0)) &&
     (activity.mode === undefined || activity.mode === 'timer' || activity.mode === 'stopwatch' || activity.mode === 'pomodoro') &&
-    (activity.groupIds === undefined ||
-      (Array.isArray(activity.groupIds) && activity.groupIds.every((groupId) => typeof groupId === 'string'))) &&
     ['taskId', 'subject', 'startedAt', 'endedAt', 'scheduleId', 'scheduleOccurrenceId'].every(
       (key) => activity[key] === undefined || typeof activity[key] === 'string',
     );
+}
+
+function isPendingStudyMemberActivity(value: unknown): value is PendingStudyMemberActivity {
+  if (!isStudyMemberActivity(value)) return false;
+  const groupIds = (value as Record<string, unknown>).groupIds;
+  return Array.isArray(groupIds) &&
+    groupIds.length > 0 &&
+    groupIds.every((groupId) => typeof groupId === 'string' && groupId.length > 0);
 }
 
 function parsePendingActivities(raw: string | null, userId: string): PendingStudyMemberActivity[] {
@@ -48,10 +54,41 @@ function parsePendingActivities(raw: string | null, userId: string): PendingStud
     throw new Error('Saved group activity retries contain invalid JSON.');
   }
   if (!Array.isArray(parsed) ||
-    !parsed.every((activity) => isStudyMemberActivity(activity) && activity.userId === userId)) {
+    !parsed.every((activity) => isPendingStudyMemberActivity(activity) && activity.userId === userId)) {
     throw new Error('Saved group activity retries have an invalid format.');
   }
   return parsed as PendingStudyMemberActivity[];
+}
+
+function parseLegacyPendingActivities(raw: string, userId: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Saved legacy group activity retries contain invalid JSON.');
+  }
+  if (!Array.isArray(parsed) ||
+    !parsed.every((activity) => isStudyMemberActivity(activity) && activity.userId === userId)) {
+    throw new Error('Saved legacy group activity retries have an invalid format.');
+  }
+  return parsed as StudyMemberActivity[];
+}
+
+function parseFocusHistory(raw: string | null) {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Saved focus history contains invalid JSON.');
+  }
+  if (!Array.isArray(parsed) || parsed.some((record) =>
+    !record || typeof record !== 'object' ||
+    typeof (record as Record<string, unknown>).id !== 'string'
+  )) {
+    throw new Error('Saved focus history has an invalid format.');
+  }
+  return parsed as Record<string, unknown>[];
 }
 
 function updatePendingActivities(
@@ -78,16 +115,26 @@ function activityKey(activity: StudyMemberActivity) {
   return `${activity.activityType}:${activity.eventId}`;
 }
 
-export async function syncStudyMemberActivityWithRetry(activity: StudyMemberActivity) {
+export async function syncStudyMemberActivityWithRetry(
+  activity: StudyMemberActivity,
+  groupIds: string[],
+) {
+  const scopedActivity: PendingStudyMemberActivity = {
+    ...activity,
+    groupIds: Array.from(new Set(groupIds.map((groupId) => groupId.trim()).filter(Boolean))),
+  };
+  if (!scopedActivity.groupIds.length) {
+    throw new Error('Choose a study group before synchronizing group activity.');
+  }
+
   await updatePendingActivities(activity.userId, (activities) =>
     activities.some((item) => activityKey(item) === activityKey(activity))
       ? activities
-      : [...activities, activity],
+      : [...activities, scopedActivity],
   );
 
-  const pending = await getPendingActivity(activity.userId, activity);
-  const groupIds = await getActivityGroupIds(pending);
-  const result = await submitStudyMemberActivityToGroups(groupIds, pending);
+  const pending = await getPendingActivity(activity.userId, scopedActivity);
+  const result = await submitStudyMemberActivityToGroups(pending.groupIds, pending);
   if (!result.failures.length) {
     await updatePendingActivities(activity.userId, (activities) =>
       activities.filter((item) => activityKey(item) !== activityKey(activity)),
@@ -103,23 +150,60 @@ async function getPendingActivity(userId: string, activity: StudyMemberActivity)
   return pending;
 }
 
-async function getActivityGroupIds(activity: PendingStudyMemberActivity) {
-  if (activity.groupIds) return activity.groupIds;
-  const groupIds = await getActiveStudyGroupIds(activity.userId);
-  await updatePendingActivities(activity.userId, (activities) =>
-    activities.map((item) => activityKey(item) === activityKey(activity) ? { ...item, groupIds } : item),
-  );
-  return groupIds;
+async function migrateLegacyPendingActivities(userId: string): Promise<ActivitySyncFailure[]> {
+  const legacyKey = legacyPendingActivityKey(userId);
+  const raw = await AsyncStorage.getItem(legacyKey);
+  if (!raw) return [];
+
+  const legacy = parseLegacyPendingActivities(raw, userId);
+  const history = parseFocusHistory(await AsyncStorage.getItem(focusHistoryKey(userId)));
+  const migrated: PendingStudyMemberActivity[] = [];
+  const unresolved: StudyMemberActivity[] = [];
+
+  legacy.forEach((activity) => {
+    const historyRecord = history.find((record) =>
+      activity.activityType === 'focus_session'
+        ? record.id === activity.eventId
+        : typeof record.scheduleOccurrenceId === 'string' &&
+          record.scheduleOccurrenceId === (activity.scheduleOccurrenceId ?? activity.taskId)
+    );
+    if (!historyRecord) {
+      unresolved.push(activity);
+      return;
+    }
+
+    const groupId = typeof historyRecord.groupId === 'string' ? historyRecord.groupId.trim() : '';
+    if (!groupId) return;
+    migrated.push({ ...activity, groupIds: [groupId] });
+  });
+
+  if (migrated.length) {
+    await updatePendingActivities(userId, (current) => {
+      const currentKeys = new Set(current.map(activityKey));
+      return [...current, ...migrated.filter((activity) => !currentKeys.has(activityKey(activity)))];
+    });
+  }
+
+  if (unresolved.length) {
+    await AsyncStorage.setItem(legacyKey, JSON.stringify(unresolved));
+  } else {
+    await AsyncStorage.removeItem(legacyKey);
+  }
+
+  return unresolved.map((activity) => ({
+    eventId: activity.eventId,
+    groupId: 'unknown group scope',
+    message: 'Saved group activity could not be safely scoped and remains queued.',
+  }));
 }
 
 async function retryPendingActivities(userId: string): Promise<ActivitySyncFailure[]> {
+  const failures = await migrateLegacyPendingActivities(userId);
   const pending = await updatePendingActivities(userId, (activities) => activities);
-  const failures: ActivitySyncFailure[] = [];
 
   for (const activity of pending) {
     try {
-      const groupIds = await getActivityGroupIds(activity);
-      const result = await submitStudyMemberActivityToGroups(groupIds, activity);
+      const result = await submitStudyMemberActivityToGroups(activity.groupIds, activity);
       if (result.failures.length) {
         failures.push(...result.failures.map((failure) => ({ ...failure, eventId: activity.eventId })));
       } else {
@@ -130,7 +214,7 @@ async function retryPendingActivities(userId: string): Promise<ActivitySyncFailu
     } catch (error) {
       failures.push({
         eventId: activity.eventId,
-        groupId: 'all joined groups',
+        groupId: activity.groupIds.join(', '),
         message: error instanceof Error ? error.message : 'Unexpected synchronization error.',
       });
     }

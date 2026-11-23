@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Rect, Ellipse } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { PlannerScheduleItem, useStore } from '../lib/store';
+import { submitStudyMemberActivityToJoinedGroups } from '../lib/groupRooms';
 import { useTheme as useAppTheme } from '../lib/theme';
 import { Shell } from '../components/Shell';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
@@ -2000,7 +2001,7 @@ export default function App() {
     setFocusSetupVisible(true);
   }, [state, TODAY_ISO]);
 
-  const markPlanCompleted = useCallback((plan, date) => {
+  const markPlanCompleted = useCallback(async (plan, date) => {
     const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), date, TODAY_ISO);
     if (occurrence.status !== 'completed') {
       dispatch({
@@ -2011,6 +2012,24 @@ export default function App() {
       });
     }
     showToast('Plan marked as completed');
+
+    const userId = state.user?.id;
+    if (userId) {
+      void submitStudyMemberActivityToJoinedGroups({
+        userId,
+        eventId: `planner-task-completed:${occurrence.id}`,
+        activityType: 'planner_task_completed',
+        taskId: occurrence.id,
+        subject: plan.subject || plan.category || 'Study',
+        actualSeconds: 0,
+        status: 'completed',
+        occurredAt: new Date().toISOString(),
+        scheduleId: plan.id,
+        scheduleOccurrenceId: occurrence.id,
+      }).catch((error) => {
+        console.warn('Planner completion could not be synchronized to study groups:', error);
+      });
+    }
   }, [dispatch, showToast, state, TODAY_ISO]);
 
   /* ----------------------------------------------------------------------- */

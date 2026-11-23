@@ -74,7 +74,6 @@ export type AppStackParamList = {
   Profile: OptionalScreenParams;
   Settings: OptionalScreenParams;
   AppGuide: OptionalScreenParams;
-  StudentTestimonials: OptionalScreenParams;
   Admin: OptionalScreenParams;
 };
 

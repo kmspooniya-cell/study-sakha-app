@@ -15,7 +15,7 @@ export default function MoreScreen() {
         active="More"
         isAdmin={state.user?.role === 'admin'}
         unread={unread}
-        onlyKeys={['Settings', 'StudentTestimonials']}
+        onlyKeys={['Settings']}
       />
     </Shell>
   );

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 import { StudyChairCard } from './StudyChairCard';
 import type { ResponsiveMetrics, StudyMember } from '../lib/smartStudyRoomTypes';

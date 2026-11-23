@@ -344,13 +344,7 @@ export default function SettingsScreen() {
           />
         </SettingsSection>
 
-        <SettingsSection title="Privacy & Community" icon="shield-checkmark-outline">
-          <SettingsRow
-            title="Wall of Love"
-            subtitle="Read stories from the Study Sakha community"
-            icon="heart-outline"
-            onPress={() => nav.navigate('StudentTestimonials')}
-          />
+        <SettingsSection title="Privacy & Data" icon="shield-checkmark-outline">
           <SettingsRow
             title="Data & Storage"
             subtitle="Reset locally saved Study Sakha data"

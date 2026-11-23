@@ -22,6 +22,10 @@ export const supabase = createClient(
   }
 );
 
+supabase.auth.onAuthStateChange((_event, session) => {
+  void supabase.realtime.setAuth(session?.access_token ?? null);
+});
+
 export const STUDENT_CONTENT_BUCKET = 'Student-content';
 
 export async function createStudentContentSignedUrl(objectPath: string) {

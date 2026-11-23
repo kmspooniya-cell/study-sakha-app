@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- React Native Animated interpolation reads its stable animation value during render. */
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, View, StyleSheet } from 'react-native';
 

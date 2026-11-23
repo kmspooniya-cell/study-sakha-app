@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Picker drafts reset from controlled values when each modal opens. */
 import React, { useEffect, useRef } from 'react';
 import { Modal, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';

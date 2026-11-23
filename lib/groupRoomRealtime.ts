@@ -58,6 +58,18 @@ type RoomState = {
   error: string | null;
 };
 
+export type RealtimeDiagnosticState = {
+  sessionId: string | null;
+  verifiedUserId: string | null;
+  sessionExists: boolean;
+  authTokenPresent: boolean;
+  activeGroupMembershipMatch: boolean;
+  topic: string | null;
+  subscriptionStatus: string;
+  authorizationError: string | null;
+  subscriptionStartedBeforeAuth: boolean;
+};
+
 const emptyRoomState = (key: string): RoomState => ({
   key,
   participants: [],
@@ -134,7 +146,6 @@ export function useGroupRoomRealtime({
       focusUpdatedAt: focusActivity?.updatedAt,
     };
   }, [focusActivity, focusing, subject]);
-
   const refreshParticipants = useCallback((channel: RealtimeChannel, activeRoomId: GroupRoomId) => {
     const presence = channel.presenceState<PresencePayload>();
     const memberIds = Object.keys(presence);
@@ -208,84 +219,101 @@ export function useGroupRoomRealtime({
 
     let active = true;
     const topic = `study-room:${groupId}:${roomId}`;
-    const channel = supabase.channel(topic, {
-      config: { private: true, presence: { key: userId } },
-    });
-    channelRef.current = channel;
+    let channel: RealtimeChannel | null = null;
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!active || !session?.access_token) return;
+      await supabase.realtime.setAuth(session.access_token);
+      if (!active) return;
 
-    channel.on('presence', { event: 'sync' }, () => refreshParticipants(channel, roomId));
-    channel.on('broadcast', { event: 'silent-reaction' }, (event) => {
-      const reaction = event.payload as { emoji?: unknown; displayName?: unknown };
-      if (typeof reaction.emoji === 'string') {
-        updateRoomState({ lastReaction: {
-          id: `${Date.now()}-${Math.random()}`,
-          emoji: reaction.emoji,
-          name: typeof reaction.displayName === 'string' ? reaction.displayName : 'A study partner',
-        } });
-      }
-    });
-    channel.on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'study_group_rooms',
-      filter: `group_id=eq.${groupId}`,
-    }, (payload) => {
-      const row = payload.new as { room_id?: string; phase?: string };
-      if (row.room_id === roomId && (row.phase === 'focus' || row.phase === 'break')) {
-        phaseEventSeenRef.current = true;
-        updateRoomState({ phase: row.phase });
-      }
-    });
-    void supabase.from('study_group_rooms')
-      .select('phase')
-      .eq('group_id', groupId)
-      .eq('room_id', roomId)
-      .maybeSingle()
-      .then(({ data, error: phaseError }) => {
-        if (!active) return;
-        if (phaseError) {
-          updateRoomState({ error: `Could not load the current room phase: ${phaseError.message}` });
-        } else if (!phaseEventSeenRef.current && (data?.phase === 'focus' || data?.phase === 'break')) {
-          updateRoomState({ phase: data.phase });
-        }
-      }, (phaseError: unknown) => {
-        if (active) {
-          updateRoomState({
-            error: `Could not load the current room phase: ${phaseError instanceof Error ? phaseError.message : 'Unexpected error'}`,
-          });
+      channel = supabase.channel(topic, {
+        config: { private: true, presence: { key: userId } },
+      });
+      channelRef.current = channel;
+
+      channel.on('presence', { event: 'sync' }, () => refreshParticipants(channel!, roomId));
+      channel.on('broadcast', { event: 'silent-reaction' }, (event) => {
+        const reaction = event.payload as { emoji?: unknown; displayName?: unknown };
+        if (typeof reaction.emoji === 'string') {
+          updateRoomState({ lastReaction: {
+            id: `${Date.now()}-${Math.random()}`,
+            emoji: reaction.emoji,
+            name: typeof reaction.displayName === 'string' ? reaction.displayName : 'A study partner',
+          } });
         }
       });
-
-    if (roomId === 'pomodoro') {
       channel.on('postgres_changes', {
-        event: 'INSERT',
+        event: 'UPDATE',
         schema: 'public',
-        table: 'study_room_break_messages',
+        table: 'study_group_rooms',
         filter: `group_id=eq.${groupId}`,
       }, (payload) => {
-        const message = payload.new as BreakRoomMessage;
-        if (message.room_id === 'pomodoro') {
-          updateRoomState((current) => ({
-            messages: current.messages.some((item) => item.id === message.id)
-              ? current.messages
-              : [...current.messages, message],
-          }));
+        const row = payload.new as { room_id?: string; phase?: string };
+        if (row.room_id === roomId && (row.phase === 'focus' || row.phase === 'break')) {
+          phaseEventSeenRef.current = true;
+          updateRoomState({ phase: row.phase });
         }
       });
-    }
 
-    channel.subscribe((status, subscribeError) => {
-      if (!active) return;
-      if (status === 'SUBSCRIBED') {
-        updateRoomState({ connected: true, error: null });
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      if (roomId === 'pomodoro') {
+        channel.on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'study_room_break_messages',
+          filter: `group_id=eq.${groupId}`,
+        }, (payload) => {
+          const message = payload.new as BreakRoomMessage;
+          if (message.room_id === 'pomodoro') {
+            updateRoomState((current) => ({
+              messages: current.messages.some((item) => item.id === message.id)
+                ? current.messages
+                : [...current.messages, message],
+            }));
+          }
+        });
+      }
+
+      void supabase.from('study_group_rooms')
+        .select('phase')
+        .eq('group_id', groupId)
+        .eq('room_id', roomId)
+        .maybeSingle()
+        .then(({ data, error: phaseError }) => {
+          if (!active) return;
+          if (phaseError) {
+            updateRoomState({ error: `Could not load the current room phase: ${phaseError.message}` });
+          } else if (!phaseEventSeenRef.current && (data?.phase === 'focus' || data?.phase === 'break')) {
+            updateRoomState({ phase: data.phase });
+          }
+        }, (phaseError: unknown) => {
+          if (active) {
+            updateRoomState({
+              error: `Could not load the current room phase: ${phaseError instanceof Error ? phaseError.message : 'Unexpected error'}`,
+            });
+          }
+        });
+
+      channel.subscribe((status, subscribeError) => {
+        if (!active) return;
+        if (status === 'SUBSCRIBED') {
+          updateRoomState({ connected: true, error: null });
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          updateRoomState({
+            connected: false,
+            participants: [],
+            error: subscribeError?.message || `Room realtime connection ${status.toLowerCase()}.`,
+          });
+        } else if (status === 'CLOSED') {
+          updateRoomState({ connected: false, participants: [] });
+        }
+      });
+    })().catch((error: unknown) => {
+      if (active) {
         updateRoomState({
           connected: false,
-          participants: [],
-          error: subscribeError?.message || `Room realtime connection ${status.toLowerCase()}.`,
+          error: error instanceof Error ? error.message : 'Could not prepare room realtime authorization.',
         });
-      } else if (status === 'CLOSED') {
-        updateRoomState({ connected: false, participants: [] });
       }
     });
 
@@ -293,9 +321,11 @@ export function useGroupRoomRealtime({
       active = false;
       channelRef.current = null;
       profileRequestRef.current += 1;
-      void supabase.removeChannel(channel).catch((removeError: unknown) => {
-        console.error('Could not leave the study room realtime channel:', removeError);
-      });
+      if (channel) {
+        void supabase.removeChannel(channel).catch((removeError: unknown) => {
+          console.error('Could not leave the study room realtime channel:', removeError);
+        });
+      }
     };
   }, [groupId, roomId, userId, refreshParticipants, updateRoomState]);
 
@@ -393,6 +423,17 @@ export function useGroupFocusPresence({
   const channelsRef = useRef<RealtimeChannel[]>([]);
   const groupKey = Array.from(new Set(groupIds)).sort().join('|');
   const hasActivity = Boolean(activity);
+  const [diagnosticState, setDiagnosticState] = useState<RealtimeDiagnosticState>({
+    sessionId: null,
+    verifiedUserId: null,
+    sessionExists: false,
+    authTokenPresent: false,
+    activeGroupMembershipMatch: false,
+    topic: null,
+    subscriptionStatus: 'idle',
+    authorizationError: null,
+    subscriptionStartedBeforeAuth: false,
+  });
 
   useEffect(() => {
     activityRef.current = activity;
@@ -425,43 +466,72 @@ export function useGroupFocusPresence({
   useEffect(() => {
     if (!userId || !hasActivity || !supabaseConfigured || !groupKey) return;
     let active = true;
-    const channels = groupKey.split('|').map((groupId) => {
-      const channel = supabase.channel(`study-room:${groupId}:silent-focus`, {
-        config: { private: true, presence: { key: userId } },
+    let channels: RealtimeChannel[] = [];
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    let appStateSubscription: { remove: () => void } | null = null;
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: userData } = await supabase.auth.getUser();
+      const session = sessionData.session;
+      const topics = groupKey.split('|').map((groupId) => `study-room:${groupId}:silent-focus`);
+      setDiagnosticState((current) => ({
+        ...current,
+        sessionId: session?.user?.id ?? null,
+        verifiedUserId: userData.user?.id ?? null,
+        sessionExists: Boolean(session),
+        authTokenPresent: Boolean(session?.access_token),
+        activeGroupMembershipMatch: Boolean(session?.user?.id === userId && groupIds.length),
+        topic: topics[0] ?? null,
+        subscriptionStartedBeforeAuth: !session,
+      }));
+      if (!active || !session?.access_token) return;
+      await supabase.realtime.setAuth(session.access_token);
+      if (!active) return;
+      channels = topics.map((topic) => {
+        const channel = supabase.channel(topic, {
+          config: { private: true, presence: { key: userId } },
+        });
+        channel.subscribe((status, error) => {
+          if (!active) return;
+          setDiagnosticState((current) => ({
+            ...current,
+            topic,
+            subscriptionStatus: status,
+            authorizationError: error?.message ?? (status === 'SUBSCRIBED' ? null : current.authorizationError),
+          }));
+          if (status === 'SUBSCRIBED') void track(channel);
+          else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            onErrorRef.current?.(error?.message || `Focus presence connection ${status.toLowerCase()}.`);
+          }
+        });
+        return channel;
       });
-      channel.subscribe((status, error) => {
-        if (!active) return;
-        if (status === 'SUBSCRIBED') {
-          void track(channel);
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          onErrorRef.current?.(error?.message || `Focus presence connection ${status.toLowerCase()}.`);
-        }
+      channelsRef.current = channels;
+      heartbeat = setInterval(() => channels.forEach((channel) => void track(channel)), 15_000);
+      appStateSubscription = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') channels.forEach((channel) => void track(channel));
       });
-      return channel;
-    });
-    channelsRef.current = channels;
-
-    const heartbeat = setInterval(() => {
-      channels.forEach((channel) => void track(channel));
-    }, 15_000);
-    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') channels.forEach((channel) => void track(channel));
+    })().catch((error: unknown) => {
+      if (!active) return;
+      const message = error instanceof Error ? error.message : 'Could not prepare focus presence authorization.';
+      setDiagnosticState((current) => ({ ...current, subscriptionStatus: 'ERROR', authorizationError: message }));
+      onErrorRef.current?.(message);
     });
 
     return () => {
       active = false;
-      clearInterval(heartbeat);
-      appStateSubscription.remove();
+      if (heartbeat) clearInterval(heartbeat);
+      appStateSubscription?.remove();
       channelsRef.current = [];
       channels.forEach((channel) => {
-        void supabase.removeChannel(channel).catch((error: unknown) => {
-          console.error('Could not close joined-group focus presence:', error);
-        });
+        void supabase.removeChannel(channel);
       });
     };
-  }, [groupKey, hasActivity, track, userId]);
+  }, [groupKey, groupIds.length, hasActivity, track, userId]);
 
   useEffect(() => {
     channelsRef.current.forEach((channel) => void track(channel));
   }, [activity?.sessionId, activity?.startedAt, activity?.status, activity?.subject, track]);
+
+  return { diagnosticState };
 }

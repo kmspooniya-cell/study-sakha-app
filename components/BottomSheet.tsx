@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable react-hooks/refs, react-hooks/set-state-in-effect -- Native animation values and sheet mounting follow the controlled animation lifecycle. */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,

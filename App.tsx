@@ -57,7 +57,6 @@ import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
 import TaskPerformanceScreen from './screens/TaskPerformanceScreen';
 import StudyPlannerScreen from './screens/StudyPlannerScreen';
-import StudentTestimonialsScreen from './screens/StudentTestimonialsScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
@@ -71,7 +70,6 @@ const DRAWER_ITEMS = [
   { label: 'Offline downloads', icon: 'cloud-download-outline', target: { screen: 'LibraryDownloads' } },
   { label: 'How to use the app', icon: 'help-circle-outline', target: { screen: 'AppGuide' } },
   { label: 'Settings', icon: 'settings-outline', target: { screen: 'Settings' } },
-  { label: 'Student Testimonials', icon: 'chatbubbles-outline', target: { screen: 'StudentTestimonials' } },
 ] as const satisfies readonly {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -116,7 +114,6 @@ const linking: AppLinkingOptions = {
               Profile: 'profile',
               Settings: 'settings',
               AppGuide: 'app-guide',
-              StudentTestimonials: 'student-testimonials',
               Admin: 'admin',
               FocusLock: 'focus/lock',
             },
@@ -296,7 +293,6 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Profile" component={ProfileScreen} />
       <AppStack.Screen name="Settings" component={SettingsScreen} />
       <AppStack.Screen name="AppGuide" component={AppGuideScreen} />
-      <AppStack.Screen name="StudentTestimonials" component={StudentTestimonialsScreen} />
       <AppStack.Screen name="Admin" component={AdminScreen} />
     </AppStack.Navigator>
   );

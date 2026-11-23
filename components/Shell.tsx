@@ -1,6 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DrawerActions, StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useState } from 'react';
 import { BackHandler, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,7 +24,6 @@ export type NavKey =
 | 'Settings'
 | 'More'
 | 'AppGuide'
-| 'StudentTestimonials'
 | 'Admin'
 | 'Statistics'
 | 'StudyPlanner';
@@ -65,7 +63,6 @@ items: [
 title: 'More',
 items: [
 { key: 'StudyPlanner', label: 'Study Planner', icon: 'calendar-outline' },
-{ key: 'StudentTestimonials', label: 'Student Testimonials', icon: 'chatbubbles-outline' },
 ],
 },
 ];
@@ -130,7 +127,7 @@ const nav = useNavigation<AppNavigation>();
 const route = useRoute<AppHeaderRoute>();
 const insets = useSafeAreaInsets();
 const { mode, scheme, colors } = useTheme();
-const { state, unread, dispatch } = useStore();
+const { unread, dispatch } = useStore();
 
 // Help Modal Multi-Step States
 const [helpModalVisible, setHelpModalVisible] = useState(false);

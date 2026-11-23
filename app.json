@@ -5,11 +5,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/mascot/study-sakha-mascot.png",
-    "splash": {
-      "image": "./assets/mascot/study-sakha-mascot.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#111A3B"
-    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -53,6 +48,14 @@
     "backgroundColor": "#F6F8FC",
     "plugins": [
       "expo-audio",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/mascot/study-sakha-mascot.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#111A3B"
+        }
+      ],
       [
         "expo-navigation-bar",
         {

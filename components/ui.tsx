@@ -765,7 +765,7 @@ export function ListRow({ title, subtitle, leading, trailing, onPress, disabled,
 }
 
 export function FilterBar({ options, value, onChange, scrollable = false, style }: {
-  options: Array<{ label: string; value: string; disabled?: boolean }>;
+  options: { label: string; value: string; disabled?: boolean }[];
   value: string;
   onChange: (value: string) => void;
   scrollable?: boolean;

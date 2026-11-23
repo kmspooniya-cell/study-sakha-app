@@ -124,7 +124,6 @@ export function Donut({
   const total = segments.reduce((a, b) => a + b.value, 0) || 1;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  let offset = 0;
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} style={{ position: 'absolute' }}>
@@ -132,7 +131,10 @@ export function Donut({
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceAlt} strokeWidth={stroke} fill="none" />
           {segments.map((s, i) => {
             const len = (s.value / total) * c;
-            const el = (
+            const offset = segments
+              .slice(0, i)
+              .reduce((sum, segment) => sum + (segment.value / total) * c, 0);
+            return (
               <Circle
                 key={i}
                 cx={size / 2}
@@ -146,8 +148,6 @@ export function Donut({
                 strokeLinecap="butt"
               />
             );
-            offset += len;
-            return el;
           })}
         </G>
       </Svg>

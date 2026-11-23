@@ -5,14 +5,16 @@ const mockRpc = jest.fn(async (): Promise<{ data: string | boolean | null; error
   data: 'session-id',
   error: null,
 }));
+let membershipData: { group_id: string }[] = [
+  { group_id: 'group-1' },
+  { group_id: 'group-2' },
+  { group_id: 'group-1' },
+];
 const mockMembershipQuery = {
   select: jest.fn(),
   eq: jest.fn(),
   then: (resolve: (value: { data: { group_id: string }[]; error: null }) => unknown) =>
-    Promise.resolve({
-      data: [{ group_id: 'group-1' }, { group_id: 'group-2' }, { group_id: 'group-1' }],
-      error: null,
-    }).then(resolve),
+    Promise.resolve({ data: membershipData, error: null }).then(resolve),
 };
 mockMembershipQuery.select.mockReturnValue(mockMembershipQuery);
 mockMembershipQuery.eq.mockReturnValue(mockMembershipQuery);
@@ -37,6 +39,7 @@ describe('createRoomSession', () => {
     mockFrom.mockClear();
     mockMembershipQuery.select.mockClear();
     mockMembershipQuery.eq.mockClear();
+    membershipData = [{ group_id: 'group-1' }, { group_id: 'group-2' }, { group_id: 'group-1' }];
   });
 
   it('creates a session through the authenticated join RPC', async () => {
@@ -138,5 +141,40 @@ describe('createRoomSession', () => {
       actualSeconds: 240,
       occurredAt: '2026-11-20T12:00:00.000Z',
     })).rejects.toThrow('The server did not confirm the group activity sync');
+  });
+
+  it('reports per-group failures without blocking the remaining groups', async () => {
+    mockRpc
+      .mockRejectedValueOnce(new Error('group-1 is unavailable'))
+      .mockResolvedValue({ data: true, error: null });
+
+    const result = await submitStudyMemberActivityToJoinedGroups({
+      userId: 'user-1',
+      eventId: 'focus-session-1',
+      activityType: 'focus_session',
+      actualSeconds: 240,
+      occurredAt: '2026-11-20T12:00:00.000Z',
+    });
+
+    expect(result).toEqual({
+      groupIds: ['group-1', 'group-2'],
+      failures: [{ groupId: 'group-1', message: 'group-1 is unavailable' }],
+    });
+    expect(mockRpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call the activity RPC when the user has no active group memberships', async () => {
+    membershipData = [];
+
+    const result = await submitStudyMemberActivityToJoinedGroups({
+      userId: 'user-1',
+      eventId: 'focus-session-1',
+      activityType: 'focus_session',
+      actualSeconds: 240,
+      occurredAt: '2026-11-20T12:00:00.000Z',
+    });
+
+    expect(result).toEqual({ groupIds: [], failures: [] });
+    expect(mockRpc).not.toHaveBeenCalledWith('submit_study_member_activity', expect.anything());
   });
 });

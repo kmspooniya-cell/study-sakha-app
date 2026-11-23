@@ -47,6 +47,7 @@ import {
   syncStudyMemberActivityWithRetry,
 } from '../lib/groupActivitySync';
 import { useGroupFocusPresence } from '../lib/groupRoomRealtime';
+import type { RealtimeDiagnosticState } from '../lib/groupRoomRealtime';
 import type { FocusSessionMode, FocusSessionSetup } from '../components/FocusSessionSetupModal';
 
 const STUDY_HISTORY_KEY = 'study-sakha-focus-history-v1';
@@ -469,7 +470,7 @@ export default function FocusCenterScreen() {
         schedulePlannedSeconds: value.schedulePlannedSeconds ?? undefined,
       });
 
-      if (value.userId) {
+      if (value.userId && value.groupId) {
         try {
           const activity = {
             userId: value.userId,
@@ -487,7 +488,8 @@ export default function FocusCenterScreen() {
             scheduleId: record.scheduleId,
             scheduleOccurrenceId: record.scheduleOccurrenceId,
           };
-          const syncResult = await syncStudyMemberActivityWithRetry(activity);
+          const groupIds = joinedGroups.length ? joinedGroups.map((group) => group.id) : [value.groupId];
+          const syncResult = await syncStudyMemberActivityWithRetry(activity, groupIds);
           const syncFailures = [...syncResult.failures];
           if (completesScheduleOccurrence && value.task && 'title' in value.task && occurrenceId) {
             const completionResult = await syncStudyMemberActivityWithRetry({
@@ -500,7 +502,7 @@ export default function FocusCenterScreen() {
               occurredAt: record.endedAt,
               scheduleId: value.task.id,
               scheduleOccurrenceId: occurrenceId,
-            });
+            }, groupIds);
             syncFailures.push(...completionResult.failures);
           }
           if (syncFailures.length) {
@@ -537,6 +539,7 @@ export default function FocusCenterScreen() {
     commitSession,
     dispatch,
     endRoomFocus,
+    joinedGroups,
     navigation,
     persistSession,
     storeState.plannerScheduleCompletions,
@@ -1109,7 +1112,7 @@ export default function FocusCenterScreen() {
   const activeSilentRoomGroupId = route.params?.roomFocus?.roomId === 'silent-focus'
     ? route.params.roomFocus.groupId
     : null;
-  useGroupFocusPresence({
+  const groupFocusPresence = useGroupFocusPresence({
     groupIds: joinedGroups
       .map((group) => group.id)
       // GroupsScreen already owns this topic for the originating Silent Focus Hall.
@@ -1126,6 +1129,20 @@ export default function FocusCenterScreen() {
       : null,
     onError: reportPresenceError,
   });
+
+  // Temporary diagnostic panel state
+  const [showDiagnosticPanel, setShowDiagnosticPanel] = useState(false);
+  const diagnosticState: RealtimeDiagnosticState = groupFocusPresence?.diagnosticState ?? {
+    sessionId: null,
+    verifiedUserId: null,
+    sessionExists: false,
+    authTokenPresent: false,
+    activeGroupMembershipMatch: false,
+    topic: null,
+    subscriptionStatus: 'idle',
+    authorizationError: null,
+    subscriptionStartedBeforeAuth: false,
+  };
 
   const openJoinedGroup = (group: ActiveStudyGroup) => {
     setSelectedGroupName(group.name);
@@ -1170,6 +1187,24 @@ export default function FocusCenterScreen() {
   if (currentSession && focusTimerController) {
     return (
       <>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open realtime diagnostics"
+          onPress={() => setShowDiagnosticPanel((visible) => !visible)}
+          style={[styles.diagnosticButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Txt size={11} weight="700">Realtime diagnostics</Txt>
+        </Pressable>
+        {showDiagnosticPanel ? (
+          <View style={[styles.diagnosticPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Txt size={11}>Session user: {diagnosticState.sessionId ?? 'none'}</Txt>
+            <Txt size={11}>Verified user: {diagnosticState.verifiedUserId ?? 'none'}</Txt>
+            <Txt size={11}>Session/token: {diagnosticState.sessionExists ? 'yes' : 'no'} / {diagnosticState.authTokenPresent ? 'present' : 'missing'}</Txt>
+            <Txt size={11}>Membership/topic: {diagnosticState.activeGroupMembershipMatch ? 'match' : 'no match'} / {diagnosticState.topic ?? 'none'}</Txt>
+            <Txt size={11}>Subscription: {diagnosticState.subscriptionStatus}</Txt>
+            {diagnosticState.authorizationError ? <Txt size={11} color={colors.danger}>Error: {diagnosticState.authorizationError}</Txt> : null}
+          </View>
+        ) : null}
         {groupPresenceError ? (
           <View style={[styles.presenceWarning, { backgroundColor: colors.surfaceAlt, borderColor: colors.danger }]}>
             <Txt size={11} color={colors.danger}>{groupPresenceError}</Txt>
@@ -1478,6 +1513,8 @@ export default function FocusCenterScreen() {
 
 const styles = StyleSheet.create({
   presenceWarning: { position: 'absolute', top: 12, left: 16, right: 16, zIndex: 5, padding: 10, borderWidth: 1, borderRadius: 10 },
+  diagnosticButton: { position: 'absolute', top: 12, right: 16, zIndex: 6, minHeight: 36, paddingHorizontal: 10, justifyContent: 'center', borderWidth: 1, borderRadius: 10 },
+  diagnosticPanel: { position: 'absolute', top: 54, right: 16, zIndex: 6, width: 280, padding: 12, gap: 4, borderWidth: 1, borderRadius: 12 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   modalCard: { width: '100%', maxWidth: 420, maxHeight: '90%', borderRadius: 20, padding: 20, borderWidth: 1 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
