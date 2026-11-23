@@ -54,6 +54,12 @@
     "plugins": [
       "expo-audio",
       [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Study Sakha uses your photos to set your profile picture.",

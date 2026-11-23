@@ -46,10 +46,32 @@ export type StudyGroupActivityInsight = {
   completed_tasks: number;
 };
 
+export type ActiveStudyGroup = {
+  id: string;
+  name: string;
+};
+
 export type StudyRoomProfile = {
   user_id: string;
   display_name: string;
   streak: number;
+};
+
+export type StudyMemberActivity = {
+  userId: string;
+  eventId: string;
+  activityType: 'focus_session' | 'planner_task_completed';
+  taskId?: string;
+  subject?: string;
+  actualSeconds: number;
+  status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
+  occurredAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  plannedSeconds?: number | null;
+  mode?: 'timer' | 'stopwatch' | 'pomodoro';
+  scheduleId?: string;
+  scheduleOccurrenceId?: string;
 };
 
 function assertSupabaseConfigured() {
@@ -99,7 +121,20 @@ export async function getActiveStudyGroupIds(userId: string) {
     .eq('user_id', userId)
     .eq('status', 'active');
   if (error) throw new Error(`Could not load your group memberships: ${error.message}`);
-  return data.map((membership) => membership.group_id as string);
+  if (!data) throw new Error('Could not load your group memberships: no response data.');
+  return Array.from(new Set(data.map((membership) => membership.group_id as string)));
+}
+
+export async function getActiveStudyGroups(userId: string): Promise<ActiveStudyGroup[]> {
+  const groupIds = await getActiveStudyGroupIds(userId);
+  if (!groupIds.length) return [];
+  const { data, error } = await supabase
+    .from('study_groups')
+    .select('id, name')
+    .in('id', groupIds)
+    .order('name', { ascending: true });
+  if (error) throw new Error(`Could not load your joined study groups: ${error.message}`);
+  return (data ?? []).map((group) => ({ id: group.id, name: group.name }));
 }
 
 export async function createStudyGroup({
@@ -220,18 +255,15 @@ export async function submitStudyMemberActivity({
   actualSeconds,
   status,
   occurredAt,
-}: {
-  groupId: string;
-  eventId: string;
-  activityType: 'focus_session' | 'planner_task_completed';
-  taskId?: string;
-  subject?: string;
-  actualSeconds: number;
-  status?: 'completed' | 'interrupted' | 'abandoned';
-  occurredAt: string;
-}) {
+  startedAt,
+  endedAt,
+  plannedSeconds,
+  mode,
+  scheduleId,
+  scheduleOccurrenceId,
+}: Omit<StudyMemberActivity, 'userId'> & { groupId: string }) {
   assertSupabaseConfigured();
-  const { error } = await supabase.rpc('submit_study_member_activity', {
+  const { data, error } = await supabase.rpc('submit_study_member_activity', {
     group_key: groupId,
     event_key: eventId,
     activity_kind: activityType,
@@ -240,8 +272,42 @@ export async function submitStudyMemberActivity({
     seconds_count: Math.max(0, Math.round(actualSeconds)),
     session_status: status ?? null,
     event_time: occurredAt,
+    started_at_value: startedAt ?? null,
+    ended_at_value: endedAt ?? null,
+    planned_seconds_count: plannedSeconds ?? null,
+    mode_value: mode ?? null,
+    schedule_key: scheduleId ?? null,
+    occurrence_key: scheduleOccurrenceId ?? null,
   });
   if (error) throw new Error(`Could not synchronize group activity: ${error.message}`);
+  if (data !== true) throw new Error('The server did not confirm the group activity sync.');
+}
+
+export async function submitStudyMemberActivityToGroups(
+  groupIds: string[],
+  activity: Omit<StudyMemberActivity, 'userId'>,
+) {
+  const uniqueGroupIds = Array.from(new Set(groupIds));
+  const results = await Promise.allSettled(
+    uniqueGroupIds.map((groupId) => submitStudyMemberActivity({ groupId, ...activity })),
+  );
+  const failures = results.flatMap((result, index) =>
+    result.status === 'rejected'
+      ? [{
+          groupId: uniqueGroupIds[index],
+          message: result.reason instanceof Error ? result.reason.message : 'Unexpected synchronization error.',
+        }]
+      : []
+  );
+  return { groupIds: uniqueGroupIds, failures };
+}
+
+export async function submitStudyMemberActivityToJoinedGroups({
+  userId,
+  ...activity
+}: StudyMemberActivity) {
+  const groupIds = await getActiveStudyGroupIds(userId);
+  return submitStudyMemberActivityToGroups(groupIds, activity);
 }
 
 export async function getStudyGroupActivityInsights(groupId: string) {

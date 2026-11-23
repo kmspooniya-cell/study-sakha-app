@@ -149,6 +149,7 @@ export type State = {
   plannerDeletedDefaults: string[];
   plannerSettings: PlannerSettings;
   plannerScheduleItems: PlannerScheduleItem[];
+  plannerScheduleCompletions: Record<string, string>;
   plannerCompletions: Record<string, PlannerCompletion[]>;
   plannerMinutesCredited: Record<string, string[]>;
   plannerTaskStudySeconds: Record<string, number>;
@@ -175,6 +176,7 @@ type LegacyLearningData = Pick<
   | 'plannerDefaultOverrides'
   | 'plannerDeletedDefaults'
   | 'plannerScheduleItems'
+  | 'plannerScheduleCompletions'
   | 'plannerCompletions'
   | 'plannerMinutesCredited'
   | 'plannerTaskStudySeconds'
@@ -512,6 +514,7 @@ const initialState: State = {
     aiSuggestions: false,
   },
   plannerScheduleItems: [],
+  plannerScheduleCompletions: {},
   plannerCompletions: {},
   plannerMinutesCredited: {},
   plannerTaskStudySeconds: {},
@@ -573,6 +576,7 @@ type Action =
   | { type: 'addPlannerScheduleItem'; item: PlannerScheduleItem }
   | { type: 'updatePlannerScheduleItem'; item: PlannerScheduleItem }
   | { type: 'deletePlannerScheduleItem'; id: string }
+  | { type: 'setPlannerScheduleCompletion'; occurrenceId: string; date: string; completed: boolean }
   | { type: 'creditPlanMinutes'; id: string; date: string; minutes: number }
   | {
       type: 'recordFocusStudy';
@@ -583,6 +587,8 @@ type Action =
       taskTitle?: string;
       category?: string;
       plannedMinutes?: number;
+      scheduleOccurrenceId?: string;
+      schedulePlannedSeconds?: number;
       status?: 'completed' | 'interrupted' | 'abandoned';
     }
   | { type: 'plannerCompletion'; date: string; completion: PlannerCompletion; completed: boolean }
@@ -616,6 +622,7 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'addPlannerScheduleItem',
   'updatePlannerScheduleItem',
   'deletePlannerScheduleItem',
+  'setPlannerScheduleCompletion',
   'creditPlanMinutes',
   'recordFocusStudy',
   'plannerCompletion',
@@ -705,6 +712,7 @@ function reducer(state: State, action: Action): State {
         ),
         plannerTasks: mergeById(state.plannerTasks, imported.plannerTasks),
         plannerScheduleItems: mergeById(state.plannerScheduleItems, imported.plannerScheduleItems),
+        plannerScheduleCompletions: { ...imported.plannerScheduleCompletions, ...state.plannerScheduleCompletions },
         plannerDefaultOverrides: { ...imported.plannerDefaultOverrides, ...state.plannerDefaultOverrides },
         plannerDeletedDefaults: Array.from(new Set([...state.plannerDeletedDefaults, ...imported.plannerDeletedDefaults])),
         plannerCompletions,
@@ -786,6 +794,7 @@ function reducer(state: State, action: Action): State {
         plannerDeletedDefaults: [],
         plannerSettings: initialState.plannerSettings,
         plannerScheduleItems: [],
+        plannerScheduleCompletions: {},
         plannerCompletions: {},
         plannerMinutesCredited: {},
         plannerTaskStudySeconds: {},
@@ -957,6 +966,17 @@ function reducer(state: State, action: Action): State {
         ...state,
         plannerScheduleItems: state.plannerScheduleItems.filter((item) => item.id !== action.id),
       };
+    case 'setPlannerScheduleCompletion':
+      if (!action.occurrenceId || !isPlannerDate(action.date)) return state;
+      return {
+        ...state,
+        plannerScheduleCompletions: action.completed
+          ? { ...state.plannerScheduleCompletions, [action.occurrenceId]: action.date }
+          : Object.fromEntries(
+              Object.entries(state.plannerScheduleCompletions)
+                .filter(([id]) => id !== action.occurrenceId)
+            ),
+      };
     case 'creditPlanMinutes': {
       const credited = state.plannerMinutesCredited[action.date] ?? [];
       if (credited.includes(action.id)) return state;
@@ -989,6 +1009,15 @@ function reducer(state: State, action: Action): State {
               [action.taskId]: (state.plannerTaskStudySeconds[action.taskId] ?? 0) + action.seconds,
             }
           : state.plannerTaskStudySeconds,
+        plannerScheduleCompletions: action.scheduleOccurrenceId &&
+          action.schedulePlannedSeconds !== undefined &&
+          action.schedulePlannedSeconds > 0 &&
+          (state.plannerTaskStudySeconds[action.scheduleOccurrenceId] ?? 0) + action.seconds >= action.schedulePlannedSeconds
+          ? {
+              ...state.plannerScheduleCompletions,
+              [action.scheduleOccurrenceId]: action.date,
+            }
+          : state.plannerScheduleCompletions,
         studyLog: {
           ...state.studyLog,
           [action.date]: (state.studyLog[action.date] ?? 0) + action.seconds / 60,
@@ -1274,6 +1303,14 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
       plannerDefaultOverrides: saved.plannerDefaultOverrides ?? {},
       plannerDeletedDefaults: saved.plannerDeletedDefaults ?? [],
       plannerScheduleItems,
+      plannerScheduleCompletions: isRecord(saved.plannerScheduleCompletions)
+        ? Object.fromEntries(
+            Object.entries(saved.plannerScheduleCompletions)
+              .filter((entry): entry is [string, string] =>
+                typeof entry[1] === 'string' && isPlannerDate(entry[1])
+              )
+          )
+        : {},
       plannerCompletions: saved.plannerCompletions ?? {},
       plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
       plannerMinutesCredited,
@@ -1483,6 +1520,7 @@ function legacyLearningDataFrom(snapshot: RecoverySnapshot): LegacyLearningData 
     plannerDefaultOverrides,
     plannerDeletedDefaults: requireStringArray(saved.plannerDeletedDefaults, 'planner defaults'),
     plannerScheduleItems: saved.plannerScheduleItems ?? [],
+    plannerScheduleCompletions: saved.plannerScheduleCompletions ?? {},
     plannerCompletions,
     plannerMinutesCredited: stringMap(saved.plannerMinutesCredited, 'credited planner minutes'),
     plannerTaskStudySeconds: secondsMap(saved.plannerTaskStudySeconds),

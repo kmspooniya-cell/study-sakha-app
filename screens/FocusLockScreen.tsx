@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,12 +8,12 @@ import {
   AppState,
   BackHandler,
   Modal,
-  Pressable,
   TextInput,
   View,
 } from 'react-native';
-import { Shell } from '../components/Shell';
+import { isAppDrawerOpen, Shell } from '../components/Shell';
 import { Button, Card, Chip, Txt } from '../components/ui';
+import type { AppNavigation } from '../lib/navigation';
 import { useTheme } from '../lib/theme';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { appendFocusHistory } from '../lib/focusHistory';
@@ -86,6 +87,7 @@ function formatEndTime(timestamp: number) {
 }
 
 export default function FocusLockScreen() {
+  const navigation = useNavigation<AppNavigation>();
   const { colors, scheme } = useTheme();
   const { state, dispatch } = useStore();
   const storageKey = useMemo(
@@ -150,16 +152,18 @@ export default function FocusLockScreen() {
     Animated.timing(heroOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
   }, [heroOpacity]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isAppDrawerOpen(navigation)) return false;
       if (showStopConfirmation) {
         setShowStopConfirmation(false);
         return true;
       }
-      return false;
+      navigation.popTo('DashboardRoot');
+      return true;
     });
     return () => subscription.remove();
-  }, [showStopConfirmation]);
+  }, [navigation, showStopConfirmation]));
 
   useEffect(() => {
     let mounted = true;
@@ -316,7 +320,7 @@ export default function FocusLockScreen() {
   };
 
   return (
-    <Shell active="FocusCenter" title="Focus Lock" subtitle="Plan a focused block">
+    <Shell active="Dashboard" title="Focus Lock" subtitle="Plan a focused block">
       <View style={{ gap: 14, maxWidth: 760, width: '100%', alignSelf: 'center' }}>
         <Animated.View style={{ opacity: heroOpacity }}>
           <View

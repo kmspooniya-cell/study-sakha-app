@@ -9,6 +9,7 @@ import {
   Skia,
 } from '@shopify/react-native-skia';
 import React, { useEffect, useRef, useState } from 'react';
+import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import {
   Animated,
   Modal,
@@ -64,6 +65,29 @@ function formatTime(seconds: number) {
 }
 
 function TimerRing({ size, progress, theme }: { size: number; progress: number; theme: ThemeDefinition }) {
+  if (typeof document !== 'undefined') {
+    const radius = size * (142 / 300);
+    const circumference = 2 * Math.PI * radius;
+    const clampedProgress = Math.max(0, Math.min(1, progress));
+    return (
+      <Svg width={size} height={size} pointerEvents="none">
+        <SvgCircle cx={size / 2} cy={size / 2} r={radius} stroke={theme.ringTrack} strokeWidth={2.5} fill="none" />
+        <SvgCircle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={theme.ringProgress}
+          strokeWidth={3}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={circumference * (1 - clampedProgress)}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </Svg>
+    );
+  }
+
   const ringPath = Skia.Path.Make();
   const inset = size * (8 / 300);
   ringPath.addArc(Skia.XYWHRect(inset, inset, size - inset * 2, size - inset * 2), -90, Math.max(0.01, Math.min(1, progress)) * 360);
@@ -72,11 +96,30 @@ function TimerRing({ size, progress, theme }: { size: number; progress: number; 
     <Canvas style={{ width: size, height: size }} pointerEvents="none">
       <Circle cx={size / 2} cy={size / 2} r={size * (142 / 300)} color={theme.ringTrack} style="stroke" strokeWidth={2.5} />
       <Path path={ringPath} color={theme.ringGlow} style="stroke" strokeWidth={7} strokeCap="round">
-        <BlurMask blur={6} style="normal" />
+        {typeof document !== 'undefined' ? null : <BlurMask blur={6} style="normal" />}
       </Path>
       <Path path={ringPath} color={theme.ringProgress} style="stroke" strokeWidth={3} strokeCap="round" />
     </Canvas>
   );
+}
+
+function WebThemeCanvas({ canvas, width, height }: { canvas: HTMLCanvasElement | null; width: number; height: number }) {
+  const host = useRef<View | null>(null);
+
+  useEffect(() => {
+    const element = host.current as unknown as HTMLElement | null;
+    if (!element) return;
+    if (canvas) {
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      canvas.style.display = 'block';
+      element.replaceChildren(canvas);
+    } else {
+      element.replaceChildren();
+    }
+  }, [canvas, height, width]);
+
+  return <View ref={host} style={{ width, height, overflow: 'hidden' }} />;
 }
 
 function ThemeArtwork({
@@ -95,9 +138,12 @@ function ThemeArtwork({
   preview?: boolean;
 }) {
   const picture = useProceduralPicture(themeId, width, height, active, motion, preview);
+  if (typeof document !== 'undefined') {
+    return <WebThemeCanvas canvas={picture as unknown as HTMLCanvasElement | null} width={width} height={height} />;
+  }
   return (
     <Canvas style={{ width, height }} pointerEvents="none">
-      {picture ? <Picture picture={picture} /> : null}
+      {picture ? <Picture picture={picture as never} /> : null}
     </Canvas>
   );
 }
@@ -109,11 +155,12 @@ const MainArtwork = React.memo(function MainArtwork({ themeId, width, height, mo
   motion: boolean;
 }) {
   const picture = useProceduralPicture(themeId, width, height, true, motion);
-  // Use explicit width/height instead of StyleSheet.absoluteFill
-  // to ensure proper rendering on web (absoluteFill requires parent position:relative)
+  if (typeof document !== 'undefined') {
+    return <WebThemeCanvas canvas={picture as unknown as HTMLCanvasElement | null} width={width} height={height} />;
+  }
   return (
     <Canvas style={{ width, height }} pointerEvents="none">
-      {picture ? <Picture picture={picture} /> : null}
+      {picture ? <Picture picture={picture as never} /> : null}
     </Canvas>
   );
 });
@@ -267,7 +314,7 @@ export default function GeminiFocusTimer({
   const resetTimer = () => {
     onReset();
     setSettingsOpen(false);
-    showToast('Timer reset to 25:00');
+    showToast('Session reset to 25:00');
   };
 
   return (

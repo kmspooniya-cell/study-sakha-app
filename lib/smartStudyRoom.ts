@@ -1,36 +1,10 @@
-import type { StudyMember, ResponsiveMetrics, FocusMode } from './smartStudyRoomTypes';
+import type { StudyMember, ResponsiveMetrics } from './smartStudyRoomTypes';
 import { Platform, useWindowDimensions } from 'react-native';
 import { useMemo } from 'react';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-export const EXAM_OPTIONS = ['RAS', 'UPSC', 'SSC', 'RSSB', 'Banking', 'NEET', 'JEE'] as const;
-
-export const SUBJECT_PRESETS = [
-  'Indian Polity',
-  'Rajasthan History',
-  'Current Affairs',
-  'Quantitative Aptitude',
-  'Geography',
-  'General Science',
-  'Economics',
-  'Reasoning',
-] as const;
-
-export const FOCUS_MODES: ReadonlyArray<{
-  id: FocusMode;
-  label: string;
-  description: string;
-  defaultMinutes: number | null;
-}> = [
-  { id: 'Pomodoro', label: 'Pomodoro', description: 'Structured focus block', defaultMinutes: 50 },
-  { id: 'Timer', label: 'Timer', description: 'Fixed countdown target', defaultMinutes: 45 },
-  { id: 'Stopwatch', label: 'Stopwatch', description: 'Open-ended deep work', defaultMinutes: null },
-];
-
-export const DURATION_PRESETS = [25, 45, 50, 60, 90] as const;
 
 const MONO_FONT = Platform.select({
   ios: 'Menlo',

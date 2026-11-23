@@ -9,6 +9,9 @@ import {
   TileMode,
 } from '@shopify/react-native-skia';
 import type { SkCanvas, SkPaint, SkPath, SkPicture, SkShader } from '@shopify/react-native-skia';
+import { Platform } from 'react-native';
+
+const isWeb = Platform.OS === 'web';
 
 type ColorStop = { offset: number; color: string };
 type Gradient = {
@@ -205,7 +208,9 @@ export class Canvas2DContext {
 
     if (shadow) {
       paint.setColor(Skia.Color(this.state.shadowColor));
-      paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, Math.max(0.1, this.state.shadowBlur / 2), true));
+      if (!isWeb) {
+        paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, Math.max(0.1, this.state.shadowBlur / 2), true));
+      }
     } else if (typeof style === 'string') {
       paint.setColor(Skia.Color(style));
     } else {
@@ -248,7 +253,20 @@ export class Canvas2DContext {
     const picture = image.snapshot();
     if (!picture) return;
 
-    this.canvas.save();
+    const paint = this.makePaint('#ffffff', false);
+    if (!isWeb && this.state.shadowBlur > 0) {
+      paint.setImageFilter(Skia.ImageFilter.MakeBlur(
+        this.state.shadowBlur / 2,
+        this.state.shadowBlur / 2,
+        TileMode.Decal,
+      ));
+    }
+    this.canvas.saveLayer(paint, Skia.XYWHRect(
+      x - this.state.shadowBlur,
+      y - this.state.shadowBlur,
+      image.width + this.state.shadowBlur * 2,
+      image.height + this.state.shadowBlur * 2,
+    ));
     this.canvas.translate(x, y);
     this.canvas.drawPicture(picture);
     this.canvas.restore();

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { X, Square } from 'lucide-react-native';
 
 export interface ExitConfirmModalProps {
   isOpen: boolean;
@@ -67,7 +66,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
                   { color: isDark ? '#CBD5E1' : '#334155' },
                 ]}
               >
-                Stay Here
+                Stay
               </Text>
             </Pressable>
             <Pressable
@@ -77,7 +76,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
                 { opacity: pressed ? 0.88 : 1 },
               ]}
             >
-              <Text style={[styles.exitBtnText, { color: '#FFFFFF' }]}>Leave Hall</Text>
+              <Text style={[styles.exitBtnText, { color: '#FFFFFF' }]}>Leave Room</Text>
             </Pressable>
           </View>
         </View>

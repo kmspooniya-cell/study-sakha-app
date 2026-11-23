@@ -12,7 +12,19 @@ type LibraryParams = HeaderParams & { exam?: ExamId; subject?: string; category?
 export type AppStackParamList = {
   DashboardRoot: OptionalScreenParams;
   Library: LibraryParams | undefined;
-  Groups: OptionalScreenParams;
+  Groups: (HeaderParams & {
+    openGroupRoom?: {
+      groupId: string;
+      roomId: GroupRoomId;
+      focusSession?: {
+        sessionId: string;
+        subject: string;
+        startedAt: string;
+        elapsedSeconds: number;
+        status: 'focusing' | 'paused' | 'break';
+      };
+    };
+  }) | undefined;
   More: OptionalScreenParams;
   LibraryNotes: LibraryParams | undefined;
   LibraryBooks: LibraryParams | undefined;
@@ -36,8 +48,24 @@ export type AppStackParamList = {
     focusSession?: FocusSessionSetup;
     roomFocus?: { groupId: string; roomId: GroupRoomId; roomSessionId: string };
   }) | undefined;
+  FocusCompletion: {
+    session: {
+      id: string;
+      sessionId: string;
+      startedAt: string;
+      endedAt: string;
+      focusedSeconds: number;
+      plannedSeconds: number | null;
+      mode: 'timer' | 'stopwatch' | 'pomodoro';
+      subject?: string;
+      topic?: string;
+      taskId?: string;
+      status: 'completed' | 'saved_early';
+    };
+    message: string;
+    groupSyncWarning?: string;
+  };
   FocusLock: OptionalScreenParams;
-  Hobbies: OptionalScreenParams;
   Profile: OptionalScreenParams;
   Settings: OptionalScreenParams;
   AppGuide: OptionalScreenParams;
@@ -77,3 +105,25 @@ export type AppRoute<RouteName extends keyof AppStackParamList> = RouteProp<AppS
 export type AppHeaderRoute = RouteProp<AppStackParamList, keyof AppStackParamList>;
 export type AppLinkingOptions = LinkingOptions<RootStackParamList>;
 export type AppDrawerContentProps = DrawerContentComponentProps;
+
+const APP_BACK_TARGETS: Partial<Record<AppStackRouteName, AppStackRouteName>> = {
+  LibraryNotes: 'Library',
+  LibraryBooks: 'Library',
+  LibraryPYQSets: 'Library',
+  LibraryStarred: 'Library',
+  LibraryDownloads: 'Library',
+  TestPlayer: 'Tests',
+  TestResult: 'Tests',
+  TaskPerformance: 'Statistics',
+};
+
+export function getAndroidBackTarget(
+  currentRoute: AppStackRouteName,
+  previousRoutes: readonly AppStackRouteName[]
+): AppStackRouteName | null {
+  if (currentRoute === 'DashboardRoot') return null;
+  if (currentRoute === 'NoteEditor' || currentRoute === 'BookReader') {
+    return previousRoutes.at(-1) ?? 'DashboardRoot';
+  }
+  return APP_BACK_TARGETS[currentRoute] ?? 'DashboardRoot';
+}

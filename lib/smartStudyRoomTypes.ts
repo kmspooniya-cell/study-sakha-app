@@ -22,14 +22,6 @@ export interface StudyMember {
   startedAt: string | null;
 }
 
-export interface FocusSessionConfig {
-  mode: FocusMode;
-  targetSeconds: number | null;
-  subject: string;
-  topic: string | null;
-  exam: string | null;
-}
-
 export interface ResponsiveMetrics {
   width: number;
   isMobile: boolean;
@@ -53,7 +45,7 @@ export interface SmartStudyRoomScreenProps {
   /** Connect to your existing Supabase realtime / presence store */
   currentUserChair?: StudyMember;
   partners?: StudyMember[];
-  onStartFocus?: (config: FocusSessionConfig) => void;
+  onStartFocus?: () => void;
   onTogglePause?: () => void;
   onEndSession?: () => void;
   /** Connect to React Navigation (e.g. () => navigation.goBack()) */

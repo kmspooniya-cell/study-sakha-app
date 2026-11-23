@@ -22,6 +22,146 @@ export type PlannerTaskEdit = Pick<
   'label' | 'minutes' | 'category' | 'taskType' | 'priority' | 'targetDate' | 'scope' | 'periodKey'
 >;
 
+export type SchedulePlanStatus = 'completed' | 'missed' | 'upcoming';
+
+export type PlannerScheduleOccurrence = {
+  id: string;
+  item: State['plannerScheduleItems'][number];
+  date: string;
+  status: SchedulePlanStatus;
+  plannedSeconds: number | null;
+  actualSeconds: number;
+  progressPercent: number;
+};
+
+export function getScheduleOccurrenceId(scheduleId: string, date: string) {
+  return `${scheduleId}::${date}`;
+}
+
+export function getSchedulePlanDurationSeconds(
+  item: State['plannerScheduleItems'][number],
+): number | null {
+  const numericDuration = item.durationMinutes ??
+    (typeof item.duration === 'number' ? item.duration : null);
+  if (typeof numericDuration === 'number' && Number.isFinite(numericDuration) && numericDuration > 0) {
+    return Math.round(numericDuration * 60);
+  }
+
+  const durationLabel = item.durationLabel;
+  const labeledDuration = durationLabel?.match(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)/i);
+  if (labeledDuration) {
+    const amount = Number(labeledDuration[1]);
+    return Math.round(amount * (/^h/i.test(labeledDuration[2]) ? 3600 : 60));
+  }
+
+  const start = item.startTime || item.time;
+  if (!start || !item.endTime) return null;
+  const startMinutes = timeToMinutes(start);
+  const endMinutes = timeToMinutes(item.endTime);
+  if (startMinutes === null || endMinutes === null) return null;
+  const durationMinutes = (endMinutes - startMinutes + 1440) % 1440;
+  return durationMinutes > 0 ? durationMinutes * 60 : null;
+}
+
+function timeToMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+export function scheduleItemOccursOnDate(
+  item: State['plannerScheduleItems'][number],
+  date: string,
+) {
+  const start = item.date || item.fromDate || '';
+  if (!start || date < start) return false;
+
+  if (item.category === 'Vacations' && (!item.recurrence || item.recurrence === 'none')) {
+    const end = item.endDate || item.untilDate || item.rangeUntil || start;
+    return date <= end;
+  }
+
+  if (!item.recurrence || item.recurrence === 'none') {
+    if (item.dateRangeMode === 'manual' && item.rangeFrom && item.rangeUntil) {
+      return date >= item.rangeFrom && date <= item.rangeUntil;
+    }
+    return date === start;
+  }
+
+  const end = item.repeatUntil || (item.dateRangeMode === 'manual' ? item.rangeUntil : '') || '';
+  if (end && date > end) return false;
+  const startDate = new Date(`${start}T00:00:00`);
+  const targetDate = new Date(`${date}T00:00:00`);
+  if (item.recurrence === 'daily') return true;
+  if (item.recurrence === 'weekly') {
+    const days = item.repeatDays?.length ? item.repeatDays : [startDate.getDay()];
+    return days.includes(targetDate.getDay());
+  }
+  if (item.recurrence === 'monthly') {
+    const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+    return targetDate.getDate() === Math.min(startDate.getDate(), lastDay);
+  }
+  if (item.recurrence === 'yearly') {
+    return targetDate.getMonth() === startDate.getMonth() && targetDate.getDate() === startDate.getDate();
+  }
+  return false;
+}
+
+export function getPlannerScheduleOccurrence(
+  state: State,
+  item: State['plannerScheduleItems'][number],
+  date: string,
+  today: string,
+): PlannerScheduleOccurrence {
+  const id = getScheduleOccurrenceId(item.id, date);
+  const actualSeconds = state.plannerTaskStudySeconds[id] ??
+    (!item.recurrence || item.recurrence === 'none'
+      ? state.plannerTaskStudySeconds[item.id] ?? 0
+      : 0);
+  const plannedSeconds = getSchedulePlanDurationSeconds(item);
+  const progressPercent = plannedSeconds
+    ? Math.min(100, Math.round((actualSeconds / plannedSeconds) * 100))
+    : 0;
+  const completed = Boolean(state.plannerScheduleCompletions[id]) ||
+    (item.completed === true && (!item.recurrence || item.recurrence === 'none')) ||
+    (plannedSeconds !== null && actualSeconds >= plannedSeconds);
+
+  return {
+    id,
+    item,
+    date,
+    status: completed ? 'completed' : date < today ? 'missed' : 'upcoming',
+    plannedSeconds,
+    actualSeconds,
+    progressPercent,
+  };
+}
+
+export function getPlannerScheduleOccurrences(
+  state: State,
+  startDate: string,
+  endDate: string,
+  today: string,
+): PlannerScheduleOccurrence[] {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+
+  const occurrences: PlannerScheduleOccurrence[] = [];
+  for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    state.plannerScheduleItems.forEach((item) => {
+      if (scheduleItemOccursOnDate(item, dateKey)) {
+        occurrences.push(getPlannerScheduleOccurrence(state, item, dateKey, today));
+      }
+    });
+  }
+  return occurrences;
+}
+
 /**
  * Applies an edit to an existing custom planner task without changing its ID
  * or any supporting data stored outside the task record, such as accumulated

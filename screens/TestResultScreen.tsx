@@ -6,13 +6,14 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Donut, HBar, SvgLegend } from '../components/Charts';
-import { DetailHeader, useLayout } from '../components/Shell';
+import { DetailHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
 import { Button, Card, EmptyState, ProgressRing, SectionHeader, Tag, Txt } from '../components/ui';
 import { getTests } from '../lib/data';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
 export default function TestResultScreen() {
+  useSmartAndroidBack();
   const { colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'TestResult'>>();

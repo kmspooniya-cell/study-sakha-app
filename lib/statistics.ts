@@ -1,4 +1,10 @@
-import { getPlannerTasksForDate, PlannerTaskView } from './planner';
+import {
+  getPlannerScheduleOccurrence,
+  getScheduleOccurrenceId,
+  getPlannerTasksForDate,
+  PlannerTaskView,
+  scheduleItemOccursOnDate,
+} from './planner';
 import type { State } from './store';
 
 export const FOCUS_HISTORY_RETENTION_LIMIT = 100;
@@ -12,16 +18,22 @@ export type StatisticsDateRangeInput = StatisticsDateRange;
 
 export type PersistedFocusSession = {
   id: string;
+  sessionId?: string;
+  userId?: string;
   subject?: string;
   topic?: string;
   minutes?: number;
   completedAt: string;
   taskId?: string;
+  groupId?: string;
+  mode?: 'timer' | 'stopwatch' | 'pomodoro';
   startedAt?: string;
   endedAt?: string;
   actualSeconds?: number;
+  focusedSeconds?: number;
+  plannedSeconds?: number | null;
   plannedMinutes?: number;
-  status?: 'completed' | 'interrupted' | 'abandoned';
+  status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
 };
 
 export type NormalizedFocusSession = PersistedFocusSession & {
@@ -197,6 +209,7 @@ export function normalizeStatisticsDateRange(
 }
 
 function actualSecondsForSession(value: Record<string, unknown>): number | null {
+  if (isFiniteNonNegative(value.focusedSeconds)) return value.focusedSeconds;
   if (isFiniteNonNegative(value.actualSeconds)) return value.actualSeconds;
   if (isFiniteNonNegative(value.minutes)) return value.minutes * 60;
   return null;
@@ -227,16 +240,25 @@ export function normalizeFocusSessions(records: unknown): NormalizedFocusSession
     seenIds.add(value.id);
     normalized.push({
       id: value.id,
+      sessionId: typeof value.sessionId === 'string' ? value.sessionId : value.id,
+      userId: typeof value.userId === 'string' ? value.userId : undefined,
       subject: typeof value.subject === 'string' ? value.subject : undefined,
       topic: typeof value.topic === 'string' ? value.topic : undefined,
       minutes: isFiniteNonNegative(value.minutes) ? value.minutes : actualSeconds / 60,
       completedAt: value.completedAt,
       taskId: typeof value.taskId === 'string' && value.taskId ? value.taskId : undefined,
+      groupId: typeof value.groupId === 'string' && value.groupId ? value.groupId : undefined,
+      mode: value.mode === 'timer' || value.mode === 'stopwatch' || value.mode === 'pomodoro'
+        ? value.mode
+        : undefined,
       startedAt: typeof value.startedAt === 'string' ? value.startedAt : undefined,
       endedAt: typeof value.endedAt === 'string' ? value.endedAt : undefined,
       actualSeconds,
+      focusedSeconds: actualSeconds,
+      plannedSeconds: isFiniteNonNegative(value.plannedSeconds) ? value.plannedSeconds : undefined,
       plannedMinutes: isFiniteNonNegative(value.plannedMinutes) ? value.plannedMinutes : undefined,
-      status: value.status === 'completed' || value.status === 'interrupted' || value.status === 'abandoned'
+      status: value.status === 'completed' || value.status === 'saved_early' ||
+        value.status === 'interrupted' || value.status === 'abandoned'
         ? value.status
         : undefined,
       dateKey: localDateKey(completedAt),
@@ -303,42 +325,6 @@ function taskInstanceKey(taskId: string, date: string): string {
   return `${taskId}\u0000${date}`;
 }
 
-function scheduleItemOccursOnDate(item: State['plannerScheduleItems'][number], date: string): boolean {
-  const start = item.date || item.fromDate || '';
-  if (!start || date < start) return false;
-
-  if (item.category === 'Vacations' && (!item.recurrence || item.recurrence === 'none')) {
-    const end = item.endDate || item.untilDate || item.rangeUntil || start;
-    return date <= end;
-  }
-
-  if (!item.recurrence || item.recurrence === 'none') {
-    if (item.dateRangeMode === 'manual' && item.rangeFrom && item.rangeUntil) {
-      return date >= item.rangeFrom && date <= item.rangeUntil;
-    }
-    return date === start;
-  }
-
-  const end = item.repeatUntil || (item.dateRangeMode === 'manual' ? item.rangeUntil : '') || '';
-  if (end && date > end) return false;
-
-  const startDate = new Date(`${start}T00:00:00`);
-  const targetDate = new Date(`${date}T00:00:00`);
-  if (item.recurrence === 'daily') return true;
-  if (item.recurrence === 'weekly') {
-    const days = item.repeatDays?.length ? item.repeatDays : [startDate.getDay()];
-    return days.includes(targetDate.getDay());
-  }
-  if (item.recurrence === 'monthly') {
-    const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
-    return targetDate.getDate() === Math.min(startDate.getDate(), lastDay);
-  }
-  if (item.recurrence === 'yearly') {
-    return targetDate.getMonth() === startDate.getMonth() && targetDate.getDate() === startDate.getDate();
-  }
-  return false;
-}
-
 function summarizeStreaks(activeDates: Set<string>, dates: string[]): StreakStatistics {
   if (!dates.length) return { current: 0, best: 0 };
 
@@ -400,17 +386,20 @@ export function deriveStatistics(
 
     state.plannerScheduleItems.forEach((item) => {
       if (!scheduleItemOccursOnDate(item, date) || item.category !== 'Tasks') return;
+      const occurrence = getPlannerScheduleOccurrence(state, item, date, localDateKey(new Date()));
+      const occurrenceId = getScheduleOccurrenceId(item.id, date);
       const task: PlannerTaskView = {
-        id: item.id,
+      id: occurrenceId,
         label: item.title,
         category: item.subject?.trim() || item.category,
-        minutes: item.durationMinutes ?? 0,
+      minutes: occurrence.plannedSeconds ? occurrence.plannedSeconds / 60 : 0,
         taskType: 'Study',
         priority: 'Medium',
-        completed: item.completed === true,
-        completedOn: item.completed ? date : null,
+      completed: occurrence.status === 'completed',
+      completedOn: state.plannerScheduleCompletions[occurrenceId] ??
+        (item.completed && (!item.recurrence || item.recurrence === 'none') ? date : null),
         targetDate: date,
-        actualStudySeconds: state.plannerTaskStudySeconds[item.id] ?? 0,
+      actualStudySeconds: occurrence.actualSeconds,
         isDefault: false,
         kind: 'schedule',
         refId: item.id,
@@ -458,7 +447,14 @@ export function deriveStatistics(
   );
 
   const taskRows: TaskStatistics[] = Array.from(scheduledInstances.values()).map(({ date, task }) => {
-    const taskSessions = sessionsByTaskAndDate.get(taskInstanceKey(task.id, date)) ?? [];
+    const taskSessions = [
+      ...(sessionsByTaskAndDate.get(taskInstanceKey(task.id, date)) ?? []),
+      ...(task.kind === 'schedule' && task.refId !== task.id
+        ? sessionsByTaskAndDate.get(taskInstanceKey(task.refId, date)) ?? []
+        : []),
+    ].filter((session, index, list) =>
+      list.findIndex((candidate) => candidate.id === session.id) === index
+    );
     const taskActualSeconds = taskSessions.reduce((sum, session) => sum + session.actualSeconds, 0);
     const plannedMinutes = Math.max(0, Number(task.minutes) || 0);
     return {
@@ -531,10 +527,10 @@ export function deriveStatistics(
     .sort((a, b) => b.actualMinutes - a.actualMinutes);
 
   const completedFocusSessionCount = sessions.filter((session) =>
-    session.status !== 'interrupted' && session.status !== 'abandoned'
+    session.status !== 'saved_early' && session.status !== 'interrupted' && session.status !== 'abandoned'
   ).length;
   const interruptedFocusSessionCount = sessions.filter((session) =>
-    session.status === 'interrupted' || session.status === 'abandoned'
+    session.status === 'saved_early' || session.status === 'interrupted' || session.status === 'abandoned'
   ).length;
   const today = (() => {
     const value = new Date();

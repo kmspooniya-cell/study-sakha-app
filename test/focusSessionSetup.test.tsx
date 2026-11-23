@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { AppState, type AppStateStatus } from 'react-native';
 import {
   endGroupRoomFocus,
   getGroupRoomFocusActivity,
@@ -9,10 +10,15 @@ import {
 import { VirtualStudyHall } from '../components/VirtualStudyHall';
 
 const mockBlurListeners: (() => void)[] = [];
+const mockAppStateListeners: ((state: AppStateStatus) => void)[] = [];
 const mockNavigation = {
   navigate: jest.fn(),
   push: jest.fn(),
   setParams: jest.fn(),
+  replace: jest.fn(),
+  dispatch: jest.fn(),
+  popTo: jest.fn(),
+  goBack: jest.fn(),
   addListener: jest.fn((event: string, listener: () => void) => {
     if (event === 'blur') mockBlurListeners.push(listener);
     return jest.fn();
@@ -32,6 +38,31 @@ const mockPlannerTask = {
   scope: 'daily' as const,
   periodKey: '2026-11-19',
 };
+const mockStorage = new Map<string, string>();
+const mockSubmitStudyMemberActivity = jest.fn(async (_input: {
+  groupId: string;
+  eventId: string;
+  activityType: 'focus_session' | 'planner_task_completed';
+  taskId?: string;
+  subject?: string;
+  actualSeconds: number;
+  status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
+  occurredAt: string;
+}) => undefined);
+const mockSubmitAllGroupsActivity = jest.fn(async (activity: {
+  userId: string;
+  eventId: string;
+  activityType: 'focus_session' | 'planner_task_completed';
+  taskId?: string;
+  subject?: string;
+  actualSeconds: number;
+  status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
+  occurredAt: string;
+}) => {
+  await mockSubmitStudyMemberActivity({ groupId: 'grp-ras-mains', ...activity });
+  return { groupIds: ['grp-ras-mains'], failures: [] };
+});
+const mockFinishRoomSession = jest.fn(async () => undefined);
 const mockStore = {
   state: {
     plannerTasksLoaded: true,
@@ -41,6 +72,7 @@ const mockStore = {
   },
   dispatch: jest.fn(),
 };
+const mockAppendFocusHistory = jest.fn(async (_key: string, record: { id: string }) => [record]);
 
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
@@ -89,10 +121,11 @@ jest.mock('expo-audio', () => {
     pause: jest.fn(),
     play: jest.fn(),
     replace: jest.fn(),
+    seekTo: jest.fn(async () => undefined),
     loop: false,
   };
   return {
-    setAudioModeAsync: jest.fn(),
+    setAudioModeAsync: jest.fn(async () => undefined),
     useAudioPlayer: () => player,
     useAudioPlayerStatus: () => ({ playing: false, currentTime: 0, duration: 0 }),
   };
@@ -100,7 +133,7 @@ jest.mock('expo-audio', () => {
 jest.mock('../lib/store', () => ({
   useStore: () => mockStore,
   dayKey: () => '2026-11-19',
-  getUserScopedStorageKey: () => 'focus-history',
+  getUserScopedStorageKey: (key: string) => `${key}:user-1`,
 }));
 jest.mock('../lib/groupRooms', () => {
   const actual = jest.requireActual<typeof import('../lib/groupRooms')>('../lib/groupRooms');
@@ -108,12 +141,20 @@ jest.mock('../lib/groupRooms', () => {
     ...actual,
     createRoomSession: jest.fn(async () => 'room-session-1'),
     getActiveStudyGroupIds: jest.fn(async () => ['grp-ras-mains']),
+    submitStudyMemberActivityToGroups: jest.fn(async (groupIds: string[], activity: Record<string, unknown>) => {
+      await Promise.all(groupIds.map((groupId) => mockSubmitStudyMemberActivity({ groupId, ...activity } as Parameters<typeof mockSubmitStudyMemberActivity>[0])));
+      return { groupIds, failures: [] };
+    }),
     getStudyRoomLogs: jest.fn(async () => []),
     getStudyRoomProfiles: jest.fn(async () => []),
     updateRoomSession: jest.fn(async () => undefined),
+    finishRoomSession: mockFinishRoomSession,
+    submitStudyMemberActivity: mockSubmitStudyMemberActivity,
+    submitStudyMemberActivityToJoinedGroups: mockSubmitAllGroupsActivity,
   };
 });
 jest.mock('../lib/groupRoomRealtime', () => ({
+  useGroupFocusPresence: jest.fn(),
   useGroupRoomRealtime: () => ({
     participants: [],
     messages: [],
@@ -127,10 +168,15 @@ jest.mock('../lib/groupRoomRealtime', () => ({
 }));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
-  default: { getItem: jest.fn(async () => null), setItem: jest.fn(async () => undefined) },
+  default: {
+    getItem: jest.fn(async (key: string) => mockStorage.get(key) ?? null),
+    setItem: jest.fn(async (key: string, value: string) => { mockStorage.set(key, value); }),
+    removeItem: jest.fn(async (key: string) => { mockStorage.delete(key); }),
+  },
 }));
-jest.mock('../lib/focusHistory', () => ({ appendFocusHistory: jest.fn(async () => undefined) }));
-jest.mock('../components/DashboardStudyTools', () => ({ FocusActivityTimer: () => null }));
+jest.mock('../lib/focusHistory', () => ({
+  appendFocusHistory: (...args: [string, { id: string }]) => mockAppendFocusHistory(...args),
+}));
 jest.mock('../components/GeminiFocusTimer', () => {
   const React = jest.requireActual<typeof import('react')>('react');
   const { Pressable, Text, View } = jest.requireActual<typeof import('react-native')>('react-native');
@@ -156,11 +202,12 @@ jest.mock('../components/GeminiFocusTimer', () => {
     },
   };
 });
-jest.mock('../components/FullScreenMeditation', () => ({ FullScreenMeditation: () => null }));
 jest.mock('../components/MeditationPresets', () => ({
-  getPresetById: () => ({ title: 'Preset', accentColor: '#FFF', icon: 'leaf' }),
+  MEDITATION_SOUND_LIST: [
+    { id: 'pure_cosmic_waves', name: 'Pure Cosmic Waves', subtitle: 'Cosmic soundscape', icon: 'sparkles-outline', source: 1, isDownloadable: true, filename: 'pure_cosmic_waves.mp3', downloadUrl: '/api/audio/pure_cosmic_waves.mp3', sizeBytes: 100 },
+    { id: 'deep_positive_energy', name: 'Deep Positive Energy', subtitle: 'Positive soundscape', icon: 'water-outline', source: 2, isDownloadable: true, filename: 'deep_positive_energy.mp3', downloadUrl: '/api/audio/deep_positive_energy.mp3', sizeBytes: 100 },
+  ],
 }));
-jest.mock('../components/MeditationSceneRenderer', () => ({ MeditationSceneRenderer: () => null }));
 jest.mock('../lib/audioDownloadManager', () => ({
   AudioDownloadManager: { subscribe: () => jest.fn(), download: jest.fn(), deleteDownloaded: jest.fn() },
 }));
@@ -169,9 +216,17 @@ const GroupsScreen = require('../screens/GroupsScreen').default as typeof import
 const FocusCenterScreen = require('../screens/FocusCenterScreen').default as typeof import('../screens/FocusCenterScreen').default;
 
 describe('shared focus session setup', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStorage.clear();
     mockBlurListeners.length = 0;
+    mockAppStateListeners.length = 0;
     const activeRoomFocus = getGroupRoomFocusActivity();
     if (activeRoomFocus) endGroupRoomFocus(activeRoomFocus.roomSessionId);
     mockRoute.params = {};
@@ -185,12 +240,13 @@ describe('shared focus session setup', () => {
       fireEvent.press(view.getAllByText('Join room')[0]);
       await Promise.resolve();
     });
-    fireEvent.press(view.getByRole('button', { name: 'Start Focusing' }));
+    fireEvent.press(view.getByText('Start Focusing'));
     expect(view.getByText('Focus Session Setup')).toBeTruthy();
+    expect(view.queryByText('Begin Focus Session')).toBeNull();
     expect(mockNavigation.push).not.toHaveBeenCalled();
     fireEvent.press(view.getByText('Continue to Full Focus'));
 
-    expect(mockNavigation.push).toHaveBeenCalledWith('FocusCenter', {
+    expect(mockNavigation.navigate).toHaveBeenCalledWith('FocusCenter', {
       focusSession: {
         mode: 'timer',
         durationMinutes: 25,
@@ -209,26 +265,52 @@ describe('shared focus session setup', () => {
     jest.useRealTimers();
   });
 
-  it('opens from Focus Center, closes in place, and starts the chosen focus session', () => {
-    const view = render(<FocusCenterScreen />);
-    fireEvent.press(view.getByText('Focus for Study'));
-    expect(view.getByText('Focus Session Setup')).toBeTruthy();
-    fireEvent.press(view.getByRole('button', { name: 'Close focus session setup' }));
-    expect(view.getByText('Focus Lock')).toBeTruthy();
-    expect(view.queryByText('FULL FOCUS')).toBeNull();
+  it('leaves Silent Focus Hall only after confirmation and returns to the Groups screen', async () => {
+    jest.useFakeTimers();
+    const view = render(<GroupsScreen />);
+    fireEvent.press(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' }));
+    await act(async () => {
+      fireEvent.press(view.getAllByText('Join room')[0]);
+      await Promise.resolve();
+    });
 
-    fireEvent.press(view.getByText('Focus for Study'));
-    fireEvent.press(view.getByText('Stopwatch'));
-    fireEvent.press(view.getByText('Tag Manually'));
-    fireEvent.press(view.getByText('Polity'));
-    fireEvent.press(view.getByText('Continue to Full Focus'));
+    fireEvent.press(view.getByRole('button', { name: 'Exit Silent Focus Hall' }));
+    expect(view.getByText('Leave Silent Focus Hall?')).toBeTruthy();
+    fireEvent.press(view.getByText('Leave Room'));
 
-    expect(view.getByText('STOPWATCH')).toBeTruthy();
-    expect(view.getByText('00:00')).toBeTruthy();
-    expect(view.getByText('Polity')).toBeTruthy();
+    await waitFor(() => expect(mockFinishRoomSession).toHaveBeenCalledWith('room-session-1', { status: 'left' }));
+    expect(view.queryByText('Leave Silent Focus Hall?')).toBeNull();
+    expect(view.getByText('RAS Mains 2026 — Rajasthan Special')).toBeTruthy();
+    expect(mockNavigation.goBack).not.toHaveBeenCalled();
+    view.unmount();
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
-  it('counts down a five-minute break started from stopwatch mode without recording break time', () => {
+  it('redirects an empty focus route to Homepage and starts a supplied setup directly', async () => {
+    const landing = render(<FocusCenterScreen />);
+    await waitFor(() => expect(mockNavigation.popTo).toHaveBeenCalledWith('DashboardRoot'));
+    landing.unmount();
+
+    mockRoute.params = {
+      focusSession: {
+        mode: 'stopwatch',
+        durationMinutes: 25,
+        selection: 'manual',
+        tag: 'Polity',
+        task: null,
+      },
+    };
+    const active = render(<FocusCenterScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(active.getByText('STOPWATCH')).toBeTruthy();
+    expect(active.getByText('00:00')).toBeTruthy();
+    expect(active.getByText('Polity')).toBeTruthy();
+  });
+
+  it('counts down a five-minute break started from stopwatch mode without recording break time', async () => {
     jest.useFakeTimers();
     mockRoute.params = {
       focusSession: {
@@ -242,6 +324,9 @@ describe('shared focus session setup', () => {
 
     try {
       const view = render(<FocusCenterScreen />);
+      await act(async () => {
+        await Promise.resolve();
+      });
       expect(view.getByText('STOPWATCH')).toBeTruthy();
       fireEvent.press(view.getByText('Take a break'));
       expect(view.getByText('BREAK')).toBeTruthy();
@@ -250,18 +335,15 @@ describe('shared focus session setup', () => {
       act(() => jest.advanceTimersByTime(5 * 60 * 1000));
 
       expect(view.getByText('00:00')).toBeTruthy();
-      expect(view.getByText('Back to focus')).toBeTruthy();
       expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
-      fireEvent.press(view.getByText('Back to focus'));
-      expect(view.getByText('TIMER')).toBeTruthy();
-      expect(view.getByText('25:00')).toBeTruthy();
+      expect(view.getByText('STOPWATCH')).toBeTruthy();
     } finally {
       jest.clearAllTimers();
       jest.useRealTimers();
     }
   });
 
-  it('publishes linked room focus updates and clears the chair when the session stops', () => {
+  it('publishes linked room focus updates and clears the chair when the session stops', async () => {
     const events: string[] = [];
     const unsubscribe = subscribeGroupRoomFocus((event) => events.push(event.type));
     mockRoute.params = {
@@ -280,6 +362,9 @@ describe('shared focus session setup', () => {
     };
 
     const view = render(<FocusCenterScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(getGroupRoomFocusActivity()).toMatchObject({
       groupId: 'group-1',
       roomId: 'silent-focus',
@@ -299,11 +384,293 @@ describe('shared focus session setup', () => {
     act(() => mockBlurListeners.forEach((listener) => listener()));
     expect(getGroupRoomFocusActivity()?.roomSessionId).toBe('room-session-1');
 
-    fireEvent.press(view.getByText('Stop Focus'));
+    await act(async () => {
+      fireEvent.press(view.getByText('Stop Focus'));
+      await Promise.resolve();
+    });
+    fireEvent.press(view.getByText('Leave'));
+    await act(async () => { await Promise.resolve(); });
     expect(getGroupRoomFocusActivity()).toBeNull();
     expect(mockNavigation.setParams).toHaveBeenCalledWith({ roomFocus: undefined });
-    expect(events.filter((event) => event !== 'update')).toEqual(['start', 'pause', 'break', 'resume', 'stop']);
+    expect(events.filter((event) => event !== 'update')).toEqual(['start', 'pause', 'break', 'resume', 'pause', 'stop']);
     unsubscribe();
+  });
+
+  it('asks before leaving a stopwatch session stopped at 1:59 and returns to Homepage without saving', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(119_000));
+    await act(async () => {
+      fireEvent.press(view.getByText('Stop Focus'));
+      await Promise.resolve();
+    });
+
+    expect(view.getByText('Are you sure you want to leave?')).toBeTruthy();
+    expect(view.getByText('Stay')).toBeTruthy();
+    expect(view.getByText('Leave')).toBeTruthy();
+    fireEvent.press(view.getByText('Leave'));
+    await waitFor(() => expect(mockNavigation.popTo).toHaveBeenCalledWith('DashboardRoot'));
+    expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
+    expect(mockAppendFocusHistory).not.toHaveBeenCalled();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('resumes without losing focused time when Stay is selected under two minutes', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(119_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+    expect(view.getByText('Are you sure you want to leave?')).toBeTruthy();
+
+    fireEvent.press(view.getByText('Stay'));
+    expect(view.queryByText('Are you sure you want to leave?')).toBeNull();
+    act(() => jest.advanceTimersByTime(2_000));
+    expect(view.getAllByText('02:01').length).toBeGreaterThan(0);
+    expect(view.getByText('Pause')).toBeTruthy();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('returns an early-discarded Group Room session to the same room without saving it', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+      roomFocus: { groupId: 'grp-ras-mains', roomId: 'silent-focus', roomSessionId: 'room-session-1' },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(119_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+    fireEvent.press(view.getByText('Leave'));
+
+    await waitFor(() => expect(mockNavigation.popTo).toHaveBeenCalledWith('Groups'));
+    expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
+    expect(mockAppendFocusHistory).not.toHaveBeenCalled();
+    expect(getGroupRoomFocusActivity()).toBeNull();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('shows the save/delete sheet at exactly two minutes', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(120_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+
+    expect(view.getByText('End Focus Session?')).toBeTruthy();
+    expect(view.getAllByText('02:00').length).toBeGreaterThan(0);
+    fireEvent.press(view.getByText('Delete Session'));
+    await act(async () => { await Promise.resolve(); });
+    expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('saves exactly 155 seconds once when Save is pressed repeatedly', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: 'manual', tag: 'History', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(155_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+    expect(view.getAllByText('02:35').length).toBeGreaterThan(0);
+
+    act(() => {
+      fireEvent.press(view.getByText('Save Session'));
+      fireEvent.press(view.getByText('Save Session'));
+    });
+    await waitFor(() => expect(mockNavigation.replace).toHaveBeenCalledWith(
+      'FocusCompletion',
+      expect.objectContaining({
+        session: expect.objectContaining({
+          focusedSeconds: 155,
+          actualSeconds: 155,
+          status: 'saved_early',
+          subject: 'History',
+        }),
+      }),
+    ));
+
+    expect(mockAppendFocusHistory).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'recordFocusStudy',
+      seconds: 155,
+    }));
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('excludes a five-minute pause from the saved stopwatch duration', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(60_000));
+    fireEvent.press(view.getByText('Pause'));
+    act(() => jest.advanceTimersByTime(5 * 60_000));
+    fireEvent.press(view.getByText('Resume'));
+    act(() => jest.advanceTimersByTime(95_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+
+    expect(view.getAllByText('02:35').length).toBeGreaterThan(0);
+    expect(view.getByText('End Focus Session?')).toBeTruthy();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('automatically saves a naturally completed timer exactly once', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: { mode: 'timer', durationMinutes: 1, selection: null, tag: '', task: null },
+    };
+    render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(60_000));
+
+    await waitFor(() => expect(mockNavigation.replace).toHaveBeenCalledWith(
+      'FocusCompletion',
+      expect.objectContaining({
+        session: expect.objectContaining({
+          focusedSeconds: 60,
+          actualSeconds: 60,
+          plannedSeconds: 60,
+          status: 'completed',
+        }),
+      }),
+    ));
+    expect(mockAppendFocusHistory).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'recordFocusStudy',
+      seconds: 60,
+    }));
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('restores a persisted session and calculates time from its original timestamp', async () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    mockStorage.set('study-sakha-focus-active-session-v1:user-1', JSON.stringify({
+      id: 'restored-session',
+      userId: 'user-1',
+      startedAt: new Date(now - 125_000).toISOString(),
+      mode: 'stopwatch',
+      plannedSeconds: null,
+      focusedMilliseconds: 0,
+      focusSegmentStartedAt: now - 125_000,
+      phase: 'focus',
+      resumePhase: null,
+      breakElapsedMilliseconds: 0,
+      breakStartedAt: null,
+      subject: null,
+      topic: null,
+      taskId: null,
+      task: null,
+      groupId: null,
+      sessionLabel: 'Stopwatch',
+      endRequested: false,
+    }));
+
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    expect(view.getAllByText('02:05').length).toBeGreaterThan(0);
+    fireEvent.press(view.getByText('Stop Focus'));
+    expect(view.getByText('End Focus Session?')).toBeTruthy();
+    expect(view.getAllByText('02:05').length).toBeGreaterThan(0);
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('updates from timestamps when returning to the app after background time', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((event, listener) => {
+      if (event === 'change') mockAppStateListeners.push(listener);
+      return { remove: jest.fn() };
+    });
+    mockRoute.params = {
+      focusSession: { mode: 'stopwatch', durationMinutes: 25, selection: null, tag: '', task: null },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(60_000));
+    jest.clearAllTimers();
+    act(() => jest.advanceTimersByTime(5 * 60_000));
+
+    act(() => mockAppStateListeners.forEach((listener) => listener('active')));
+    expect(view.getAllByText('05:00').length).toBeGreaterThan(0);
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('credits a scheduled focus save and synchronizes its group event once', async () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: {
+        mode: 'stopwatch',
+        durationMinutes: 25,
+        selection: 'schedule',
+        tag: '',
+        task: { id: 'scheduled-task', category: 'Tasks', title: 'Review Polity', subject: 'Polity' },
+      },
+      roomFocus: { groupId: 'grp-ras-mains', roomId: 'silent-focus', roomSessionId: 'room-session-1' },
+    };
+    const view = render(<FocusCenterScreen />);
+    await act(async () => { await Promise.resolve(); });
+    act(() => jest.advanceTimersByTime(155_000));
+    fireEvent.press(view.getByText('Stop Focus'));
+    fireEvent.press(view.getByText('Save Session'));
+
+    await waitFor(() => expect(mockNavigation.replace).toHaveBeenCalledWith(
+      'FocusCompletion',
+      expect.objectContaining({
+        session: expect.objectContaining({
+          taskId: 'scheduled-task',
+          subject: 'Polity',
+          focusedSeconds: 155,
+          status: 'saved_early',
+          groupId: 'grp-ras-mains',
+        }),
+      }),
+    ));
+    expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'recordFocusStudy',
+      id: expect.any(String),
+      taskId: 'scheduled-task',
+      seconds: 155,
+      category: 'Polity',
+    }));
+    expect(mockSubmitStudyMemberActivity).toHaveBeenCalledTimes(1);
+    expect(mockSubmitStudyMemberActivity).toHaveBeenCalledWith(expect.objectContaining({
+      groupId: 'grp-ras-mains',
+      eventId: expect.any(String),
+      activityType: 'focus_session',
+      taskId: 'scheduled-task',
+      subject: 'Polity',
+      actualSeconds: 155,
+      status: 'saved_early',
+    }));
+    expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'plannerCompletion' }));
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 });
 
@@ -336,6 +703,8 @@ describe('virtual study hall seating', () => {
           name: 'Room Peer',
           initials: 'RP',
           subject: 'Polity',
+          focusSessionId: null,
+          focusStartedAt: null,
           streak: 1,
           focusing: false,
           focusSessionActive: false,

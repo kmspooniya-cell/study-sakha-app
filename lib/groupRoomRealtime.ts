@@ -13,6 +13,8 @@ import { supabase, supabaseConfigured } from './supabase';
 type PresencePayload = {
   focusing?: boolean;
   subject?: string;
+  focusSessionId?: string;
+  focusStartedAt?: string;
   focusSessionActive?: boolean;
   focusSessionState?: GroupRoomFocusStatus;
   focusElapsedSeconds?: number;
@@ -24,6 +26,8 @@ export type StudyRoomParticipant = {
   name: string;
   initials: string;
   subject: string;
+  focusSessionId: string | null;
+  focusStartedAt: string | null;
   streak: number;
   focusing: boolean;
   focusSessionActive: boolean;
@@ -90,6 +94,8 @@ export function useGroupRoomRealtime({
   focusing: boolean;
   focusActivity: {
     roomSessionId: string;
+    focusSessionId?: string;
+    startedAt?: string;
     subject: string;
     status: GroupRoomFocusStatus;
     elapsedSeconds: number;
@@ -121,6 +127,8 @@ export function useGroupRoomRealtime({
       focusing,
       subject,
       focusSessionActive: Boolean(focusActivity),
+      focusSessionId: focusActivity?.focusSessionId,
+      focusStartedAt: focusActivity?.startedAt,
       focusSessionState: focusActivity?.status,
       focusElapsedSeconds: focusActivity?.elapsedSeconds ?? 0,
       focusUpdatedAt: focusActivity?.updatedAt,
@@ -162,6 +170,8 @@ export function useGroupRoomRealtime({
           name,
           initials: initialsFor(name),
           subject: current.subject || 'Choosing a subject',
+          focusSessionId: typeof current.focusSessionId === 'string' ? current.focusSessionId : null,
+          focusStartedAt: typeof current.focusStartedAt === 'string' ? current.focusStartedAt : null,
           streak: profile.streak ?? 0,
           focusing: Boolean(current.focusing),
           focusSessionActive: Boolean(current.focusSessionActive),
@@ -357,4 +367,101 @@ export function useGroupRoomRealtime({
     lastReaction: visibleState.lastReaction,
     sendSilentReaction,
   };
+}
+
+export type GlobalFocusPresence = {
+  sessionId: string;
+  subject: string;
+  startedAt: string;
+  status: GroupRoomFocusStatus;
+  elapsedSeconds: number;
+};
+
+export function useGroupFocusPresence({
+  groupIds,
+  userId,
+  activity,
+  onError,
+}: {
+  groupIds: string[];
+  userId: string | null;
+  activity: GlobalFocusPresence | null;
+  onError?: (message: string) => void;
+}) {
+  const activityRef = useRef(activity);
+  const onErrorRef = useRef(onError);
+  const channelsRef = useRef<RealtimeChannel[]>([]);
+  const groupKey = Array.from(new Set(groupIds)).sort().join('|');
+  const hasActivity = Boolean(activity);
+
+  useEffect(() => {
+    activityRef.current = activity;
+    onErrorRef.current = onError;
+  }, [activity, onError]);
+
+  const track = useCallback(async (channel: RealtimeChannel) => {
+    const current = activityRef.current;
+    if (!current) return;
+    try {
+      const result = await channel.track({
+        userId,
+        focusing: current.status === 'focusing',
+        subject: current.subject,
+        focusSessionId: current.sessionId,
+        focusStartedAt: current.startedAt,
+        focusSessionActive: true,
+        focusSessionState: current.status,
+        focusElapsedSeconds: current.elapsedSeconds,
+        focusUpdatedAt: new Date().toISOString(),
+      });
+      if (result === 'error' || result === 'timed out') {
+        onErrorRef.current?.('Could not update your live focus status in every joined group.');
+      }
+    } catch (error) {
+      onErrorRef.current?.(error instanceof Error ? error.message : 'Could not update your live focus status.');
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || !hasActivity || !supabaseConfigured || !groupKey) return;
+    let active = true;
+    const channels = groupKey.split('|').map((groupId) => {
+      const channel = supabase.channel(`study-room:${groupId}:silent-focus`, {
+        config: { private: true, presence: { key: userId } },
+      });
+      channel.subscribe((status, error) => {
+        if (!active) return;
+        if (status === 'SUBSCRIBED') {
+          void track(channel);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          onErrorRef.current?.(error?.message || `Focus presence connection ${status.toLowerCase()}.`);
+        }
+      });
+      return channel;
+    });
+    channelsRef.current = channels;
+
+    const heartbeat = setInterval(() => {
+      channels.forEach((channel) => void track(channel));
+    }, 15_000);
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') channels.forEach((channel) => void track(channel));
+    });
+
+    return () => {
+      active = false;
+      clearInterval(heartbeat);
+      appStateSubscription.remove();
+      channelsRef.current = [];
+      channels.forEach((channel) => {
+        void supabase.removeChannel(channel).catch((error: unknown) => {
+          console.error('Could not close joined-group focus presence:', error);
+        });
+      });
+    };
+  }, [groupKey, hasActivity, track, userId]);
+
+  useEffect(() => {
+    channelsRef.current.forEach((channel) => void track(channel));
+  }, [activity?.sessionId, activity?.startedAt, activity?.status, activity?.subject, track]);
 }

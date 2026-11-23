@@ -19,13 +19,9 @@ import {
   ChairDetailBottomSheet,
 } from '../components/ChairDetailBottomSheet';
 import {
-  FocusSetupBottomSheet,
-} from '../components/FocusSetupBottomSheet';
-import {
   ExitConfirmModal,
 } from '../components/ExitConfirmModal';
 import type {
-  FocusSessionConfig,
   ResponsiveMetrics,
   SmartStudyRoomScreenProps,
   StudyMember,
@@ -34,7 +30,6 @@ import {
   useResponsiveMetrics,
   formatDuration,
   formatTargetDuration,
-  getCurrentTimeLabel,
   DEFAULT_CURRENT_USER,
   DEFAULT_PARTNERS,
 } from '../lib/smartStudyRoom';
@@ -68,7 +63,6 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
   const partners = externalPartners || internalPartners;
 
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [isSetupOpen, setIsSetupOpen] = useState<boolean>(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState<boolean>(false);
 
   const handleToggleTheme = useCallback(() => {
@@ -114,26 +108,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
     [allChairs]
   );
 
-  const handleStartFocus = useCallback(
-    (config: FocusSessionConfig) => {
-      if (externalOnStartFocus) {
-        externalOnStartFocus(config);
-        return;
-      }
-      setInternalCurrentUser((prev) => ({
-        ...prev,
-        state: 'focusing',
-        subject: config.subject,
-        topic: config.topic,
-        mode: config.mode,
-        targetSeconds: config.targetSeconds,
-        exam: config.exam,
-        elapsedSeconds: 0,
-        startedAt: getCurrentTimeLabel(),
-      }));
-    },
-    [externalOnStartFocus]
-  );
+  const handleStartFocus = useCallback(() => externalOnStartFocus?.(), [externalOnStartFocus]);
 
   const handleTogglePause = useCallback(() => {
     if (externalOnTogglePause) {
@@ -167,14 +142,14 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
   const handleChairClick = useCallback(
     (member: StudyMember) => {
       if (member.id === currentUserChair.id && member.state === 'available') {
-        setIsSetupOpen(true);
+        handleStartFocus();
         return;
       }
       if (member.state !== 'available') {
         setSelectedMemberId(member.id);
       }
     },
-    [currentUserChair.id]
+    [currentUserChair.id, handleStartFocus]
   );
 
   const handleConfirmExit = useCallback(() => {
@@ -318,7 +293,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
         <View style={styles.footerInner}>
           {!isUserActive ? (
             <Pressable
-              onPress={() => setIsSetupOpen(true)}
+              onPress={handleStartFocus}
               style={({ pressed }) => [
                 styles.startFocusingBtn,
                 {
@@ -489,14 +464,6 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
         isDark={isDark}
         onPauseToggle={handleTogglePause}
         onEndSession={handleEndSession}
-      />
-
-      <FocusSetupBottomSheet
-        isOpen={isSetupOpen}
-        onClose={() => setIsSetupOpen(false)}
-        isDark={isDark}
-        initialExam={currentUserChair.exam}
-        onStartFocus={handleStartFocus}
       />
 
       <ExitConfirmModal

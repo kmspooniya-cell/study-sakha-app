@@ -7,6 +7,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { CustomStudyPlan } from '../components/DashboardStudyTools';
+import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
+import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell, useLayout } from '../components/Shell';
 import { TODAY_PLAN } from '../lib/data';
 import { getDisplayName, useStore } from '../lib/store';
@@ -37,13 +39,20 @@ export default function DashboardScreen() {
   const { state, streak, todayMinutes, dispatch } = useStore();
   const { isTablet, isDesktop } = useLayout();
   const isTabletOrLarger = isTablet || isDesktop;
-  const stitch = scheme === 'light' ? stitchLight : stitchDark;
   const styles = useMemo(() => makeStyles(colors, scheme), [colors, scheme]);
 
   const goal = Math.max(1, Number(state.settings.dailyGoalMin) || 1);
   const safeTodayMinutes = Math.max(0, Number(todayMinutes) || 0);
   const target = clamp(safeTodayMinutes / goal, 0, 1);
   const [anim, setAnim] = useState(0);
+  const [focusSetupVisible, setFocusSetupVisible] = useState(false);
+  const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
+    mode: 'timer',
+    durationMinutes: 25,
+    selection: null,
+    tag: 'History',
+    task: null,
+  });
 
   useEffect(() => {
     let frame = 0;
@@ -56,13 +65,6 @@ export default function DashboardScreen() {
   }, [target]);
 
   const first = getDisplayName(state.user).split(/\s+/)[0];
-
-  const quickActions = [
-    { label: 'Notes', icon: 'document-text' as const, tint: stitch.blue, onPress: () => nav.navigate('NoteEditor', {}) },
-    { label: 'Quiz', icon: 'help-circle' as const, tint: stitch.orange, onPress: () => nav.navigate('Tests') },
-    { label: 'Revision', icon: 'refresh-circle' as const, tint: stitch.green, onPress: () => nav.navigate('Library') },
-    { label: 'Sakha AI', icon: 'sparkles' as const, tint: stitch.purple, onPress: () => nav.navigate('SakhaAI') },
-  ];
 
   const openPlanItem = (item: (typeof TODAY_PLAN)[number]) => {
     if (item.kind === 'note') nav.navigate('NoteEditor', { resourceId: item.refId });
@@ -87,7 +89,7 @@ export default function DashboardScreen() {
                 <View style={styles.heroCopy}>
                   <Text style={styles.heroGreetingTitle}>{greeting()}, {first} 👋</Text>
                   <Text style={styles.heroGreetingSub}>Small steps. Consistent progress.</Text>
-                  <View style={styles.missionBadge}><Text style={styles.missionBadgeText}>TODAY'S MISSION</Text></View>
+                  <View style={styles.missionBadge}><Text style={styles.missionBadgeText}>TODAY&apos;S MISSION</Text></View>
                   <Text style={styles.heroTitle}>Make today count.</Text>
                   <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
                 </View>
@@ -107,9 +109,6 @@ export default function DashboardScreen() {
               <Pressable accessibilityRole="button" onPress={() => nav.navigate('Library')} style={styles.resumeBtn}><Ionicons name="book-outline" size={16} color="#CBD5E1" /><Text style={styles.resumeBtnText}>Resume learning</Text></Pressable>
             </LinearGradient>
 
-            <SectionHeader icon="grid" title="Quick actions" action="Explore tools" onPress={() => nav.navigate('Library')} styles={styles} />
-            <View style={styles.quickActionsGrid}>{quickActions.map((item) => <Pressable accessibilityRole="button" key={item.label} onPress={item.onPress} style={[styles.quickActionCard, styles.card]}><View style={[styles.quickActionIcon, { backgroundColor: item.tint + '22' }]}><Ionicons name={item.icon} size={20} color={item.tint} /></View><Text style={[styles.quickActionText, { color: item.tint }]}>{item.label}</Text></Pressable>)}</View>
-
             <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
               <View style={styles.layoutCol}>
                 
@@ -125,38 +124,15 @@ export default function DashboardScreen() {
                     deletedDefaults={state.plannerDeletedDefaults} 
                     dispatch={dispatch} 
                     onOpenItem={openPlanItem} 
-                    onOpenFocus={() => nav.navigate('FocusCenter')} 
+                    onOpenFocus={() => setFocusSetupVisible(true)}
                     onOpenPlanner={() => nav.navigate('StudyPlanner')} 
+                    dashboardMode
+                    dashboardActions={[
+                      { title: 'Schedule', icon: 'calendar-outline', color: colors.blue, onPress: () => nav.navigate('StudyPlanner') },
+                      { title: 'Lock', icon: 'lock-closed-outline', color: colors.teal, onPress: () => nav.navigate('FocusLock') },
+                      { title: 'Focus', icon: 'timer-outline', color: colors.violet, onPress: () => setFocusSetupVisible(true) },
+                    ]}
                   />
-                </View>
-
-                {/* Schedule Shortcut Card navigating to StudyPlanner */}
-                <View>
-                  <Pressable
-                    onPress={() => nav.navigate('StudyPlanner')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open study schedule"
-                    style={({ pressed }) => ({
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.borderSubtle,
-                      borderRadius: 16,
-                      padding: 16,
-                      gap: 14,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <View style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(0,122,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name="calendar-outline" size={22} color={colors.blue} />
-                    </View>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text }}>Schedule</Text>
-                      <Text style={{ fontSize: 12, color: colors.textMuted }}>Plan your study routines & timetables.</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={stitch.muted} />
-                  </Pressable>
                 </View>
 
               </View>
@@ -166,17 +142,18 @@ export default function DashboardScreen() {
           </View>
         </ScrollView>
       </View>
+      <FocusSessionSetupModal
+        visible={focusSetupVisible}
+        value={focusSetup}
+        onChange={setFocusSetup}
+        onClose={() => setFocusSetupVisible(false)}
+        onContinue={(setup) => {
+          setFocusSetupVisible(false);
+          nav.navigate('FocusCenter', { focusSession: setup });
+        }}
+      />
     </Shell>
   );
-}
-
-function SectionHeader({ icon, title, action, onPress, styles }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; action?: string; onPress?: () => void; styles: ReturnType<typeof makeStyles> }) {
-  return <View style={styles.sectionHeader}><View style={styles.sectionTitleRow}><Ionicons name={icon} size={18} color={styles.iconColor.color} /><Text style={styles.sectionTitle}>{title}</Text></View>{action && onPress ? <Pressable accessibilityRole="button" onPress={onPress}><Text style={styles.sectionLink}>{action} ›</Text></Pressable> : null}</View>;
-}
-
-function WeeklyActivityStrip({ data, styles, color }: { data: { label: string; value: number }[]; styles: ReturnType<typeof makeStyles>; color: string }) {
-  const max = Math.max(...data.map((item) => item.value), 1);
-  return <View style={styles.activityChart}><View style={styles.activityBars}>{data.map((item, index) => <View key={`${item.label}-${index}`} style={styles.activityBarSlot}><View style={[styles.activityBar, { opacity: item.value ? 0.35 + (item.value / max) * 0.65 : 0.3, backgroundColor: color }]} /></View>)}</View><View style={styles.activityLabels}>{data.map((item, index) => <Text key={`${item.label}-label-${index}`} style={styles.activityLabel}>{item.label}</Text>)}</View></View>;
 }
 
 function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'light' | 'dark') {
@@ -210,15 +187,6 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
     linearFill: { height: '100%', borderRadius: 3 },
     resumeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(255,255,255,0.15)', marginTop: 12, zIndex: 1 },
     resumeBtnText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingHorizontal: 4 },
-    sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    iconColor: { color: palette.blue },
-    sectionTitle: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2, color: palette.text },
-    sectionLink: { fontSize: 13, fontWeight: '500', color: palette.blue },
-    quickActionsGrid: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-    quickActionCard: { flex: 1, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 92, borderRadius: 18 },
-    quickActionIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-    quickActionText: { fontSize: 12, fontWeight: '500', color: palette.text },
     layoutFlex: { flexDirection: 'column', gap: 0 },
     tabletLayout: { flexDirection: 'row', alignItems: 'flex-start' },
     layoutCol: { flex: 1, minWidth: 0 },

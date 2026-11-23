@@ -17,9 +17,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Rect, Ellipse } from 'react-native-svg';
+import { useNavigation } from '@react-navigation/native';
 import { PlannerScheduleItem, useStore } from '../lib/store';
 import { useTheme as useAppTheme } from '../lib/theme';
 import { Shell } from '../components/Shell';
+import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
+import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
+import type { AppNavigation } from '../lib/navigation';
+import { getPlannerScheduleOccurrence } from '../lib/planner';
 
 /* ========================================================================= */
 /* DESIGN TOKENS & CATEGORY CONFIGURATION (1:1 FROM HTML TAILWIND THEME)     */
@@ -451,6 +456,11 @@ function formatTime12h(timeStr) {
   h = h % 12;
   if (h === 0) h = 12;
   return `${h}:${m} ${ampm}`;
+}
+
+function formatFocusedTime(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 }
 
 function getTimeRangeDisplay(plan) {
@@ -1359,6 +1369,7 @@ function CoverPhotoModal({ visible, currentName, onSelect, onClose, theme }) {
 
 export default function App() {
   const { state, dispatch } = useStore();
+  const navigation = useNavigation<AppNavigation>();
   const { width, height } = useWindowDimensions();
   const isSm = width >= 640;
   const isMd = width >= 768;
@@ -1380,6 +1391,7 @@ export default function App() {
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(TODAY_ISO);
   const [listFilter, setListFilter] = useState('all');
+  const [scheduleStatusFilter, setScheduleStatusFilter] = useState('upcoming');
 
   const plans = useMemo<StudyPlan[]>(
     () => state.plannerScheduleItems.map(scheduleItemToPlan),
@@ -1393,6 +1405,15 @@ export default function App() {
   const [sheetMode, setSheetMode] = useState('plans'); // 'plans' | 'form' | 'detail'
   const [editingPlanId, setEditingPlanId] = useState(null);
   const [viewingPlanId, setViewingPlanId] = useState(null);
+  const [viewingPlanDate, setViewingPlanDate] = useState(TODAY_ISO);
+  const [focusSetupVisible, setFocusSetupVisible] = useState(false);
+  const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
+    mode: 'timer',
+    durationMinutes: 25,
+    selection: null,
+    tag: '',
+    task: null,
+  });
 
   // Form interactive state (exact 1:1 parity)
   const [formCategory, setFormCategory] = useState('task');
@@ -1574,17 +1595,20 @@ export default function App() {
   /* ----------------------------------------------------------------------- */
   /* PLAN QUERY HELPERS                                                      */
   /* ----------------------------------------------------------------------- */
-  const getPlansForDate = useCallback(
-    (isoDate) => {
-      return plans
-        .filter((p) => occursOnDate(p, isoDate))
-        .sort((a, b) => {
-          const ta = a.startTime || a.time || '23:59';
-          const tb = b.startTime || b.time || '23:59';
-          return ta.localeCompare(tb);
-        });
-    },
+  const getAllPlansForDate = useCallback(
+    (isoDate) => plans
+      .filter((plan) => occursOnDate(plan, isoDate))
+      .sort((a, b) => {
+        const timeA = a.startTime || a.time || '23:59';
+        const timeB = b.startTime || b.time || '23:59';
+        return timeA.localeCompare(timeB);
+      }),
     [plans]
+  );
+
+  const getPlansForDate = useCallback(
+    (isoDate) => getAllPlansForDate(isoDate),
+    [getAllPlansForDate]
   );
 
   /* ----------------------------------------------------------------------- */
@@ -1653,7 +1677,7 @@ export default function App() {
         setCurrentMonth(dObj.getMonth());
       }
 
-      const dayPlans = getPlansForDate(isoDate);
+      const dayPlans = getAllPlansForDate(isoDate);
       if (dayPlans.length > 0) {
         setSheetMode('plans');
         setEditingPlanId(null);
@@ -1663,13 +1687,18 @@ export default function App() {
         openNewPlanFormForDate(isoDate, 'task');
       }
     },
-    [currentMonth, currentYear, getPlansForDate, openBottomSheet, openNewPlanFormForDate]
+    [currentMonth, currentYear, getAllPlansForDate, openBottomSheet, openNewPlanFormForDate]
   );
 
   const openEditPlanForm = useCallback(
-    (planId) => {
+    (planId, occurrenceDate = selectedDate) => {
       const plan = plans.find((p) => p.id === planId);
       if (!plan) return;
+      const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), occurrenceDate, TODAY_ISO);
+      if (occurrence.status === 'completed') {
+        showToast('Completed plans cannot be edited.');
+        return;
+      }
       const defaultStart = plan.category === 'exam' ? '10:00' : plan.category === 'activity' ? '16:00' : '09:00';
       const defaultEnd = plan.category === 'activity' ? '17:00' : '10:00';
       const isRep = plan.recurrence && plan.recurrence !== 'none';
@@ -1713,12 +1742,15 @@ export default function App() {
         openBottomSheet();
       }
     },
-    [openBottomSheet, plans, selectedDate, sheetOpen]
+    [openBottomSheet, plans, selectedDate, sheetOpen, state, TODAY_ISO, showToast]
   );
 
   const openPlanDetail = useCallback(
     (planId, contextDate) => {
-      if (contextDate) setSelectedDate(contextDate);
+      if (contextDate) {
+        setSelectedDate(contextDate);
+        setViewingPlanDate(contextDate);
+      }
       setViewingPlanId(planId);
       setEditingPlanId(null);
       setSheetMode('detail');
@@ -1788,6 +1820,13 @@ export default function App() {
       }
     }
 
+    const existingPlan = editingPlanId ? plans.find((plan) => plan.id === editingPlanId) : undefined;
+    const plannedDurationMinutes = existingPlan
+      ? existingPlan.durationMinutes
+      : formCategory === 'task' ? 25 : 60;
+    const plannedDurationLabel = existingPlan
+      ? existingPlan.duration
+      : `${formCategory === 'task' ? 25 : 60} min`;
     const planPayload = {
       id: editingPlanId || `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       category: formCategory,
@@ -1803,8 +1842,16 @@ export default function App() {
       onlineLink: v.onlineLink.trim(),
       location: composedLocation,
       examType: formCategory === 'exam' ? v.examType : '',
-      durationMinutes: formCategory === 'exam' ? formExamDuration : null,
-      duration: formCategory === 'exam' ? `${formExamDuration} min` : '',
+      durationMinutes: formCategory === 'exam'
+        ? formExamDuration
+        : formCategory === 'vacation'
+          ? null
+          : plannedDurationMinutes,
+      duration: formCategory === 'exam'
+        ? `${formExamDuration} min`
+        : formCategory === 'vacation'
+          ? ''
+          : plannedDurationLabel,
       vacationPreset: formCategory === 'vacation' ? formVacationPreset : '',
       coverPhotoName: formCategory === 'vacation' ? formCoverPhotoName : '',
       dateRangeMode: supportsRepeat ? formDateRangeMode : 'none',
@@ -1853,6 +1900,7 @@ export default function App() {
     formRepeatDays,
     formVacationPreset,
     formWhereMode,
+    plans,
     showToast,
   ]);
 
@@ -1920,7 +1968,9 @@ export default function App() {
 
     for (let day = 1; day <= daysInMonth; day++) {
       const iso = toISODate(new Date(currentYear, currentMonth, day));
-      let dayPlans = getPlansForDate(iso);
+      let dayPlans = getPlansForDate(iso).filter((plan) =>
+        getPlannerScheduleOccurrence(state, planToScheduleItem(plan), iso, TODAY_ISO).status === scheduleStatusFilter
+      );
       if (listFilter !== 'all') {
         dayPlans = dayPlans.filter((p) => p.category === listFilter);
       }
@@ -1930,13 +1980,46 @@ export default function App() {
       }
     }
     return { groupedDays, totalOccurrences };
-  }, [currentMonth, currentYear, getPlansForDate, listFilter]);
+  }, [currentMonth, currentYear, getPlansForDate, listFilter, scheduleStatusFilter, state, TODAY_ISO]);
+
+  const openFocusForPlan = useCallback((plan, date) => {
+    const item = planToScheduleItem(plan);
+    const occurrence = getPlannerScheduleOccurrence(state, item, date, TODAY_ISO);
+    if (occurrence.status === 'completed') return;
+    const remainingSeconds = occurrence.plannedSeconds === null
+      ? 25 * 60
+      : Math.max(60, occurrence.plannedSeconds - occurrence.actualSeconds);
+    setFocusSetup({
+      mode: 'timer',
+      durationMinutes: Math.ceil(remainingSeconds / 60),
+      selection: 'schedule',
+      tag: item.subject || item.category || 'Study',
+      task: item,
+      scheduleOccurrenceId: occurrence.id,
+    });
+    setFocusSetupVisible(true);
+  }, [state, TODAY_ISO]);
+
+  const markPlanCompleted = useCallback((plan, date) => {
+    const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), date, TODAY_ISO);
+    if (occurrence.status !== 'completed') {
+      dispatch({
+        type: 'setPlannerScheduleCompletion',
+        occurrenceId: occurrence.id,
+        date,
+        completed: true,
+      });
+    }
+    showToast('Plan marked as completed');
+  }, [dispatch, showToast, state, TODAY_ISO]);
 
   /* ----------------------------------------------------------------------- */
   /* REUSABLE PLAN CARD RENDERER (IDENTICAL IN SHEET & LIST VIEW)            */
   /* ----------------------------------------------------------------------- */
   const renderPlanCard = (plan, contextDate) => {
     const cat = CATEGORIES[plan.category] || CATEGORIES.task;
+    const occurrenceDate = contextDate || plan.date;
+    const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), occurrenceDate, TODAY_ISO);
     const pillBg = isDark ? cat.pillBgDark : cat.pillBgLight;
     const pillText = isDark ? cat.pillTextDark : cat.pillTextLight;
     const timeText = getTimeRangeDisplay(plan);
@@ -1998,6 +2081,11 @@ export default function App() {
                   {metaParts.join(' • ')}
                 </Text>
               )}
+              {occurrence.plannedSeconds !== null && (
+                <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 4 }}>
+                  Focused {formatFocusedTime(occurrence.actualSeconds)} / planned {formatFocusedTime(occurrence.plannedSeconds)} · {occurrence.progressPercent}%
+                </Text>
+              )}
             </TouchableOpacity>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -2008,13 +2096,15 @@ export default function App() {
               >
                 <EyeIcon color={theme.textFaint} size={16} />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => openEditPlanForm(plan.id)}
-                accessibilityLabel="Edit plan"
-                style={styles.cardActionBtn}
-              >
-                <EditIcon color={theme.textFaint} size={16} />
-              </TouchableOpacity>
+              {occurrence.status !== 'completed' && (
+                <TouchableOpacity
+                  onPress={() => openEditPlanForm(plan.id, occurrenceDate)}
+                  accessibilityLabel="Edit plan"
+                  style={styles.cardActionBtn}
+                >
+                  <EditIcon color={theme.textFaint} size={16} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={() => setPendingDeleteId(plan.id)}
                 accessibilityLabel="Delete plan"
@@ -2484,7 +2574,7 @@ export default function App() {
   const renderBottomSheetContent = () => {
     // MODE 1: SAVED PLANS FOR SELECTED DATE
     if (sheetMode === 'plans') {
-      const dayPlans = getPlansForDate(selectedDate);
+      const dayPlans = getAllPlansForDate(selectedDate);
       const isToday = selectedDate === TODAY_ISO;
 
       return (
@@ -2542,7 +2632,7 @@ export default function App() {
     if (sheetMode === 'form') {
       const isEditing = Boolean(editingPlanId);
       const cat = CATEGORIES[formCategory] || CATEGORIES.task;
-      const hasPlansOnDate = getPlansForDate(selectedDate).length > 0;
+      const hasPlansOnDate = getAllPlansForDate(selectedDate).length > 0;
 
       let saveButtonLabel = isEditing ? `Update ${cat.singular}` : `Save ${cat.singular}`;
       if (formCategory === 'task' && !isEditing) {
@@ -3183,6 +3273,12 @@ export default function App() {
     const plan = plans.find((p) => p.id === viewingPlanId);
     if (!plan) return null;
     const cat = CATEGORIES[plan.category] || CATEGORIES.task;
+    const occurrence = getPlannerScheduleOccurrence(
+      state,
+      planToScheduleItem(plan),
+      viewingPlanDate || selectedDate,
+      TODAY_ISO
+    );
     const pillBg = isDark ? cat.pillBgDark : cat.pillBgLight;
     const pillText = isDark ? cat.pillTextDark : cat.pillTextLight;
 
@@ -3204,6 +3300,10 @@ export default function App() {
     if (plan.taskType) rows.push({ label: 'Task Type', value: plan.taskType });
     if (plan.examType) rows.push({ label: 'Exam Type', value: plan.examType });
     if (plan.duration) rows.push({ label: 'Duration', value: plan.duration });
+    rows.push({
+      label: 'Focus Progress',
+      value: `${formatFocusedTime(occurrence.actualSeconds)} focused${occurrence.plannedSeconds === null ? '' : ` / ${formatFocusedTime(occurrence.plannedSeconds)} planned · ${occurrence.progressPercent}%`}`,
+    });
     if (plan.activityType) rows.push({ label: 'Category', value: plan.activityType });
     if (plan.teacher || plan.instructor) rows.push({ label: 'Teacher', value: plan.teacher || plan.instructor });
     if (plan.whereMode) rows.push({ label: 'Mode', value: plan.whereMode === 'online' ? 'Online' : 'In Person' });
@@ -3284,6 +3384,26 @@ export default function App() {
               </View>
             </View>
           )}
+          {occurrence.status !== 'completed' && (
+            <View style={{ gap: 10 }}>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => openFocusForPlan(plan, occurrence.date)}
+                style={[styles.primarySaveBtn, { backgroundColor: theme.blue600 }]}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>
+                  {occurrence.status === 'missed' ? 'Complete This' : occurrence.actualSeconds > 0 ? 'Continue' : 'Start Focus'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => markPlanCompleted(plan, occurrence.date)}
+                style={[styles.primarySaveBtn, { backgroundColor: theme.bgSubtle }]}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textSecondary }}>Mark as Completed</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
 
         <View style={[styles.sheetFooter, { borderTopColor: theme.borderSubtle, flexDirection: 'row', gap: 12 }]}>
@@ -3300,19 +3420,21 @@ export default function App() {
           >
             <Text style={{ fontSize: 14, fontWeight: '600', color: theme.roseSoftText }}>Delete</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => openEditPlanForm(plan.id)}
-            style={{
-              flex: 1,
-              paddingVertical: 12,
-              borderRadius: 16,
-              alignItems: 'center',
-              backgroundColor: theme.blue600,
-            }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Edit Plan</Text>
-          </TouchableOpacity>
+          {occurrence.status !== 'completed' && (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => openEditPlanForm(plan.id, occurrence.date)}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 16,
+                alignItems: 'center',
+                backgroundColor: theme.blue600,
+              }}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Edit Plan</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </>
     );
@@ -3436,6 +3558,42 @@ export default function App() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {viewMode === 'list' && (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              {([
+                ['completed', 'Completed'],
+                ['missed', 'Missed'],
+                ['upcoming', 'Upcoming'],
+              ] as const).map(([status, label]) => {
+                const active = scheduleStatusFilter === status;
+                return (
+                  <TouchableOpacity
+                    key={status}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setScheduleStatusFilter(status)}
+                    style={{
+                      flex: 1,
+                      minHeight: 38,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingHorizontal: 8,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: active ? theme.blue600 : theme.borderDefault,
+                      backgroundColor: active ? theme.blueSoftBg : theme.bgSurface,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: active ? theme.blueSoftText : theme.textMuted }}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* ================================================================= */}
           {/* PRIMARY CALENDAR CARD (DEFAULT VIEW)                              */}
@@ -4274,6 +4432,17 @@ export default function App() {
         onSelect={(name) => setFormCoverPhotoName(name)}
         onClose={() => setCoverPhotoModalOpen(false)}
         theme={theme}
+      />
+
+      <FocusSessionSetupModal
+        visible={focusSetupVisible}
+        value={focusSetup}
+        onChange={setFocusSetup}
+        onClose={() => setFocusSetupVisible(false)}
+        onContinue={(value) => {
+          setFocusSetupVisible(false);
+          navigation.navigate('FocusCenter', { focusSession: value });
+        }}
       />
 
       {/* =================================================================== */}

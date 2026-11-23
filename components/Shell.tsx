@@ -1,13 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { CommonActions, DrawerActions, useNavigation, useRoute } from '@react-navigation/native';
+import { DrawerActions, StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { BackHandler, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
 import { Divider, IconButton, Txt } from './ui';
+import { getAndroidBackTarget } from '../lib/navigation';
 import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
 
 export type NavKey =
@@ -27,8 +28,7 @@ export type NavKey =
 | 'StudentTestimonials'
 | 'Admin'
 | 'Statistics'
-| 'StudyPlanner'
-| 'FocusCenter';
+| 'StudyPlanner';
 
 type NavItem = { key: NavKey; label: string; icon: keyof typeof Ionicons.glyphMap; adminOnly?: boolean };
 
@@ -42,7 +42,6 @@ items: [
 { key: 'Groups', label: 'Groups', icon: 'people-outline' },
 { key: 'PYQ', label: 'PYQ Bank', icon: 'albums-outline' },
 { key: 'Tests', label: 'Test Series', icon: 'timer-outline' },
-{ key: 'FocusCenter', label: 'Focus & Wellness', icon: 'stopwatch-outline' },
 { key: 'CurrentAffairs', label: 'Current Affairs', icon: 'newspaper-outline' },
 ],
 },
@@ -88,6 +87,38 @@ isDesktop: width >= 1180,
 };
 }
 
+export function isAppDrawerOpen(nav: AppNavigation) {
+const history = nav.getParent()?.getState().history;
+return Array.isArray(history) && history.some((item: unknown) =>
+typeof item === 'object' && item !== null && 'type' in item && item.type === 'drawer'
+);
+}
+
+function popToRoute(nav: AppNavigation, name: AppStackRouteName) {
+nav.dispatch(StackActions.popTo(name));
+}
+
+export function useSmartAndroidBack(onBack?: () => boolean) {
+const nav = useNavigation<AppNavigation>();
+const route = useRoute<AppHeaderRoute>();
+
+useFocusEffect(
+useCallback(() => {
+if (Platform.OS !== 'android' || ['DashboardRoot', 'Groups', 'FocusLock'].includes(route.name)) return;
+const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+if (isAppDrawerOpen(nav)) return false;
+if (onBack?.()) return true;
+const state = nav.getState();
+const target = getAndroidBackTarget(route.name, state.routes.slice(0, state.index).map((item) => item.name));
+if (!target) return false;
+popToRoute(nav, target);
+return true;
+});
+return () => subscription.remove();
+}, [nav, onBack, route.name])
+);
+}
+
 export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
 const nav = useNavigation<AppNavigation>();
 const route = useRoute<AppHeaderRoute>();
@@ -109,10 +140,12 @@ const parentState = nav.getParent?.()?.getState?.();
 const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
 const parentHeaderBrand =
 parentRoute?.params && 'headerBrand' in parentRoute.params ? parentRoute.params.headerBrand : undefined;
+const routeHeaderBrand =
+route.params && 'headerBrand' in route.params ? route.params.headerBrand : undefined;
 
 const isSakhaAI =
 route.name === 'SakhaAI' ||
-route.params?.headerBrand === 'SakhaAI' ||
+routeHeaderBrand === 'SakhaAI' ||
 parentHeaderBrand === 'SakhaAI';
 
 const isHome = route.name === 'DashboardRoot';
@@ -122,7 +155,7 @@ const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
 dispatch({ type: 'settings', patch: { themeMode: next } });
 };
 
-const navigate = (name: AppStackRouteName) => nav.dispatch(CommonActions.navigate(name));
+const navigate = (name: AppStackRouteName) => popToRoute(nav, name);
 const openMenu = () => nav.dispatch(DrawerActions.openDrawer());
 const goHome = () => navigate('DashboardRoot');
 
@@ -413,13 +446,13 @@ const { width } = useWindowDimensions();
 
 const go = (key: NavKey) => {
 const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-nav.dispatch(CommonActions.navigate(routeName));
+popToRoute(nav, routeName);
 };
 
 const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
 const inactive = colors.bg === '#0C1220' ? colors.textMuted : '#8E8E93';
 return (
-<View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 20), ...shadow(colors, 2) }}>
+<View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: insets.bottom, ...shadow(colors, 2) }}>
 <View style={{ width: '92%', maxWidth: width < 768 ? 383 : 545, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24 }}>
 {MOBILE_TABS.map((t) => {
 const on = t.key === active;
@@ -473,6 +506,8 @@ const insets = useSafeAreaInsets();
 const { state, unread } = useStore();
 const [collapsed, setCollapsed] = useState(false);
 
+useSmartAndroidBack();
+
 const isAdmin = state.user?.role === 'admin';
 const sidebarCollapsed = isTablet ? !collapsed : collapsed;
 const sidebarWidth = sidebarCollapsed ? 76 : 248;
@@ -480,7 +515,7 @@ const hasPageHeading = Boolean(title.trim() || subtitle?.trim());
 
 const go = (key: NavKey) => {
 const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-nav.dispatch(CommonActions.navigate(routeName));
+popToRoute(nav, routeName);
 };
 
 const Sidebar = (

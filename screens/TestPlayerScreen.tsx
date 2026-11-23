@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppHeader, useLayout } from '../components/Shell';
+import { AppHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
 import { Button, Card, ProgressBar, Tag, Txt } from '../components/ui';
 import { getTests } from '../lib/data';
 import { getUserScopedStorageKey, useStore } from '../lib/store';
@@ -74,6 +74,7 @@ function parseSavedAttempt(value: unknown, testId: string, questionCount: number
 }
 
 export default function TestPlayerScreen() {
+  useSmartAndroidBack();
   const { colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'TestPlayer'>>();

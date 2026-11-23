@@ -4,7 +4,7 @@ import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DetailHeader, useLayout } from '../components/Shell';
+import { DetailHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
 import { Button, Card, Chip, Field, SectionHeader, Tag, Txt } from '../components/ui';
 import { EXAMS, getResources, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
@@ -59,6 +59,7 @@ function buildQuiz(body: string, subject: string) {
 }
 
 export default function NoteEditorScreen() {
+  useSmartAndroidBack();
   const { colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'NoteEditor'>>();

@@ -107,12 +107,6 @@ const APP_SCREENS = [
     description: 'Detailed metrics on planned task completion rate and actual study duration.',
   },
   {
-    name: 'FocusCenter',
-    title: 'Focus Center & Wellness',
-    path: 'focus-center',
-    description: 'Pomodoro timer (Focus, Short Break, Long Break) paired with ambient relaxation sounds: Calming Rain, Forest Crickets, Small River, and Relaxing Night Sounds.',
-  },
-  {
     name: 'CurrentAffairs',
     title: 'Current Affairs',
     path: 'current-affairs',

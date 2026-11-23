@@ -25,11 +25,15 @@ export function useProceduralPicture(
     const draw = (timestamp: number) => {
       if (!mounted) return;
       if (lastFrame === 0 || (motion && !isStatic && timestamp - lastFrame >= 34)) {
-        const nextPicture = recordPicture(width, height, (context) => {
-          renderer.render(context, width, height, timestamp / 1000, motion);
-        });
-        setPicture(nextPicture);
-        lastFrame = timestamp || 1;
+        try {
+          const nextPicture = recordPicture(width, height, (context) => {
+            renderer.render(context, width, height, timestamp / 1000, motion);
+          });
+          setPicture(nextPicture);
+          lastFrame = timestamp || 1;
+        } catch (reason) {
+          console.error(`Procedural theme rendering failed for ${themeId}:`, reason);
+        }
       }
       if (motion && !isStatic) frame = requestAnimationFrame(draw);
     };

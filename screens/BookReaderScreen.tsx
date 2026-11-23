@@ -1,10 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Linking, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DetailHeader, useLayout } from '../components/Shell';
+import { DetailHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
 import { Button, Card, EmptyState, ProgressBar, SectionHeader, Tag, Txt } from '../components/ui';
 import { EXAMS, getResources } from '../lib/data';
 import { useStore } from '../lib/store';
@@ -23,6 +23,11 @@ export default function BookReaderScreen() {
   const [page, setPage] = useState(0);
   const [fontSize, setFontSize] = useState(15.5);
   const [fileError, setFileError] = useState('');
+  useSmartAndroidBack(useCallback(() => {
+    if (mode !== 'read') return false;
+    setMode('overview');
+    return true;
+  }, [mode]));
 
   const pages = book.body;
   const takeaways = useMemo(

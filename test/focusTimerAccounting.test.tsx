@@ -1,5 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
-import { addPendingFocusSeconds, getActualFocusSeconds } from '../lib/focusTimerAccounting';
+import {
+  addPendingFocusSeconds,
+  getActualFocusSeconds,
+  getFocusedSeconds,
+  shouldPromptToSaveFocusSession,
+  type TimestampFocusSegment,
+} from '../lib/focusTimerAccounting';
 
 describe('focus timer accounting', () => {
   it('adds completed focus segments and excludes a break segment', () => {
@@ -26,5 +32,36 @@ describe('focus timer accounting', () => {
   it('does not add background time while on break', () => {
     expect(addPendingFocusSeconds(900, 300, true)).toBe(900);
     expect(addPendingFocusSeconds(900, 30, false)).toBe(930);
+  });
+
+  it('uses timestamps for exact elapsed seconds and excludes paused or break time', () => {
+    const running: TimestampFocusSegment = {
+      accumulatedMilliseconds: 60_000,
+      startedAtMilliseconds: 10_000,
+      plannedSeconds: 600,
+      mode: 'timer',
+      phase: 'focus',
+    };
+    expect(getFocusedSeconds(running, 105_999)).toBe(155);
+    expect(getFocusedSeconds({ ...running, phase: 'paused', startedAtMilliseconds: null }, 400_000)).toBe(60);
+    expect(getFocusedSeconds({ ...running, phase: 'break' }, 400_000)).toBe(60);
+  });
+
+  it('caps countdown sessions at their plan but lets stopwatch time continue', () => {
+    const ended: TimestampFocusSegment = {
+      accumulatedMilliseconds: 0,
+      startedAtMilliseconds: 1_000,
+      plannedSeconds: 120,
+      mode: 'timer',
+      phase: 'focus',
+    };
+    expect(getFocusedSeconds(ended, 200_999)).toBe(120);
+    expect(getFocusedSeconds({ ...ended, mode: 'stopwatch', plannedSeconds: null }, 200_999)).toBe(199);
+  });
+
+  it('only prompts to save sessions at or above exactly two minutes', () => {
+    expect(shouldPromptToSaveFocusSession(119)).toBe(false);
+    expect(shouldPromptToSaveFocusSession(120)).toBe(true);
+    expect(shouldPromptToSaveFocusSession(155)).toBe(true);
   });
 });

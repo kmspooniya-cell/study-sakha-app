@@ -86,7 +86,7 @@ function buildSystemInstruction(userContext) {
 You have complete knowledge of the Study Sakha application structure, features, screens, and actual content library:
 
 A. SCREENS & NAVIGATION:
-- Dashboard (route: "DashboardRoot"): The home screen with daily streak tracker, today's target study minutes ring, quick launch cards for core study tools, and subject progress.
+- Dashboard (route: "DashboardRoot"): The home screen with daily streak tracker, today's target study minutes ring, quick launch cards for Study Planner, Focus Lock, and focus sessions, and subject progress.
 - Library (route: "Library"): Master hub containing 5 sub-sections:
   * Books (route: "LibraryBooks"): Long-form reference books with dedicated chapter reader.
   * Notes (route: "LibraryNotes"): Revision notes and concise topic cheat sheets.
@@ -100,7 +100,7 @@ A. SCREENS & NAVIGATION:
 - Test Player (route: "TestPlayer", params: { testId }): Real exam simulator with timer countdown, negative marking rules, and question palette.
 - Test Results (route: "TestResult", params: { resultId }): Detailed post-test analysis with score, accuracy %, percentile rank, and subject breakdown.
 - Study Planner (route: "StudyPlanner"): Daily, weekly, and monthly timetable. Users can check off tasks, add custom tasks, set priorities (High/Medium/Low), and track planned vs actual hours.
-- Focus Center & Wellness (route: "FocusCenter"): Pomodoro timer with Focus, Short Break, and Long Break intervals, plus ambient relaxation audio (Calming Rain, Forest Crickets, Small River, Relaxing Night Sounds).
+- Focus sessions: Start Timer, Stopwatch, or Pomodoro sessions from the Homepage.
 - Current Affairs (route: "CurrentAffairs"): Daily news digest with prelims-oriented key points and exam categorization.
 - Statistics (route: "Statistics"): Comprehensive charts of 30-day study hours, subject strengths, and test percentile progress.
 - Task Performance (route: "TaskPerformance"): Detailed completion metrics for planner tasks.
@@ -181,7 +181,7 @@ Supported Route Names:
 - PYQ (e.g. [ACTION: PYQ | Open PYQ Bank])
 - Tests (e.g. [ACTION: Tests | Browse Test Series])
 - TestPlayer (e.g. [ACTION: TestPlayer | Start Full Mock #14 | {"testId": "t1"}])
-- FocusCenter (e.g. [ACTION: FocusCenter | Open Focus & Timer])
+- DashboardRoot (e.g. [ACTION: DashboardRoot | Start a focus session])
 - StudyPlanner (e.g. [ACTION: StudyPlanner | Open Study Planner])
 - CurrentAffairs (e.g. [ACTION: CurrentAffairs | Read Current Affairs])
 - Statistics (e.g. [ACTION: Statistics | View Study Statistics])
@@ -347,7 +347,6 @@ const ACTION_ROUTE_PARAMS = {
   Statistics: { optional: ['headerBrand'] },
   TaskPerformance: { optional: ['headerBrand', 'startDate', 'endDate'] },
   StudyPlanner: { optional: ['headerBrand'] },
-  FocusCenter: { optional: ['headerBrand'] },
   FocusLock: { optional: ['headerBrand'] },
   Hobbies: { optional: ['headerBrand'] },
   Profile: { optional: ['headerBrand'] },
@@ -426,7 +425,7 @@ function inferFallbackAction(text, userQuery) {
   const t = (text || '').toLowerCase();
 
   if (q.includes('focus') || q.includes('pomodoro') || q.includes('ambient') || q.includes('wellness') || q.includes('sound')) {
-    return { label: 'Open Focus Center', route: 'FocusCenter' };
+    return { label: 'Go to Homepage to start focusing', route: 'DashboardRoot' };
   }
   if (q.includes('planner') || q.includes('timetable') || q.includes('schedule') || q.includes('routine')) {
     return { label: 'Open Study Planner', route: 'StudyPlanner' };
@@ -472,7 +471,7 @@ function inferFallbackChips(text, exam) {
   } else if (lower.includes('economy') || lower.includes('inflation') || lower.includes('rbi')) {
     chips.push('Explain Monetary Policy', 'Current Economic Affairs', 'Economy mock questions');
   } else if (lower.includes('focus') || lower.includes('pomodoro') || lower.includes('timer')) {
-    chips.push('How does Pomodoro work?', 'Open Focus Center', 'Build a revision routine');
+    chips.push('How does Pomodoro work?', 'Start a focus session', 'Build a revision routine');
   } else if (lower.includes('planner') || lower.includes('schedule') || lower.includes('plan')) {
     chips.push('How to add custom tasks', 'Daily vs Weekly planning', 'Open Study Planner');
   } else if (lower.includes('test') || lower.includes('mock') || lower.includes('percentile')) {
@@ -529,7 +528,7 @@ function generateCatalogFallbackResponse(userQuery, examContext) {
 
   if (q.includes('pomodoro') || q.includes('focus') || q.includes('ambient') || q.includes('sound')) {
     return {
-      text: `${greeting} The **Focus Center** in Study Sakha combines scientific time-blocking with ambient acoustic therapy to maximize retention.\n\n### How to Use:\n1. **Select Interval**: 25 min Focus + 5 min Short Break, or 50 min Deep Work + 10 min Break.\n2. **Ambient Sound**: Choose Calming Rain, Forest Crickets, Small River, or Relaxing Night Sounds.\n3. **Log Hours**: Completed focus sessions automatically synchronize with your Daily Streak and Study Statistics.\n\n[ACTION: FocusCenter | Open Focus & Timer]\n[CHIPS: Start 25m Pomodoro | How ambient sounds help | Open Study Planner]`,
+      text: `${greeting} Start a Timer, Stopwatch, or Pomodoro focus session from the Homepage. Completed sessions synchronize with your study totals and Statistics.\n\n[ACTION: DashboardRoot | Start a focus session]\n[CHIPS: How does Pomodoro work? | Use Focus Lock | Open Study Planner]`,
       modelUsed: 'verified-catalog',
     };
   }
@@ -551,7 +550,7 @@ function generateCatalogFallbackResponse(userQuery, examContext) {
   // General fallback
   const targetExam = exam ? exam.toUpperCase() : 'your competitive exam';
   return {
-    text: `${greeting} I am Sakha, your syllabus-aware study partner for ${targetExam}.\n\nI can help you:\n- **Clarify Concepts**: In Indian Polity, Modern History, Climatology, Economy, and Science.\n- **Navigate Library Resources**: Open notes, textbooks, and decadal PYQ sets.\n- **Analyze Mock Tests**: Diagnose weak subjects and accuracy metrics.\n- **Plan Your Routine**: Schedule tasks in the Study Planner and use the Focus Center Pomodoro timer.\n\nWhat would you like to focus on today?`,
+    text: `${greeting} I am Sakha, your syllabus-aware study partner for ${targetExam}.\n\nI can help you:\n- **Clarify Concepts**: In Indian Polity, Modern History, Climatology, Economy, and Science.\n- **Navigate Library Resources**: Open notes, textbooks, and decadal PYQ sets.\n- **Analyze Mock Tests**: Diagnose weak subjects and accuracy metrics.\n- **Plan Your Routine**: Schedule tasks in the Study Planner and start focus sessions from the Homepage.\n\nWhat would you like to focus on today?`,
     modelUsed: 'verified-catalog',
   };
 }

@@ -2,6 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { createDrawerNavigator, DrawerContentScrollView } from '@react-navigation/drawer';
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
@@ -39,9 +40,9 @@ import BookReaderScreen from './screens/BookReaderScreen';
 import CurrentAffairsScreen from './screens/CurrentAffairsScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import FocusCenterScreen from './screens/FocusCenterScreen';
+import FocusCompletionScreen from './screens/FocusCompletionScreen';
 import FocusLockScreen from './screens/FocusLockScreen';
 import GroupsScreen from './screens/GroupsScreen';
-import HobbiesScreen from './screens/HobbiesScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import MoreScreen from './screens/MoreScreen';
 import NoteEditorScreen from './screens/NoteEditorScreen';
@@ -111,13 +112,12 @@ const linking: AppLinkingOptions = {
               Statistics: 'statistics',
               TaskPerformance: 'statistics/tasks',
               StudyPlanner: 'study-planner',
-              FocusCenter: 'focus',
+              FocusCompletion: 'focus/completed',
               Profile: 'profile',
               Settings: 'settings',
               AppGuide: 'app-guide',
               StudentTestimonials: 'student-testimonials',
               Admin: 'admin',
-              Hobbies: 'focus/hobbies',
               FocusLock: 'focus/lock',
             },
           },
@@ -259,11 +259,13 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
 // 2. AUTHENTICATED APP NAVIGATORS
 // ----------------------------------------------------
 function AuthenticatedStackNavigator() {
+  const { colors } = useTheme();
   return (
     <AppStack.Navigator
       screenOptions={{
         headerShown: false,
-        animation: Platform.OS === 'web' ? 'none' : 'slide_from_right',
+        animation: Platform.OS === 'web' ? 'none' : 'default',
+        contentStyle: { backgroundColor: colors.bg },
       }}
     >
       <AppStack.Screen name="DashboardRoot" component={DashboardScreen} />
@@ -289,8 +291,8 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
       <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
+      <AppStack.Screen name="FocusCompletion" component={FocusCompletionScreen} />
       <AppStack.Screen name="FocusLock" component={FocusLockScreen} />
-      <AppStack.Screen name="Hobbies" component={HobbiesScreen} />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
       <AppStack.Screen name="Settings" component={SettingsScreen} />
       <AppStack.Screen name="AppGuide" component={AppGuideScreen} />
@@ -339,10 +341,11 @@ function Navigation() {
   return (
     <NavigationContainer theme={navTheme} linking={linking} fallback={<Splash />}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <NavigationBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          animation: Platform.OS === 'web' ? 'none' : 'slide_from_right',
+          animation: Platform.OS === 'web' ? 'none' : 'default',
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
