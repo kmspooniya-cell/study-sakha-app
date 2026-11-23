@@ -1,5 +1,6 @@
 allowBuilds:
-  '@google/genai': set this to true or false
-  protobufjs: set this to true or false
+  '@google/genai': false
+  '@shopify/react-native-skia': true
+  protobufjs: false
 minimumReleaseAgeExclude:
   - lucide-react-native@1.77.0

@@ -101,6 +101,25 @@ export type PlannerScheduleItem = {
   }[];
   fromDate?: string;
   untilDate?: string;
+  taskType?: string;
+  instructor?: string;
+  whereMode?: 'in_person' | 'online';
+  seatNumber?: string;
+  onlineLink?: string;
+  location?: string;
+  examType?: string;
+  durationMinutes?: number;
+  durationLabel?: string;
+  vacationPreset?: string;
+  coverPhotoName?: string;
+  dateRangeMode?: 'none' | 'term' | 'manual';
+  termName?: string;
+  rangeFrom?: string;
+  rangeUntil?: string;
+  activityType?: string;
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+  repeatDays?: number[];
+  repeatUntil?: string;
 };
 
 export type State = {
@@ -211,6 +230,20 @@ function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null 
     value.building,
     value.seat,
     value.notes,
+    value.taskType,
+    value.instructor,
+    value.seatNumber,
+    value.onlineLink,
+    value.location,
+    value.examType,
+    value.durationLabel,
+    value.vacationPreset,
+    value.coverPhotoName,
+    value.termName,
+    value.rangeFrom,
+    value.rangeUntil,
+    value.activityType,
+    value.repeatUntil,
   ];
   if (optionalStrings.some((field) => field !== undefined && typeof field !== 'string')) return null;
   if (
@@ -227,6 +260,12 @@ function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null 
     (value.whereType !== undefined && value.whereType !== 'In Person' && value.whereType !== 'Online') ||
     (value.hasCoverPhoto !== undefined && typeof value.hasCoverPhoto !== 'boolean') ||
     (value.completed !== undefined && typeof value.completed !== 'boolean') ||
+    (value.durationMinutes !== undefined &&
+      (typeof value.durationMinutes !== 'number' || !Number.isFinite(value.durationMinutes) || value.durationMinutes < 0)) ||
+    (value.whereMode !== undefined && value.whereMode !== 'in_person' && value.whereMode !== 'online') ||
+    (value.dateRangeMode !== undefined && value.dateRangeMode !== 'none' && value.dateRangeMode !== 'term' && value.dateRangeMode !== 'manual') ||
+    (value.recurrence !== undefined && !['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(String(value.recurrence))) ||
+    (value.repeatDays !== undefined && (!Array.isArray(value.repeatDays) || !value.repeatDays.every((day) => typeof day === 'number' && day >= 0 && day <= 6))) ||
     (value.days !== undefined &&
       (!Array.isArray(value.days) || !value.days.every((day) => typeof day === 'string'))) ||
     (value.timeSlots !== undefined &&
@@ -279,6 +318,27 @@ function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null 
     ...(typeof value.daysCount === 'number' ? { daysCount: value.daysCount } : {}),
     ...(typeof value.hasCoverPhoto === 'boolean' ? { hasCoverPhoto: value.hasCoverPhoto } : {}),
     ...(typeof value.completed === 'boolean' ? { completed: value.completed } : {}),
+    ...(typeof value.taskType === 'string' ? { taskType: value.taskType } : {}),
+    ...(typeof value.instructor === 'string' ? { instructor: value.instructor } : {}),
+    ...(value.whereMode === 'in_person' || value.whereMode === 'online' ? { whereMode: value.whereMode } : {}),
+    ...(typeof value.seatNumber === 'string' ? { seatNumber: value.seatNumber } : {}),
+    ...(typeof value.onlineLink === 'string' ? { onlineLink: value.onlineLink } : {}),
+    ...(typeof value.location === 'string' ? { location: value.location } : {}),
+    ...(typeof value.examType === 'string' ? { examType: value.examType } : {}),
+    ...(typeof value.durationMinutes === 'number' ? { durationMinutes: value.durationMinutes } : {}),
+    ...(typeof value.durationLabel === 'string' ? { durationLabel: value.durationLabel } : {}),
+    ...(typeof value.vacationPreset === 'string' ? { vacationPreset: value.vacationPreset } : {}),
+    ...(typeof value.coverPhotoName === 'string' ? { coverPhotoName: value.coverPhotoName } : {}),
+    ...(value.dateRangeMode === 'none' || value.dateRangeMode === 'term' || value.dateRangeMode === 'manual' ? { dateRangeMode: value.dateRangeMode } : {}),
+    ...(typeof value.termName === 'string' ? { termName: value.termName } : {}),
+    ...(typeof value.rangeFrom === 'string' ? { rangeFrom: value.rangeFrom } : {}),
+    ...(typeof value.rangeUntil === 'string' ? { rangeUntil: value.rangeUntil } : {}),
+    ...(typeof value.activityType === 'string' ? { activityType: value.activityType } : {}),
+    ...(typeof value.recurrence === 'string' && ['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(value.recurrence)
+      ? { recurrence: value.recurrence as PlannerScheduleItem['recurrence'] }
+      : {}),
+    ...(Array.isArray(value.repeatDays) ? { repeatDays: value.repeatDays } : {}),
+    ...(typeof value.repeatUntil === 'string' ? { repeatUntil: value.repeatUntil } : {}),
   };
 }
 
@@ -511,6 +571,8 @@ type Action =
   | { type: 'deletePlannerDefault'; id: string }
   | { type: 'plannerSettings'; patch: Partial<PlannerSettings> }
   | { type: 'addPlannerScheduleItem'; item: PlannerScheduleItem }
+  | { type: 'updatePlannerScheduleItem'; item: PlannerScheduleItem }
+  | { type: 'deletePlannerScheduleItem'; id: string }
   | { type: 'creditPlanMinutes'; id: string; date: string; minutes: number }
   | {
       type: 'recordFocusStudy';
@@ -521,6 +583,7 @@ type Action =
       taskTitle?: string;
       category?: string;
       plannedMinutes?: number;
+      status?: 'completed' | 'interrupted' | 'abandoned';
     }
   | { type: 'plannerCompletion'; date: string; completion: PlannerCompletion; completed: boolean }
   | { type: 'study'; minutes: number }
@@ -551,6 +614,8 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'deletePlannerDefault',
   'plannerSettings',
   'addPlannerScheduleItem',
+  'updatePlannerScheduleItem',
+  'deletePlannerScheduleItem',
   'creditPlanMinutes',
   'recordFocusStudy',
   'plannerCompletion',
@@ -880,6 +945,18 @@ function reducer(state: State, action: Action): State {
       return state.plannerScheduleItems.some((item) => item.id === action.item.id)
         ? state
         : { ...state, plannerScheduleItems: [action.item, ...state.plannerScheduleItems] };
+    case 'updatePlannerScheduleItem':
+      return {
+        ...state,
+        plannerScheduleItems: state.plannerScheduleItems.map((item) =>
+          item.id === action.item.id ? action.item : item
+        ),
+      };
+    case 'deletePlannerScheduleItem':
+      return {
+        ...state,
+        plannerScheduleItems: state.plannerScheduleItems.filter((item) => item.id !== action.id),
+      };
     case 'creditPlanMinutes': {
       const credited = state.plannerMinutesCredited[action.date] ?? [];
       if (credited.includes(action.id)) return state;

@@ -38,6 +38,14 @@ export type StudyRoomLog = {
   ended_at: string | null;
 };
 
+export type StudyGroupActivityInsight = {
+  user_id: string;
+  focus_seconds: number;
+  focus_sessions: number;
+  completed_focus_sessions: number;
+  completed_tasks: number;
+};
+
 export type StudyRoomProfile = {
   user_id: string;
   display_name: string;
@@ -201,6 +209,48 @@ export async function getStudyRoomLogs(groupId: string) {
   });
   if (error) throw new Error(`Could not load group study logs: ${error.message}`);
   return (data ?? []) as StudyRoomLog[];
+}
+
+export async function submitStudyMemberActivity({
+  groupId,
+  eventId,
+  activityType,
+  taskId,
+  subject,
+  actualSeconds,
+  status,
+  occurredAt,
+}: {
+  groupId: string;
+  eventId: string;
+  activityType: 'focus_session' | 'planner_task_completed';
+  taskId?: string;
+  subject?: string;
+  actualSeconds: number;
+  status?: 'completed' | 'interrupted' | 'abandoned';
+  occurredAt: string;
+}) {
+  assertSupabaseConfigured();
+  const { error } = await supabase.rpc('submit_study_member_activity', {
+    group_key: groupId,
+    event_key: eventId,
+    activity_kind: activityType,
+    task_key: taskId ?? null,
+    subject_name: subject ?? null,
+    seconds_count: Math.max(0, Math.round(actualSeconds)),
+    session_status: status ?? null,
+    event_time: occurredAt,
+  });
+  if (error) throw new Error(`Could not synchronize group activity: ${error.message}`);
+}
+
+export async function getStudyGroupActivityInsights(groupId: string) {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('get_study_group_activity_insights', {
+    group_key: groupId,
+  });
+  if (error) throw new Error(`Could not load group activity insights: ${error.message}`);
+  return (data ?? []) as StudyGroupActivityInsight[];
 }
 
 export async function getStudyRoomProfiles(groupId: string, userIds: string[]) {

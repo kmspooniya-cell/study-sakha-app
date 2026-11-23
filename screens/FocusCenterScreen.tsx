@@ -22,12 +22,15 @@ import {
 } from '../components/MeditationPresets';
 import { MeditationSceneRenderer } from '../components/MeditationSceneRenderer';
 import { FocusActivity, FocusActivityTimer } from '../components/DashboardStudyTools';
+import GeminiFocusTimer from '../components/GeminiFocusTimer';
+import type { FocusTimerController } from '../components/GeminiFocusTimer';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionMode, FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell } from '../components/Shell';
 import { Button, Chip, Txt } from '../components/ui';
 import { appendFocusHistory } from '../lib/focusHistory';
-import { dayKey, getUserScopedStorageKey, PlannerTask, useStore } from '../lib/store';
+import { addPendingFocusSeconds, getActualFocusSeconds } from '../lib/focusTimerAccounting';
+import { dayKey, getUserScopedStorageKey, PlannerScheduleItem, PlannerTask, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { AudioDownloadManager, AudioDownloadState } from '../lib/audioDownloadManager';
 import {
@@ -37,6 +40,7 @@ import {
   publishGroupRoomFocusControl,
 } from '../lib/groupRoomFocusBridge';
 import type { GroupRoomFocusStatus } from '../lib/groupRoomFocusBridge';
+import { getActiveStudyGroupIds, submitStudyMemberActivity } from '../lib/groupRooms';
 
 const MEDITATION_HISTORY_KEY = 'study-sakha-meditation-history-v1';
 const MEDITATION_PREFS_KEY = 'study-sakha-meditation-prefs-v2';
@@ -56,6 +60,12 @@ const ACTIVITIES: {
 ];
 
 const MEDITATION_DURATIONS = [5, 10, 15, 20, 30];
+const FOCUS_SESSION_PRESETS = [
+  { label: 'ras • Active session', minutes: 25 },
+  { label: 'Deep Focus', minutes: 50 },
+  { label: 'Quick Sprint', minutes: 15 },
+  { label: 'Evening Study', minutes: 45 },
+];
 
 export default function FocusCenterScreen() {
   const { colors, scheme } = useTheme();
@@ -70,24 +80,31 @@ export default function FocusCenterScreen() {
   const [showStudySetupModal, setShowStudySetupModal] = useState(false);
   const [timerMode, setTimerMode] = useState<FocusSessionMode>('timer');
   const [selectedTag, setSelectedTag] = useState('History');
-  const [selectedTask, setSelectedTask] = useState<PlannerTask | null>(null);
+  const [selectedTask, setSelectedTask] = useState<PlannerTask | PlannerScheduleItem | null>(null);
   const [studySelection, setStudySelection] = useState<'schedule' | 'manual' | null>(null);
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const [customTagInput, setCustomTagInput] = useState('');
   const [studyDurationMinutes, setStudyDurationMinutes] = useState(25);
   const [isStudySessionActive, setIsStudySessionActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isBreakSession, setIsBreakSession] = useState(false);
+  const [focusSessionLabel, setFocusSessionLabel] = useState(FOCUS_SESSION_PRESETS[0].label);
   const [roomFocusStatus, setRoomFocusStatus] = useState<GroupRoomFocusStatus>('focusing');
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
   const studySessionStartedAt = React.useRef<string | null>(null);
   const studySessionSaved = React.useRef(false);
   const studyTimerLastUpdatedAt = React.useRef<number | null>(null);
   const elapsedSecondsRef = React.useRef(0);
+  const accumulatedFocusSecondsRef = React.useRef(0);
   useEffect(() => {
-    elapsedSecondsRef.current = timerMode === 'stopwatch'
-      ? secondsRemaining
-      : Math.max(0, studyDurationMinutes * 60 - secondsRemaining);
-  }, [secondsRemaining, studyDurationMinutes, timerMode]);
+    elapsedSecondsRef.current = getActualFocusSeconds(
+      accumulatedFocusSecondsRef.current,
+      timerMode,
+      studyDurationMinutes * 60,
+      secondsRemaining,
+      isBreakSession,
+    );
+  }, [isBreakSession, secondsRemaining, studyDurationMinutes, timerMode]);
 
   const publishLinkedRoomFocus = useCallback((
     status: GroupRoomFocusStatus,
@@ -141,31 +158,19 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
   });
 
   useEffect(() => {
-    const unsub = AudioDownloadManager.subscribe('pure_cosmic_waves', (st) => {
-
-  // Smart Study Room control events subscription
-  useEffect(() => {
-    const roomFocus = route.params?.roomFocus;
-    if (!roomFocus) return;
-    const unsub = subscribeGroupRoomFocusControls((event) => {
-      if (event.roomSessionId !== roomFocus.roomSessionId) return;
-      if (event.type === 'togglePause') {
-        toggleStudyPause();
-      }
-      if (event.type === 'end') {
-        handleStopStudySession();
-      }
+    let active = true;
+    const unsubscribe = AudioDownloadManager.subscribe('pure_cosmic_waves', (state) => {
+      if (active) setCosmicDownloadState(state);
     });
-    return () => unsub();
-  }, [route.params?.roomFocus, toggleStudyPause, handleStopStudySession]);
-      setCosmicDownloadState(st);
-    });
-    return unsub;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   // Study Timer Countdown Effect
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isStudySessionActive && !isPaused && timerMode !== 'stopwatch') {
       interval = setInterval(() => {
         const now = Date.now();
@@ -174,7 +179,12 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
         studyTimerLastUpdatedAt.current = now;
         setSecondsRemaining((prev) => {
           if (prev <= elapsed) {
-            setIsStudySessionActive(false);
+            if (isBreakSession) {
+              setIsPaused(true);
+              setRoomFocusStatus('paused');
+            } else {
+              setIsStudySessionActive(false);
+            }
             return 0;
           }
           return prev - elapsed;
@@ -190,7 +200,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isStudySessionActive, isPaused, timerMode]);
+  }, [isBreakSession, isStudySessionActive, isPaused, timerMode]);
 
   const handleStartStudySession = useCallback((setup: FocusSessionSetup) => {
     setTimerMode(setup.mode);
@@ -198,6 +208,10 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     setStudySelection(setup.selection);
     setSelectedTag(setup.tag);
     setSelectedTask(setup.task);
+    setIsBreakSession(false);
+    accumulatedFocusSecondsRef.current = 0;
+    elapsedSecondsRef.current = 0;
+    setFocusSessionLabel(FOCUS_SESSION_PRESETS.find((preset) => preset.minutes === setup.durationMinutes)?.label ?? 'Focus for Study');
     setSecondsRemaining(setup.mode === 'stopwatch' ? 0 : setup.durationMinutes * 60);
     studySessionStartedAt.current = new Date().toISOString();
     studyTimerLastUpdatedAt.current = Date.now();
@@ -223,7 +237,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     navigation.setParams({ focusSession: undefined });
   }, [handleStartStudySession, navigation, route.params?.focusSession]);
 
-  const saveStudySession = useCallback((actualSeconds: number) => {
+  const saveStudySession = useCallback((actualSeconds: number, status: 'completed' | 'interrupted' | 'abandoned') => {
     const recordedSeconds = Math.max(0, Math.round(actualSeconds));
     const startedAt = studySessionStartedAt.current;
     if (studySessionSaved.current || !startedAt || recordedSeconds <= 0) return;
@@ -232,10 +246,13 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     studySessionStartedAt.current = null;
     const endedAt = new Date().toISOString();
     const task = studySelection === 'schedule' ? selectedTask : null;
+    const isScheduleItem = task && 'title' in task;
+    const taskTitle = task ? ('label' in task ? task.label : task.title) : undefined;
+    const taskCategory = task ? task.category : undefined;
     const id = `focus-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
     const session = {
       id,
-      ...(task ? { subject: task.category, topic: task.label, taskId: task.id } : {}),
+      ...(task ? { subject: taskCategory, topic: taskTitle, taskId: task.id } : {}),
       ...(!task && studySelection === 'manual' ? { subject: selectedTag.trim() || 'General Study' } : {}),
       minutes: recordedSeconds / 60,
       completedAt: endedAt,
@@ -243,6 +260,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       endedAt,
       actualSeconds: recordedSeconds,
       plannedMinutes: timerMode === 'stopwatch' ? undefined : studyDurationMinutes,
+      status,
     };
 
     dispatch({
@@ -251,10 +269,61 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       date: dayKey(new Date(endedAt)),
       taskId: task?.id ?? null,
       seconds: recordedSeconds,
-      taskTitle: task?.label,
-      category: task?.category,
+      taskTitle,
+      category: taskCategory,
       plannedMinutes: task ? studyDurationMinutes : undefined,
     });
+    if (status === 'completed' && isScheduleItem && task.category === 'Tasks') {
+      dispatch({
+        type: 'updatePlannerScheduleItem',
+        item: { ...task, completed: true },
+      });
+      dispatch({
+        type: 'plannerCompletion',
+        date: dayKey(new Date(endedAt)),
+        completed: true,
+        completion: {
+          taskId: task.id,
+          label: task.title,
+          minutes: task.durationMinutes ?? 0,
+          category: task.category,
+          taskType: task.taskType || task.examType || task.activityType || 'Study',
+        },
+      });
+      if (storeState.user?.id) {
+        void getActiveStudyGroupIds(storeState.user.id).then((groupIds) => Promise.all(groupIds.map((groupId) =>
+          submitStudyMemberActivity({
+            groupId,
+            eventId: `${task.id}-${dayKey(new Date(endedAt))}-completed`,
+            activityType: 'planner_task_completed',
+            taskId: task.id,
+            subject: task.subject || task.category,
+            actualSeconds: 0,
+            occurredAt: endedAt,
+          })
+        ))).catch((error: unknown) => {
+          console.warn('Planner task group activity could not be synchronized:', error);
+        });
+      }
+    }
+
+    if (storeState.user?.id) {
+      void getActiveStudyGroupIds(storeState.user.id).then((groupIds) => Promise.all(groupIds.map((groupId) =>
+        submitStudyMemberActivity({
+          groupId,
+          eventId: id,
+          activityType: 'focus_session',
+          taskId: task?.id,
+          subject: taskCategory || (studySelection === 'manual' ? selectedTag.trim() : undefined),
+          actualSeconds: recordedSeconds,
+          status,
+          occurredAt: endedAt,
+        })
+      ))).catch((error: unknown) => {
+        console.warn('Focus group activity could not be synchronized:', error);
+      });
+    }
+
     void appendFocusHistory(
       getUserScopedStorageKey(STUDY_HISTORY_KEY, storeState.user?.id),
       session
@@ -263,20 +332,27 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     });
   }, [dispatch, selectedTag, selectedTask, storeState.user?.id, studyDurationMinutes, studySelection, timerMode]);
 
-  const handleStopStudySession = useCallback(() => {
-    const actualSeconds = timerMode === 'stopwatch'
-      ? secondsRemaining
-      : studyDurationMinutes * 60 - secondsRemaining;
-    saveStudySession(actualSeconds);
+  const handleStopStudySession = useCallback((status: 'interrupted' | 'abandoned' = 'interrupted') => {
+    const actualSeconds = getActualFocusSeconds(
+      accumulatedFocusSecondsRef.current,
+      timerMode,
+      studyDurationMinutes * 60,
+      secondsRemaining,
+      isBreakSession,
+    );
+    saveStudySession(actualSeconds, status);
     studySessionStartedAt.current = null;
     setIsStudySessionActive(false);
+    setIsBreakSession(false);
     studyTimerLastUpdatedAt.current = null;
     endLinkedRoomFocus();
-  }, [endLinkedRoomFocus, saveStudySession, secondsRemaining, studyDurationMinutes, timerMode]);
+  }, [endLinkedRoomFocus, isBreakSession, saveStudySession, secondsRemaining, studyDurationMinutes, timerMode]);
 
   const toggleStudyPause = useCallback(() => {
     const nextPaused = !isPaused;
-    const nextStatus: GroupRoomFocusStatus = nextPaused ? 'paused' : 'focusing';
+    const nextStatus: GroupRoomFocusStatus = isBreakSession
+      ? nextPaused ? 'paused' : 'break'
+      : nextPaused ? 'paused' : 'focusing';
     setIsPaused(nextPaused);
     setRoomFocusStatus(nextStatus);
     studyTimerLastUpdatedAt.current = Date.now();
@@ -284,17 +360,92 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       ? selectedTask.category
       : selectedTag.trim() || 'General Study';
     publishLinkedRoomFocus(nextStatus, elapsedSecondsRef.current, subject, nextPaused ? 'pause' : 'resume');
-  }, [isPaused, publishLinkedRoomFocus, selectedTag, selectedTask, studySelection]);
+  }, [isBreakSession, isPaused, publishLinkedRoomFocus, selectedTag, selectedTask, studySelection]);
 
-  const handleTakeStudyBreak = useCallback(() => {
-    setIsPaused(true);
-    setRoomFocusStatus('break');
-    studyTimerLastUpdatedAt.current = Date.now();
+  useEffect(() => {
+    const roomFocus = route.params?.roomFocus;
+    if (!roomFocus) return;
+    return subscribeGroupRoomFocusControls((event) => {
+      if (event.roomSessionId !== roomFocus.roomSessionId) return;
+      if (event.type === 'togglePause') toggleStudyPause();
+      if (event.type === 'end') handleStopStudySession();
+    });
+  }, [handleStopStudySession, route.params?.roomFocus, toggleStudyPause]);
+
+  const handleToggleStudyBreak = useCallback(() => {
     const subject = studySelection === 'schedule' && selectedTask
       ? selectedTask.category
       : selectedTag.trim() || 'General Study';
-    publishLinkedRoomFocus('break', elapsedSecondsRef.current, subject, 'break');
-  }, [publishLinkedRoomFocus, selectedTag, selectedTask, studySelection]);
+
+    if (isBreakSession) {
+      setIsBreakSession(false);
+      setTimerMode('timer');
+      setStudyDurationMinutes(25);
+      setFocusSessionLabel(FOCUS_SESSION_PRESETS[0].label);
+      setSecondsRemaining(25 * 60);
+      setIsPaused(false);
+      setRoomFocusStatus('focusing');
+      studyTimerLastUpdatedAt.current = Date.now();
+      publishLinkedRoomFocus('focusing', accumulatedFocusSecondsRef.current, subject, 'resume');
+      return;
+    }
+
+    accumulatedFocusSecondsRef.current = getActualFocusSeconds(
+      accumulatedFocusSecondsRef.current,
+      timerMode,
+      studyDurationMinutes * 60,
+      secondsRemaining,
+      false,
+    );
+    elapsedSecondsRef.current = accumulatedFocusSecondsRef.current;
+    setIsBreakSession(true);
+    setTimerMode('timer');
+    setSecondsRemaining(5 * 60);
+    setIsPaused(false);
+    setRoomFocusStatus('break');
+    studyTimerLastUpdatedAt.current = Date.now();
+    publishLinkedRoomFocus('break', accumulatedFocusSecondsRef.current, subject, 'break');
+  }, [isBreakSession, publishLinkedRoomFocus, secondsRemaining, selectedTag, selectedTask, studyDurationMinutes, studySelection, timerMode]);
+
+  const handleSelectFocusPreset = useCallback((label: string, minutes: number) => {
+    accumulatedFocusSecondsRef.current = getActualFocusSeconds(
+      accumulatedFocusSecondsRef.current,
+      timerMode,
+      studyDurationMinutes * 60,
+      secondsRemaining,
+      isBreakSession,
+    );
+    elapsedSecondsRef.current = accumulatedFocusSecondsRef.current;
+    setTimerMode('timer');
+    setStudyDurationMinutes(minutes);
+    setFocusSessionLabel(label);
+    setIsBreakSession(false);
+    setSecondsRemaining(minutes * 60);
+    setIsStudySessionActive(true);
+    setIsPaused(false);
+    setRoomFocusStatus('focusing');
+    studyTimerLastUpdatedAt.current = Date.now();
+  }, [isBreakSession, secondsRemaining, studyDurationMinutes, timerMode]);
+
+  const handleResetFocusTimer = useCallback(() => {
+    accumulatedFocusSecondsRef.current = getActualFocusSeconds(
+      accumulatedFocusSecondsRef.current,
+      timerMode,
+      studyDurationMinutes * 60,
+      secondsRemaining,
+      isBreakSession,
+    );
+    elapsedSecondsRef.current = accumulatedFocusSecondsRef.current;
+    setTimerMode('timer');
+    setStudyDurationMinutes(25);
+    setFocusSessionLabel(FOCUS_SESSION_PRESETS[0].label);
+    setIsBreakSession(false);
+    setSecondsRemaining(25 * 60);
+    setIsStudySessionActive(true);
+    setIsPaused(false);
+    setRoomFocusStatus('focusing');
+    studyTimerLastUpdatedAt.current = Date.now();
+  }, [isBreakSession, secondsRemaining, studyDurationMinutes, timerMode]);
 
   useEffect(() => {
     if (!isStudySessionActive || !route.params?.roomFocus) return;
@@ -305,12 +456,18 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
   }, [isStudySessionActive, isPaused, publishLinkedRoomFocus, roomFocusStatus, route.params?.roomFocus, selectedTag, selectedTask, studySelection]);
 
   useEffect(() => {
-    if (!isStudySessionActive && timerMode !== 'stopwatch' && secondsRemaining === 0) {
-      saveStudySession(studyDurationMinutes * 60);
+    if (!isBreakSession && !isStudySessionActive && timerMode !== 'stopwatch' && secondsRemaining === 0) {
+      saveStudySession(getActualFocusSeconds(
+        accumulatedFocusSecondsRef.current,
+        timerMode,
+        studyDurationMinutes * 60,
+        secondsRemaining,
+        false,
+      ), 'completed');
       studyTimerLastUpdatedAt.current = null;
       endLinkedRoomFocus();
     }
-  }, [endLinkedRoomFocus, isStudySessionActive, secondsRemaining, saveStudySession, studyDurationMinutes, timerMode]);
+  }, [endLinkedRoomFocus, isBreakSession, isStudySessionActive, secondsRemaining, saveStudySession, studyDurationMinutes, timerMode]);
 
   const formatTime = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);
@@ -376,21 +533,26 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
 
   useEffect(() => {
     if (!route.params?.roomFocus || !isStudySessionActive) return;
-    return navigation.addListener('beforeRemove', handleStopStudySession);
+    return navigation.addListener('beforeRemove', () => handleStopStudySession('abandoned'));
   }, [handleStopStudySession, isStudySessionActive, navigation, route.params?.roomFocus]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active' && isStudySessionActive && route.params?.roomFocus) {
         const lastUpdatedAt = studyTimerLastUpdatedAt.current;
-        const pendingElapsedSeconds = isPaused || !lastUpdatedAt
+        const pendingElapsedSeconds = isBreakSession || isPaused || !lastUpdatedAt
           ? 0
           : Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000));
+        const currentElapsedSeconds = addPendingFocusSeconds(
+          elapsedSecondsRef.current,
+          pendingElapsedSeconds,
+          isBreakSession,
+        );
         const elapsedSeconds = timerMode === 'stopwatch'
-          ? elapsedSecondsRef.current + pendingElapsedSeconds
+          ? currentElapsedSeconds
           : Math.min(
-              studyDurationMinutes * 60,
-              elapsedSecondsRef.current + pendingElapsedSeconds
+              accumulatedFocusSecondsRef.current + studyDurationMinutes * 60,
+              currentElapsedSeconds,
             );
         publishLinkedRoomFocus(
           roomFocusStatus,
@@ -402,7 +564,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
       }
     });
     return () => subscription.remove();
-  }, [isPaused, isStudySessionActive, publishLinkedRoomFocus, roomFocusStatus, route.params?.roomFocus, selectedTag, selectedTask, studyDurationMinutes, studySelection, timerMode]);
+  }, [accumulatedFocusSecondsRef, isBreakSession, isPaused, isStudySessionActive, publishLinkedRoomFocus, roomFocusStatus, route.params?.roomFocus, selectedTag, selectedTask, studyDurationMinutes, studySelection, timerMode]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -559,91 +721,47 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
     </Modal>
   );
 
-  // ==================== 1. ACTIVE FULL-SCREEN FOCUS VIEW (TRUE FULLSCREEN) ====================
+  const activeSubject = studySelection === 'schedule' && selectedTask
+    ? `${'label' in selectedTask ? selectedTask.label : selectedTask.title} · ${selectedTask.category}`
+    : studySelection === 'manual'
+      ? selectedTag
+      : 'No subject selected';
+  const focusTimerController: FocusTimerController = {
+    totalSeconds: isBreakSession ? 5 * 60 : timerMode === 'stopwatch' ? Math.max(1, secondsRemaining) : studyDurationMinutes * 60,
+    remainingSeconds: secondsRemaining,
+    running: isStudySessionActive && !isPaused,
+    isBreak: isBreakSession,
+    sessionLabel: focusSessionLabel,
+    modeLabel: timerMode.toUpperCase(),
+  };
+
+  // ==================== 1. ACTIVE FULL-SCREEN FOCUS VIEW ====================
   if (isStudySessionActive) {
     return (
-      <View style={styles.trueFullScreenRoot}>
-        
-                  {/* Top Group / Live Status Feature */}
-          <View style={styles.activeTopHeader}>
-            <Pressable
-              onPress={() => setGroupSelectModalVisible(true)}
-              style={styles.activeGroupPill}
-            >
-              <View style={[styles.liveDot, { backgroundColor: greenAccent }]} />
-              <Txt color="#F8FAFC" size={12.5} weight="700">
-                {currentSelectedGroup} • Active session
-              </Txt>
-              <Ionicons name="chevron-down" size={13} color="#94A3B8" />
-            </Pressable>
-          </View>
-
-        {/* Center Circle with Tag at Top */}
-        <View style={styles.timerCenterContainer}>
-          <View style={styles.timerOuterRing}>
-            <Pressable
-              onPress={() => setTagModalVisible(true)}
-              style={styles.circleTopTagRow}
-            >
-              <Txt color="#94A3B8" size={12} weight="600">
-                {studySelection === 'schedule' && selectedTask
-                  ? `${selectedTask.label} · ${selectedTask.category}`
-                  : studySelection === 'manual'
-                    ? selectedTag
-                    : 'No subject selected'}
-              </Txt>
-              <Ionicons name="chevron-down" size={12} color="#94A3B8" />
-            </Pressable>
-
-            <Txt color="#94A3B8" size={11} weight="700" style={{ letterSpacing: 1.2, marginTop: 6 }}>
-              {timerMode.toUpperCase()}
-            </Txt>
-
-            <Txt color="#FFFFFF" size={56} weight="800" style={{ letterSpacing: -1, marginVertical: 8 }}>
-              {formatTime(secondsRemaining)}
-            </Txt>
-
-            <Pressable
-              onPress={handleTakeStudyBreak}
-              style={styles.takeBreakPill}
-            >
-              <Txt color="#CBD5E1" size={12} weight="600">
-                {roomFocusStatus === 'break' ? 'On break' : 'Take a break'}
-              </Txt>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Bottom Controls: 3-Line Menu (Left) & Pause/Stop */}
-        <View style={styles.activeBottomBar}>
-          <Pressable
-            onPress={() => setMenuModalVisible(true)}
-            style={styles.controlIconBtn}
-          >
-            <Ionicons name="menu" size={22} color="#FFFFFF" />
-          </Pressable>
-
-          <Pressable
-            onPress={handleStopStudySession}
-            style={styles.stopFocusBtn}
-          >
-            <Txt color="#0F172A" size={14.5} weight="800">
-              Stop Focus
-            </Txt>
-          </Pressable>
-
-          <Pressable
-            onPress={toggleStudyPause}
-            style={[styles.resumeBtn, { backgroundColor: isPaused ? greenAccent : '#334155' }]}
-          >
-            <Txt color={isPaused ? '#052E16' : '#FFFFFF'} size={14.5} weight="800">
-              {isPaused ? 'Resume' : 'Pause'}
-            </Txt>
-          </Pressable>
-        </View>
-
-        {/* ================= MODALS INSIDE FULLSCREEN VIEW ================= */}
-        {/* Tag Selection Modal */}
+      <>
+        <GeminiFocusTimer
+          timer={focusTimerController}
+          subject={activeSubject}
+          groupName={currentSelectedGroup}
+          onPause={toggleStudyPause}
+          onStop={handleStopStudySession}
+          onBreak={handleToggleStudyBreak}
+          onSelectPreset={handleSelectFocusPreset}
+          onReset={handleResetFocusTimer}
+          onSubjectChange={(subject) => {
+            setSelectedTask(null);
+            if (subject === 'No subject selected') {
+              setStudySelection(null);
+              setSelectedTag('');
+            } else {
+              setStudySelection('manual');
+              setSelectedTag(subject);
+            }
+          }}
+          onChooseStudyTag={() => setTagModalVisible(true)}
+          onGroupPress={() => setGroupSelectModalVisible(true)}
+          onMoreOptions={() => setMenuModalVisible(true)}
+        />
         {renderManualTagPicker()}
 
         {/* 3-Line Menu Modal */}
@@ -741,7 +859,7 @@ const [currentSelectedGroup, setCurrentSelectedGroup] = useState('ras');
           </View>
         </Modal>
         
-      </View>
+      </>
     );
   }
 

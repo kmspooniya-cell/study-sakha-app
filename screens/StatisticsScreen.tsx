@@ -318,6 +318,7 @@ export default function StatisticsScreen() {
                   ['Total tasks', taskStatistics.filter((task) => !task.historical).length],
                   ['Completed', statistics.overall.completedTaskCount],
                   ['Pending', statistics.overall.pendingTaskCount],
+                  ['Overdue', statistics.overall.overdueTaskCount],
                   ['Completion', completionPercentage === null ? '—' : `${Math.round(completionPercentage)}%`],
                 ].map(([label, value]) => (
                   <View key={String(label)} style={{ flex: 1, minWidth: 110, padding: 10, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
@@ -360,6 +361,8 @@ export default function StatisticsScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {[
                   ['Total Sessions', String(statistics.focus.totalSessions)],
+                  ['Completed', String(statistics.overall.completedFocusSessionCount)],
+                  ['Interrupted', String(statistics.overall.interruptedFocusSessionCount)],
                   ['Average Duration', statistics.focus.averageSessionMinutes === null ? '—' : formatDuration(statistics.focus.averageSessionMinutes)],
                   ['Longest Session', statistics.focus.longestSessionMinutes === null ? '—' : formatDuration(statistics.focus.longestSessionMinutes)],
                   ['Active Days', String(statistics.focus.activeStudyDays)],

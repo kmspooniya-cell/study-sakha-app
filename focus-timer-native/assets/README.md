@@ -1,0 +1,1 @@
+All theme artwork is generated at runtime by the procedural Skia renderers. No theme screenshots or raster substitutions are used.

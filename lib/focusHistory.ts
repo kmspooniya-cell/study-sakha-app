@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type FocusHistoryRecord = {
   id: string;
   completedAt: string;
+  status?: 'completed' | 'interrupted' | 'abandoned';
 };
 
 const pendingWrites = new Map<string, Promise<FocusHistoryRecord[]>>();

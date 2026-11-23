@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Focus Timer",
+    "slug": "focus-timer-native",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.studysakha.focustimer"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-asset"
+    ]
+  }
+}

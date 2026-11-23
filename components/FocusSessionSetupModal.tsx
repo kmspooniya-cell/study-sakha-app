@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { Button, Txt } from './ui';
-import type { PlannerTask } from '../lib/store';
+import type { PlannerScheduleItem, PlannerTask } from '../lib/store';
 import { useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 
@@ -13,8 +13,111 @@ export type FocusSessionSetup = {
   durationMinutes: number;
   selection: FocusSessionSelection;
   tag: string;
-  task: PlannerTask | null;
+  task: PlannerTask | PlannerScheduleItem | null;
 };
+
+function getSetupTaskTitle(task: PlannerTask | PlannerScheduleItem): string {
+  return 'label' in task ? task.label : task.title;
+}
+
+function getSetupTaskMeta(task: PlannerTask | PlannerScheduleItem): string {
+  if ('label' in task) return `${task.category} · ${task.targetDate}`;
+  const date = task.date || task.fromDate || '';
+  const time = task.startTime || task.time;
+  const subject = task.subject || task.category;
+  return [subject, date, time].filter(Boolean).join(' · ');
+}
+
+function isUpcomingOrCurrent(item: PlannerScheduleItem): boolean {
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const start = item.date || item.fromDate || '';
+  const end = item.repeatUntil || item.untilDate || item.endDate || start;
+  return !start || (end >= todayKey);
+}
+
+function SchedulePlanList({
+  items,
+  search,
+  showOther,
+  selectedId,
+  surfaceBg,
+  colors,
+  onToggleOther,
+  onSelect,
+}: {
+  items: PlannerScheduleItem[];
+  search: string;
+  showOther: boolean;
+  selectedId: string | null;
+  surfaceBg: string;
+  colors: ReturnType<typeof useTheme>['colors'];
+  onToggleOther: () => void;
+  onSelect: (task: PlannerScheduleItem) => void;
+}) {
+  const query = search.trim().toLowerCase();
+  const filtered = items.filter((item) => {
+    if (!showOther && !isUpcomingOrCurrent(item)) return false;
+    if (!query) return true;
+    return [item.title, item.subject, item.category, item.taskType, item.examType, item.activityType]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+  });
+
+  const grouped = new Map<string, PlannerScheduleItem[]>();
+  filtered.forEach((item) => {
+    const date = item.date || item.fromDate || 'No date';
+    grouped.set(date, [...(grouped.get(date) ?? []), item]);
+  });
+
+  if (filtered.length === 0) {
+    return (
+      <>
+        <Txt color={colors.textMuted} size={13}>No matching saved plans.</Txt>
+        <Pressable onPress={onToggleOther} accessibilityRole="button" style={{ marginTop: 10 }}>
+          <Txt color={colors.blue} size={12} weight="800">{showOther ? 'Show upcoming only' : 'View other saved plans'}</Txt>
+        </Pressable>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+        {[...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, plans]) => (
+          <View key={date} style={{ marginBottom: 12 }}>
+            <Txt color={colors.textMuted} size={11} weight="800" style={{ marginBottom: 6 }}>{date}</Txt>
+            {plans.map((task) => {
+              const selected = selectedId === task.id;
+              const time = task.startTime || task.time;
+              const subject = task.subject || task.category;
+              return (
+                <Pressable
+                  key={task.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => onSelect(task)}
+                  style={[styles.modalTagItem, { backgroundColor: surfaceBg, borderWidth: selected ? 1 : 0, borderColor: colors.blue }]}
+                >
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Txt color={colors.text} size={14} weight="700">{task.title}</Txt>
+                    <Txt color={colors.textMuted} size={12} style={{ marginTop: 3 }}>
+                      {[subject, time].filter(Boolean).join(' · ')}
+                    </Txt>
+                  </View>
+                  {selected ? <Ionicons name="checkmark-circle" size={19} color={colors.blue} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </ScrollView>
+      <Pressable onPress={onToggleOther} accessibilityRole="button" style={{ marginTop: 8 }}>
+        <Txt color={colors.blue} size={12} weight="800">{showOther ? 'Show upcoming only' : 'View other saved plans'}</Txt>
+      </Pressable>
+    </>
+  );
+}
 
 type Props = {
   visible: boolean;
@@ -30,6 +133,8 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const [scheduleTaskModalVisible, setScheduleTaskModalVisible] = useState(false);
   const [customTagInput, setCustomTagInput] = useState('');
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [showOtherSchedule, setShowOtherSchedule] = useState(false);
   const isDark = scheme === 'dark';
   const surfaceBg = isDark ? '#18191C' : colors.surface;
   const surfaceAltBg = isDark ? '#202225' : colors.surfaceAlt;
@@ -92,6 +197,26 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
               </Pressable>
             </View>
 
+            {value.selection === 'schedule' && value.task ? (
+              <View style={[styles.selectedScheduleCard, { backgroundColor: surfaceAltBg, borderColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Txt color={colors.text} size={13} weight="800" numberOfLines={1}>{getSetupTaskTitle(value.task)}</Txt>
+                  <Txt color={colors.textMuted} size={11} style={{ marginTop: 3 }} numberOfLines={1}>{getSetupTaskMeta(value.task)}</Txt>
+                </View>
+                <Pressable onPress={() => setScheduleTaskModalVisible(true)} accessibilityRole="button" accessibilityLabel="Change scheduled plan">
+                  <Txt color={colors.blue} size={12} weight="800">Change</Txt>
+                </Pressable>
+                <Pressable
+                  onPress={() => update({ selection: null, task: null })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove scheduled plan"
+                  style={{ marginLeft: 10 }}
+                >
+                  <Ionicons name="close-circle-outline" size={20} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            ) : null}
+
             {value.mode !== 'stopwatch' ? (
               <>
                 <Txt color={colors.textMuted} size={11.5} weight="700" style={{ marginBottom: 6 }}>DURATION (MINUTES)</Txt>
@@ -122,33 +247,31 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                 <Ionicons name="close" size={20} color={colors.textMuted} />
               </Pressable>
             </View>
-            {!state.plannerTasksLoaded ? (
-              <Txt color={colors.textMuted} size={13}>Loading scheduled tasks...</Txt>
-            ) : state.plannerTaskLoadError ? (
-              <Txt color={colors.danger} size={13}>{state.plannerTaskLoadError}</Txt>
-            ) : state.plannerTasks.length === 0 ? (
-              <Txt color={colors.textMuted} size={13}>No scheduled tasks are available. You can continue without selecting one.</Txt>
+            {!state.storageReady ? (
+              <Txt color={colors.textMuted} size={13}>Loading scheduled plans...</Txt>
             ) : (
-              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-                {state.plannerTasks.map((task) => (
-                  <Pressable
-                    key={task.id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: value.task?.id === task.id }}
-                    onPress={() => {
-                      update({ task, selection: 'schedule' });
-                      setScheduleTaskModalVisible(false);
-                    }}
-                    style={[styles.modalTagItem, { backgroundColor: surfaceAltBg, borderWidth: value.task?.id === task.id ? 1 : 0, borderColor: colors.blue }]}
-                  >
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Txt color={colors.text} size={14} weight="700">{task.label}</Txt>
-                      <Txt color={colors.textMuted} size={12} style={{ marginTop: 3 }}>{task.category} · {task.targetDate}</Txt>
-                    </View>
-                    {value.task?.id === task.id ? <Ionicons name="checkmark-circle" size={19} color={colors.blue} /> : null}
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <>
+                <TextInput
+                  value={scheduleSearch}
+                  onChangeText={setScheduleSearch}
+                  placeholder="Search plans"
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text, marginBottom: 10 }]}
+                />
+                <SchedulePlanList
+                  items={state.plannerScheduleItems}
+                  search={scheduleSearch}
+                  showOther={showOtherSchedule}
+                  selectedId={value.task?.id ?? null}
+                  surfaceBg={surfaceAltBg}
+                  colors={colors}
+                  onToggleOther={() => setShowOtherSchedule((current) => !current)}
+                  onSelect={(task) => {
+                    update({ task, selection: 'schedule' });
+                    setScheduleTaskModalVisible(false);
+                  }}
+                />
+              </>
             )}
           </View>
         </View>
@@ -207,6 +330,7 @@ const styles = StyleSheet.create({
   modeTabsRow: { flexDirection: 'row', borderRadius: 12, padding: 4 },
   modeTabItem: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 10 },
   studySourceButton: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingHorizontal: 8 },
+  selectedScheduleCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
   durationPill: { flex: 1, height: 38, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   modalCard: { width: '100%', maxWidth: 380, borderRadius: 20, padding: 22, borderWidth: 1 },

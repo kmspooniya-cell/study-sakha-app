@@ -50,9 +50,13 @@ jest.mock('@react-navigation/native', () => {
     useFocusEffect: (callback: React.EffectCallback) => React.useEffect(callback, [callback]),
   };
 });
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
-}));
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    SafeAreaView: View,
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  };
+});
 
 jest.mock('../components/Shell', () => {
   const React = require('react');
@@ -127,6 +131,31 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 jest.mock('../lib/focusHistory', () => ({ appendFocusHistory: jest.fn(async () => undefined) }));
 jest.mock('../components/DashboardStudyTools', () => ({ FocusActivityTimer: () => null }));
+jest.mock('../components/GeminiFocusTimer', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { Pressable, Text, View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: ({ timer, subject, onPause, onStop, onBreak }: {
+      timer: { remainingSeconds: number; running: boolean; isBreak: boolean; modeLabel: string };
+      subject: string;
+      onPause: () => void;
+      onStop: () => void;
+      onBreak: () => void;
+    }) => {
+      const minutes = Math.floor(timer.remainingSeconds / 60).toString().padStart(2, '0');
+      const seconds = (timer.remainingSeconds % 60).toString().padStart(2, '0');
+      return React.createElement(View, null,
+        React.createElement(Text, null, timer.isBreak ? 'BREAK' : timer.modeLabel),
+        React.createElement(Text, null, `${minutes}:${seconds}`),
+        React.createElement(Text, null, subject),
+        React.createElement(Pressable, { onPress: onPause }, React.createElement(Text, null, timer.running ? 'Pause' : 'Resume')),
+        React.createElement(Pressable, { onPress: onBreak }, React.createElement(Text, null, timer.isBreak ? 'Back to focus' : 'Take a break')),
+        React.createElement(Pressable, { onPress: onStop }, React.createElement(Text, null, 'Stop Focus')),
+      );
+    },
+  };
+});
 jest.mock('../components/FullScreenMeditation', () => ({ FullScreenMeditation: () => null }));
 jest.mock('../components/MeditationPresets', () => ({
   getPresetById: () => ({ title: 'Preset', accentColor: '#FFF', icon: 'leaf' }),
@@ -199,6 +228,39 @@ describe('shared focus session setup', () => {
     expect(view.getByText('Polity')).toBeTruthy();
   });
 
+  it('counts down a five-minute break started from stopwatch mode without recording break time', () => {
+    jest.useFakeTimers();
+    mockRoute.params = {
+      focusSession: {
+        mode: 'stopwatch',
+        durationMinutes: 25,
+        selection: 'manual',
+        tag: 'Work',
+        task: null,
+      },
+    };
+
+    try {
+      const view = render(<FocusCenterScreen />);
+      expect(view.getByText('STOPWATCH')).toBeTruthy();
+      fireEvent.press(view.getByText('Take a break'));
+      expect(view.getByText('BREAK')).toBeTruthy();
+      expect(view.getByText('05:00')).toBeTruthy();
+
+      act(() => jest.advanceTimersByTime(5 * 60 * 1000));
+
+      expect(view.getByText('00:00')).toBeTruthy();
+      expect(view.getByText('Back to focus')).toBeTruthy();
+      expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
+      fireEvent.press(view.getByText('Back to focus'));
+      expect(view.getByText('TIMER')).toBeTruthy();
+      expect(view.getByText('25:00')).toBeTruthy();
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
   it('publishes linked room focus updates and clears the chair when the session stops', () => {
     const events: string[] = [];
     const unsubscribe = subscribeGroupRoomFocus((event) => events.push(event.type));
@@ -231,7 +293,7 @@ describe('shared focus session setup', () => {
 
     fireEvent.press(view.getByText('Take a break'));
     expect(getGroupRoomFocusActivity()?.status).toBe('break');
-    fireEvent.press(view.getByText('Resume'));
+    fireEvent.press(view.getByText('Back to focus'));
     expect(getGroupRoomFocusActivity()?.status).toBe('focusing');
 
     act(() => mockBlurListeners.forEach((listener) => listener()));
