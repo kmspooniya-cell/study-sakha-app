@@ -54,12 +54,17 @@ export type AppStackParamList = {
       sessionId: string;
       startedAt: string;
       endedAt: string;
+      completedAt?: string;
       focusedSeconds: number;
+      actualSeconds?: number;
       plannedSeconds: number | null;
+      plannedMinutes?: number;
       mode: 'timer' | 'stopwatch' | 'pomodoro';
       subject?: string;
       topic?: string;
+      focusQuality?: 'distracted' | 'steady' | 'flow';
       taskId?: string;
+      minutes?: number;
       status: 'completed' | 'saved_early';
     };
     message: string;

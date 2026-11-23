@@ -67,6 +67,14 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": false,
+          "savePhotosPermission": "Study Sakha saves focus proof cards to your photo library.",
+          "granularPermissions": []
+        }
+      ],
       "@react-native-community/datetimepicker"
     ]
   }

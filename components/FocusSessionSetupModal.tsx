@@ -19,6 +19,7 @@ export type FocusSessionSetup = {
   tag: string;
   task: PlannerTask | PlannerScheduleItem | null;
   scheduleOccurrenceId?: string;
+  startInBreak?: boolean;
 };
 
 function getSetupTaskTitle(task: PlannerTask | PlannerScheduleItem): string {

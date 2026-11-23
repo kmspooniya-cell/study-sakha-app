@@ -352,11 +352,11 @@ export default function FocusCenterScreen() {
       mode: setup.mode,
       plannedSeconds: setup.mode === 'stopwatch' ? null : setup.durationMinutes * 60,
       focusedMilliseconds: 0,
-      focusSegmentStartedAt: now,
-      phase: 'focus',
+      focusSegmentStartedAt: setup.startInBreak ? null : now,
+      phase: setup.startInBreak ? 'break' : 'focus',
       resumePhase: null,
       breakElapsedMilliseconds: 0,
-      breakStartedAt: null,
+      breakStartedAt: setup.startInBreak ? now : null,
       subject,
       topic: getTaskTitle(task),
       taskId: setup.scheduleOccurrenceId ?? task?.id ?? null,
@@ -367,9 +367,11 @@ export default function FocusCenterScreen() {
         : null,
       task,
       groupId: route.params?.roomFocus?.groupId ?? null,
-      sessionLabel: setup.mode === 'pomodoro'
-        ? 'Pomodoro'
-        : `${setup.durationMinutes}-minute Focus`,
+      sessionLabel: setup.startInBreak
+        ? 'Smart Break'
+        : setup.mode === 'pomodoro'
+          ? 'Pomodoro'
+          : `${setup.durationMinutes}-minute Focus`,
       endRequested: false,
     };
   }, [route.params?.roomFocus?.groupId, userId]);
@@ -654,7 +656,12 @@ export default function FocusCenterScreen() {
       console.error('Active focus session could not be persisted:', error);
       setSaveError(error instanceof Error ? error.message : 'Active focus session could not be persisted.');
     });
-    publishRoomUpdate(next, 'focusing', 'start', now);
+    publishRoomUpdate(
+      next,
+      setup.startInBreak ? 'break' : 'focusing',
+      setup.startInBreak ? 'break' : 'start',
+      now,
+    );
   }, [commitSession, createRuntime, persistSession, publishRoomUpdate]);
 
   const togglePause = useCallback(() => {

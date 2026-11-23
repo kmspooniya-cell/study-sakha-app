@@ -119,7 +119,13 @@ return () => subscription.remove();
 );
 }
 
-export function AppHeader({ safeAreaTop = true }: { safeAreaTop?: boolean }) {
+export function AppHeader({
+safeAreaTop = true,
+appHeaderActions,
+}: {
+safeAreaTop?: boolean;
+appHeaderActions?: React.ReactNode;
+}) {
 const nav = useNavigation<AppNavigation>();
 const route = useRoute<AppHeaderRoute>();
 const insets = useSafeAreaInsets();
@@ -205,6 +211,7 @@ style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
 </Pressable>
 </View>
 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+{appHeaderActions}
 <Pressable onPress={cycleTheme} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Toggle theme">
 <Ionicons name={scheme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={18} color={secondaryText} />
 </Pressable>
@@ -489,6 +496,8 @@ scroll = true,
 maxWidth = 1180,
 headerRight,
 contentPadding = 20,
+appHeaderActions,
+fitContentToBottomNav = false,
 }: {
 active: NavKey;
 title: string;
@@ -498,6 +507,8 @@ scroll?: boolean;
 maxWidth?: number;
 headerRight?: React.ReactNode;
 contentPadding?: number;
+appHeaderActions?: React.ReactNode;
+fitContentToBottomNav?: boolean;
 }) {
 const { colors } = useTheme();
 const nav = useNavigation<AppNavigation>();
@@ -717,7 +728,7 @@ showsVerticalScrollIndicator={false}
 if (isMobile) {
 return (
 <View style={{ flex: 1, backgroundColor: colors.bg }}>
-<AppHeader />
+<AppHeader appHeaderActions={appHeaderActions} />
 <View style={{ flex: 1 }}>
 {scroll ? (
 <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 112 }} showsVerticalScrollIndicator={false}>
@@ -740,7 +751,7 @@ return (
 {children}
 </ScrollView>
 ) : (
-<View style={{ flex: 1, paddingBottom: 112 }}>
+<View style={{ flex: 1, paddingBottom: fitContentToBottomNav ? 52 + insets.bottom : 112 }}>
 {hasPageHeading ? (
 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
 <Txt size={21} weight="800" display>
@@ -766,7 +777,7 @@ return (
 <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
 {Sidebar}
 <View style={{ flex: 1 }}>
-<AppHeader />
+<AppHeader appHeaderActions={appHeaderActions} />
 {TopBar}
 {body}
 </View>
