@@ -1,9 +1,24 @@
 {
-  "buildCommand": null,
+  "buildCommand": "pnpm exec expo export --platform web",
+  "framework": null,
   "outputDirectory": "dist",
+  "functions": {
+    "api/[...path].js": {
+      "maxDuration": 60,
+      "includeFiles": "assets/audio_library/**"
+    }
+  },
   "rewrites": [
     {
-      "source": "/((?!_expo|assets|.*\\..*).*)",
+      "source": "/api/:path*",
+      "destination": "/api/[...path]"
+    },
+    {
+      "source": "/healthz",
+      "destination": "/api/healthz"
+    },
+    {
+      "source": "/((?!api|_expo|assets|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]

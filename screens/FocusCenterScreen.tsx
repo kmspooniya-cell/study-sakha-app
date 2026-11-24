@@ -130,38 +130,60 @@ function isCompletionRecord(value: unknown): value is CompletionRecord {
   return isRecord(value) &&
     typeof value.id === 'string' &&
     typeof value.sessionId === 'string' &&
-    typeof value.startedAt === 'string' &&
-    typeof value.endedAt === 'string' &&
-    typeof value.completedAt === 'string' &&
-    typeof value.focusedSeconds === 'number' &&
-    typeof value.actualSeconds === 'number' &&
-    (value.plannedSeconds === null || typeof value.plannedSeconds === 'number') &&
+    isValidTimestamp(value.startedAt) &&
+    isValidTimestamp(value.endedAt) &&
+    isValidTimestamp(value.completedAt) &&
+    isNonNegativeFiniteNumber(value.focusedSeconds) &&
+    isNonNegativeFiniteNumber(value.actualSeconds) &&
+    (value.plannedSeconds === null || isNonNegativeFiniteNumber(value.plannedSeconds)) &&
     (value.mode === 'timer' || value.mode === 'pomodoro' || value.mode === 'stopwatch') &&
     (value.status === 'completed' || value.status === 'saved_early') &&
-    typeof value.minutes === 'number' &&
+    isNonNegativeFiniteNumber(value.minutes) &&
     (value.scheduleId === undefined || typeof value.scheduleId === 'string') &&
     (value.scheduleOccurrenceId === undefined || typeof value.scheduleOccurrenceId === 'string');
+}
+
+function isValidTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isValidFocusSessionSetup(value: unknown): value is FocusSessionSetup {
+  if (!isRecord(value)) return false;
+  if (!['timer', 'pomodoro', 'stopwatch'].includes(String(value.mode))) return false;
+  if (!isNonNegativeFiniteNumber(value.durationMinutes) || value.durationMinutes <= 0) return false;
+  if (value.selection !== null && value.selection !== 'manual' && value.selection !== 'schedule') return false;
+  if (typeof value.tag !== 'string') return false;
+  if (value.startInBreak !== undefined && typeof value.startInBreak !== 'boolean') return false;
+  if (value.scheduleOccurrenceId !== undefined &&
+    (typeof value.scheduleOccurrenceId !== 'string' || value.scheduleOccurrenceId.length === 0)) return false;
+  if (value.selection === 'schedule' && !isStoredTask(value.task)) return false;
+  if (value.selection !== 'schedule' && value.task !== null) return false;
+  return true;
 }
 
 function isActiveFocusSession(value: unknown): value is ActiveFocusSession {
   return isRecord(value) &&
     typeof value.id === 'string' &&
     (value.userId === null || typeof value.userId === 'string') &&
-    typeof value.startedAt === 'string' &&
+    isValidTimestamp(value.startedAt) &&
     (value.mode === 'timer' || value.mode === 'pomodoro' || value.mode === 'stopwatch') &&
-    (value.plannedSeconds === null || typeof value.plannedSeconds === 'number') &&
-    typeof value.focusedMilliseconds === 'number' &&
-    (value.focusSegmentStartedAt === null || typeof value.focusSegmentStartedAt === 'number') &&
+    (value.plannedSeconds === null || isNonNegativeFiniteNumber(value.plannedSeconds)) &&
+    isNonNegativeFiniteNumber(value.focusedMilliseconds) &&
+    (value.focusSegmentStartedAt === null || isNonNegativeFiniteNumber(value.focusSegmentStartedAt)) &&
     (value.phase === 'focus' || value.phase === 'break' || value.phase === 'paused') &&
     (value.resumePhase === null || value.resumePhase === 'focus' || value.resumePhase === 'break') &&
-    typeof value.breakElapsedMilliseconds === 'number' &&
-    (value.breakStartedAt === null || typeof value.breakStartedAt === 'number') &&
+    isNonNegativeFiniteNumber(value.breakElapsedMilliseconds) &&
+    (value.breakStartedAt === null || isNonNegativeFiniteNumber(value.breakStartedAt)) &&
     (value.subject === null || typeof value.subject === 'string') &&
     (value.topic === null || typeof value.topic === 'string') &&
     (value.taskId === null || typeof value.taskId === 'string') &&
     (value.scheduleId === undefined || value.scheduleId === null || typeof value.scheduleId === 'string') &&
     (value.scheduleOccurrenceId === undefined || value.scheduleOccurrenceId === null || typeof value.scheduleOccurrenceId === 'string') &&
-    (value.schedulePlannedSeconds === undefined || value.schedulePlannedSeconds === null || typeof value.schedulePlannedSeconds === 'number') &&
+    (value.schedulePlannedSeconds === undefined || value.schedulePlannedSeconds === null || isNonNegativeFiniteNumber(value.schedulePlannedSeconds)) &&
     (value.task === null || isStoredTask(value.task)) &&
     (value.groupId === null || typeof value.groupId === 'string') &&
     typeof value.sessionLabel === 'string' &&
@@ -646,6 +668,10 @@ export default function FocusCenterScreen() {
   }, [commitSession, completeSession, persistSession, publishRoomUpdate]);
 
   const startSession = useCallback((setup: FocusSessionSetup) => {
+    if (!isValidFocusSessionSetup(setup)) {
+      setSaveError('This focus session setup is invalid. Please choose the duration again.');
+      return;
+    }
     const now = Date.now();
     const next = createRuntime(setup, now);
     sessionOrigin.current = next.groupId ? 'Groups' : 'DashboardRoot';
@@ -929,6 +955,10 @@ export default function FocusCenterScreen() {
 
   useEffect(() => {
     if (!sessionStorageReady || !route.params?.focusSession) return;
+    if (!isValidFocusSessionSetup(route.params.focusSession)) {
+      navigation.setParams({ focusSession: undefined });
+      return;
+    }
     if (!sessionRef.current) startSession(route.params.focusSession);
     navigation.setParams({ focusSession: undefined });
   }, [navigation, route.params?.focusSession, sessionStorageReady, startSession]);
@@ -1187,15 +1217,15 @@ export default function FocusCenterScreen() {
   if (currentSession && focusTimerController) {
     return (
       <>
-        <Pressable
+        {__DEV__ && <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open realtime diagnostics"
           onPress={() => setShowDiagnosticPanel((visible) => !visible)}
           style={[styles.diagnosticButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
           <Txt size={11} weight="700">Realtime diagnostics</Txt>
-        </Pressable>
-        {showDiagnosticPanel ? (
+        </Pressable>}
+        {__DEV__ && showDiagnosticPanel ? (
           <View style={[styles.diagnosticPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Txt size={11}>Session user: {diagnosticState.sessionId ?? 'none'}</Txt>
             <Txt size={11}>Verified user: {diagnosticState.verifiedUserId ?? 'none'}</Txt>

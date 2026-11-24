@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { getAndroidBackTarget } from '../lib/navigation';
+import { getAndroidBackTarget, getNotificationNavigationRoute } from '../lib/navigation';
 
 describe('Android back targets', () => {
   it('returns from a library detail screen to its main screen', () => {
@@ -21,5 +21,15 @@ describe('Android back targets', () => {
 
   it('leaves Android back handling to the system on the dashboard', () => {
     expect(getAndroidBackTarget('DashboardRoot', ['DashboardRoot'])).toBeNull();
+  });
+
+  it('recognizes notification taps that target the in-app notification inbox', () => {
+    expect(getNotificationNavigationRoute({
+      notification: { request: { content: { data: { route: 'Notifications' } } } },
+    })).toBe('Notifications');
+    expect(getNotificationNavigationRoute({
+      notification: { request: { content: { data: { route: 'Settings' } } } },
+    })).toBeNull();
+    expect(getNotificationNavigationRoute(null)).toBeNull();
   });
 });

@@ -1,0 +1,11 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Settings"
+- assertVisible: "Settings"
+- tapOn: "Dark theme"
+- launchApp
+- tapOn: "Open menu"
+- tapOn: "Settings"
+- assertVisible: "Dark theme"
+- takeScreenshot: settings-after-restart

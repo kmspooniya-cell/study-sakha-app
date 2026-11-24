@@ -1,0 +1,11 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp:
+    clearState: true
+- tapOn: "you@example.in"
+- inputText: "${MAESTRO_TEST_EMAIL}"
+- tapOn: "Your password"
+- inputText: "${MAESTRO_TEST_PASSWORD}"
+- tapOn: "Sign in"
+- assertVisible: "Make today count."
+- takeScreenshot: authentication-signed-in

@@ -185,8 +185,13 @@ type LegacyLearningData = Pick<
   | 'results'
 >;
 
-const todayKey = () => new Date().toISOString().slice(0, 10);
-export const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+export const dayKey = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const todayKey = () => dayKey(new Date());
 const LEGACY_PLANNER_KEY = 'study-sakha-custom-tasks-v1';
 const LEGACY_SCOPED_STORAGE_KEYS = [
   'study-sakha-focus-history-v1',
@@ -538,7 +543,7 @@ const initialState: State = {
   ],
 };
 
-type Action =
+export type Action =
   | { type: 'hydrate'; payload: Partial<State> }
   | { type: 'restore'; payload: Partial<State>; tasks: PlannerTask[]; pendingActions: Action[]; profile?: Partial<User> }
   | { type: 'importLegacyLearningData'; payload: LegacyLearningData }
@@ -642,7 +647,7 @@ function isPersistedAction(action: Action) {
   return PERSISTED_ACTION_TYPES.has(action.type);
 }
 
-function reducer(state: State, action: Action): State {
+export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate':
       return { ...state, ...action.payload, user: state.user, authReady: state.authReady, hydrated: true };
@@ -808,7 +813,9 @@ function reducer(state: State, action: Action): State {
       };
     }
     case 'authCheckFailed':
-      return { ...state, authReady: true };
+      // A failed verification must not leave the previous account authenticated
+      // while a new or refreshed session is unresolved.
+      return reducer(state, { type: 'authResolved', user: null });
     case 'signIn':
       return { ...state, user: action.user };
     case 'updateProfile':
@@ -1000,19 +1007,26 @@ function reducer(state: State, action: Action): State {
         action.seconds <= 0 ||
         state.recordedFocusSessionIds.includes(action.id)
       ) return state;
+      const studySeconds = { ...state.plannerTaskStudySeconds };
+      if (action.taskId) {
+        studySeconds[action.taskId] = (studySeconds[action.taskId] ?? 0) + action.seconds;
+      }
+      if (action.scheduleOccurrenceId && action.scheduleOccurrenceId !== action.taskId) {
+        studySeconds[action.scheduleOccurrenceId] =
+          (studySeconds[action.scheduleOccurrenceId] ?? 0) + action.seconds;
+      }
+      const occurrenceSeconds = action.scheduleOccurrenceId
+        ? studySeconds[action.scheduleOccurrenceId] ?? 0
+        : 0;
+
       return {
         ...state,
         recordedFocusSessionIds: [...state.recordedFocusSessionIds, action.id],
-        plannerTaskStudySeconds: action.taskId
-          ? {
-              ...state.plannerTaskStudySeconds,
-              [action.taskId]: (state.plannerTaskStudySeconds[action.taskId] ?? 0) + action.seconds,
-            }
-          : state.plannerTaskStudySeconds,
+        plannerTaskStudySeconds: studySeconds,
         plannerScheduleCompletions: action.scheduleOccurrenceId &&
           action.schedulePlannedSeconds !== undefined &&
           action.schedulePlannedSeconds > 0 &&
-          (state.plannerTaskStudySeconds[action.scheduleOccurrenceId] ?? 0) + action.seconds >= action.schedulePlannedSeconds
+          occurrenceSeconds >= action.schedulePlannedSeconds
           ? {
               ...state.plannerScheduleCompletions,
               [action.scheduleOccurrenceId]: action.date,
@@ -1124,7 +1138,7 @@ type Ctx = {
 const StoreCtx = createContext<Ctx | null>(null);
 
 const isExamId = (value: unknown): value is ExamId =>
-  value === 'upsc' || value === 'ssc' || value === 'banking' || value === 'neet' || value === 'jee';
+  value === 'upsc' || value === 'ras' || value === 'rpsc_rssb' || value === 'ssc' || value === 'banking' || value === 'neet' || value === 'jee';
 
 const isManagedContentType = (value: unknown): value is ManagedContentType =>
   value === 'note' || value === 'book' || value === 'pyq-set' || value === 'test' || value === 'current-affairs';
@@ -2045,6 +2059,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       const nextName = patch.name ?? state.user.name;
       const nextExam = patch.exam ?? state.user.exam;
+      if (!isExamId(nextExam)) {
+        return { ok: false, error: 'Choose a supported exam before saving your profile.' };
+      }
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert(
@@ -2079,11 +2096,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ok: true, emailChangePending: emailChanged };
     } catch (error) {
       const message = errorMessage(error, 'Unable to save profile changes.');
+      const databaseError = error as { code?: string };
+      const actionableMessage = databaseError.code === '23503'
+        ? 'The selected exam is not available in the exam catalog yet. Choose another exam or deploy the latest Supabase catalog migration.'
+        : message;
       return {
         ok: false,
         error: profileRowSaved
-          ? `Your name and exam were saved, but the remaining profile changes could not be saved: ${message} Try saving again to finish the update.`
-          : message,
+          ? `Your name and exam were saved, but the remaining profile changes could not be saved: ${actionableMessage} Try saving again to finish the update.`
+          : actionableMessage,
       };
     }
   }, [dispatch, state.user]);

@@ -8,6 +8,7 @@ import { Logo } from '../components/Logo';
 import { useLayout } from '../components/Shell';
 import { Button, Card, Field, Txt } from '../components/ui';
 import type { AuthNavigation } from '../lib/navigation';
+import { validateSignInCredentials } from '../lib/authValidation';
 import { useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 
@@ -48,8 +49,9 @@ export default function SignInScreen() {
 
   const submit = async () => {
     setError('');
-    if (!email.trim() || !password) {
-      setError('Enter both your email and password.');
+    const validationError = validateSignInCredentials(email, password);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setBusy(true);

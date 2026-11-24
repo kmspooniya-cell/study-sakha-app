@@ -1478,6 +1478,7 @@ export default function StudySakhaGroupsRN() {
   const joiningRoomRef = useRef(false);
   const leavingRoomRef = useRef(false);
   const focusLaunchRef = useRef(false);
+  const returningToFocusRef = useRef(false);
 
   // Chat State
   const [activeChannel, setActiveChannel] = useState('general-chat');
@@ -1512,6 +1513,7 @@ export default function StudySakhaGroupsRN() {
   const [showModelAnswer, setShowModelAnswer] = useState(false);
   const [liveRoomCategory, setLiveRoomCategory] = useState('focus');
   const [selectionSheet, setSelectionSheet] = useState<SelectionSheetKind | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Events State
   const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
@@ -1628,7 +1630,12 @@ export default function StudySakhaGroupsRN() {
 
   const showToast = useCallback((message: string) => {
     setToast(message);
-    setTimeout(() => setToast(null), 2800);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -2144,11 +2151,20 @@ export default function StudySakhaGroupsRN() {
     });
   };
 
+  const handleBackToFocusCentre = () => {
+    if (returningToFocusRef.current) return;
+    returningToFocusRef.current = true;
+    setRoomMinimized(true);
+
+    const hasFocusCentre = navigation.getState().routes.some((route) => route.name === 'FocusCenter');
+    if (hasFocusCentre) navigation.popTo('FocusCenter');
+    else navigation.navigate('FocusCenter');
+  };
+
 // Smart Study Room participant mapping (outside JSX)
   const currentUserChairForSmartRoom = useMemo(() => {
     const focusing = currentRoomFocusActivity?.status === 'focusing';
     const paused = currentRoomFocusActivity?.status === 'paused' || currentRoomFocusActivity?.status === 'break';
-    const available = !currentRoomFocusActivity;
     const state: ChairState = focusing ? 'focusing' : paused ? 'paused' : 'available';
     const member: StudyMember = {
       id: roomUser?.id ?? 'self',
@@ -2163,6 +2179,7 @@ export default function StudySakhaGroupsRN() {
       targetSeconds: null,
       elapsedSeconds: currentRoomFocusActivity?.elapsedSeconds ?? 0,
       startedAt: currentRoomFocusActivity?.startedAt ?? null,
+      focusUpdatedAt: currentRoomFocusActivity?.updatedAt ?? null,
     };
     return member;
   }, [roomUser?.id, roomUser?.name, currentRoomFocusActivity, roomSubject]);
@@ -2190,6 +2207,7 @@ export default function StudySakhaGroupsRN() {
         mode: null,
         targetSeconds: null,
         startedAt: null,
+        focusUpdatedAt: p.focusUpdatedAt ?? null,
       }));
   }, [roomRealtime?.participants, roomUser?.id, hiddenRoomMembers]);
 
@@ -4620,7 +4638,7 @@ export default function StudySakhaGroupsRN() {
             </Pressable>
             {focusBarSession ? (
               <Pressable
-                onPress={() => navigation.navigate('FocusCenter')}
+                onPress={handleBackToFocusCentre}
                 style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 10, borderColor: theme.successBorder, backgroundColor: theme.successSoft }]}
                 accessibilityRole="button"
                 accessibilityLabel="Back to Focus Centre"
@@ -5034,7 +5052,7 @@ export default function StudySakhaGroupsRN() {
                     </Text>
                   </View>
                   <Pressable
-                    onPress={() => navigation.navigate('FocusCenter')}
+                    onPress={handleBackToFocusCentre}
                     accessibilityRole="button"
                     accessibilityLabel="Back to Focus Centre"
                     style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 12, borderColor: theme.successBorder, backgroundColor: theme.successSoft }]}

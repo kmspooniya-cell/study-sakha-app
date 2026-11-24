@@ -1,10 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { AudioDownloadManager, AudioDownloadState } from '../lib/audioDownloadManager';
 import { useTheme } from '../lib/theme';
 import { Button, Txt } from './ui';
+import { Popup } from './Popup';
 import { MEDITATION_SOUND_LIST } from './MeditationPresets';
 
 type Props = {
@@ -24,8 +25,7 @@ const EMPTY_DOWNLOAD_STATE: AudioDownloadState = {
 };
 
 export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSelect, onClose }: Props) {
-  const { colors, scheme } = useTheme();
-  const isDark = scheme === 'dark';
+  const { colors } = useTheme();
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [audioError, setAudioError] = useState('');
   const [downloads, setDownloads] = useState<Record<string, AudioDownloadState>>({});
@@ -108,34 +108,15 @@ export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSel
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay }}>
-        <View
-          style={{
-            width: '100%',
-            maxWidth: 620,
-            maxHeight: '88%',
-            alignSelf: 'center',
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            padding: 20,
-            paddingBottom: 28,
-            borderWidth: 1,
-            borderBottomWidth: 0,
-            borderColor: colors.border,
-            backgroundColor: isDark ? colors.surfaceRaised : colors.surface,
-          }}
-        >
-          <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.textFaint, alignSelf: 'center', marginBottom: 16 }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <View>
-              <Txt size={19} weight="800">Music Selection</Txt>
-              <Txt size={12} color={colors.textMuted} style={{ marginTop: 3 }}>Choose a soundscape for this focus session.</Txt>
-            </View>
-            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close music selection" style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="close" size={22} color={colors.textMuted} />
-            </Pressable>
-          </View>
+    <Popup
+      visible={visible}
+      onClose={onClose}
+      title="Music Selection"
+      subtitle="Choose a soundscape for this focus session."
+      scrollable={false}
+      style={{ maxWidth: 620, padding: 0, paddingBottom: 20 }}
+    >
+      <View style={{ paddingHorizontal: 20 }}>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
             {MEDITATION_SOUND_LIST.map((track) => {
@@ -231,8 +212,7 @@ export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSel
               <Txt size={13} weight="700">Done</Txt>
             </Pressable>
           </View>
-        </View>
       </View>
-    </Modal>
+    </Popup>
   );
 }

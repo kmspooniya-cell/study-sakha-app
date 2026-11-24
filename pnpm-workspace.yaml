@@ -3,4 +3,11 @@ allowBuilds:
   '@shopify/react-native-skia': true
   protobufjs: false
 minimumReleaseAgeExclude:
+  - '@expo/metro-runtime@57.0.19'
+  - expo-asset@57.0.22
+  - expo-constants@57.0.25
+  - expo-image-picker@57.0.22
+  - expo-notifications@57.0.26
+  - expo-sharing@57.0.27
+  - expo-splash-screen@57.0.12
   - lucide-react-native@1.77.0

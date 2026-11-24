@@ -1,0 +1,11 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Library"
+- assertVisible: "Library"
+- tapOn: "Open Notes"
+- assertVisible: "Notes"
+- tapOn: "Back to Library categories"
+- tapOn: "Open Books & PDFs"
+- assertVisible: "Books & PDFs"
+- takeScreenshot: library-sections

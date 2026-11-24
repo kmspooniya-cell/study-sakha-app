@@ -1,0 +1,6 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Schedule"
+- assertVisible: "Study Planner"
+- takeScreenshot: study-planner

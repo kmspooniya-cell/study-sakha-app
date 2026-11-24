@@ -34,6 +34,14 @@ import {
   DEFAULT_PARTNERS,
 } from '../lib/smartStudyRoom';
 import type { AppNavigation } from '../lib/navigation';
+import { getDisplayedFocusElapsedSeconds } from '../lib/groupFocusTimer';
+
+function getDisplayedMember(member: StudyMember, now: number): StudyMember {
+  return {
+    ...member,
+    elapsedSeconds: getDisplayedFocusElapsedSeconds(member.elapsedSeconds, member.state, member.focusUpdatedAt, now),
+  };
+}
 
 export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
   isDark: externalIsDark,
@@ -92,9 +100,21 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
     return () => clearInterval(interval);
   }, [screen, externalCurrentUserChair]);
 
+  const hasExternallyRunningMember = [currentUserChair, ...partners].some((member) => member.state === 'focusing');
+  const [displayNow, setDisplayNow] = useState(Date.now);
+
+  useEffect(() => {
+    if (screen !== 'room' || !hasExternallyRunningMember) return;
+    const interval = setInterval(() => setDisplayNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [hasExternallyRunningMember, screen]);
+
+  const displayedCurrentUser = useMemo(() => getDisplayedMember(currentUserChair, displayNow), [currentUserChair, displayNow]);
+  const displayedPartners = useMemo(() => partners.map((member) => getDisplayedMember(member, displayNow)), [partners, displayNow]);
+
   const allChairs = useMemo(
-    () => [currentUserChair, ...partners],
-    [currentUserChair, partners]
+    () => [displayedCurrentUser, ...displayedPartners],
+    [displayedCurrentUser, displayedPartners]
   );
 
   const selectedMember = useMemo(

@@ -32,7 +32,7 @@ import { captureRef } from 'react-native-view-shot';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { Shell } from '../components/Shell';
 import { updateFocusHistoryRecord } from '../lib/focusHistory';
-import { getUserScopedStorageKey, useStore } from '../lib/store';
+import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 import {
   Award,
@@ -216,14 +216,65 @@ function formatMinutes(minutes: number) {
 // MAIN COMPONENT
 // ============================================================================
 
+type CompletionSession = AppRoute<'FocusCompletion'>['params']['session'];
+
+function isValidCompletionSession(value: unknown): value is CompletionSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Record<string, unknown>;
+  const validTimestamp = (timestamp: unknown) => typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp));
+  const validNumber = (number: unknown) => typeof number === 'number' && Number.isFinite(number) && number >= 0;
+  return typeof session.id === 'string' && session.id.length > 0 &&
+    typeof session.sessionId === 'string' && session.sessionId.length > 0 &&
+    validTimestamp(session.startedAt) && validTimestamp(session.endedAt) &&
+    (session.completedAt === undefined || validTimestamp(session.completedAt)) &&
+    validNumber(session.focusedSeconds) &&
+    (session.actualSeconds === undefined || validNumber(session.actualSeconds)) &&
+    (session.plannedSeconds === null || validNumber(session.plannedSeconds)) &&
+    (session.plannedMinutes === undefined || validNumber(session.plannedMinutes)) &&
+    (session.mode === 'timer' || session.mode === 'stopwatch' || session.mode === 'pomodoro') &&
+    (session.status === 'completed' || session.status === 'saved_early') &&
+    (session.subject === undefined || typeof session.subject === 'string') &&
+    (session.topic === undefined || typeof session.topic === 'string') &&
+    (session.taskId === undefined || typeof session.taskId === 'string') &&
+    (session.scheduleId === undefined || typeof session.scheduleId === 'string') &&
+    (session.scheduleOccurrenceId === undefined || typeof session.scheduleOccurrenceId === 'string') &&
+    (session.groupId === undefined || typeof session.groupId === 'string');
+}
+
+function InvalidCompletionSession({ onBack }: { onBack: () => void }) {
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <Text style={{ fontSize: 18, fontWeight: '700', textAlign: 'center' }}>This focus session could not be opened.</Text>
+      <Text style={{ marginTop: 8, textAlign: 'center' }}>The saved session data is incomplete or invalid.</Text>
+      <Pressable accessibilityRole="button" onPress={onBack} style={{ minHeight: 48, marginTop: 20, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontWeight: '700' }}>Return to Dashboard</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function FocusCompletionScreen() {
+  const navigation = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'FocusCompletion'>>();
+  const session = route.params?.session;
+  if (!isValidCompletionSession(session) || typeof route.params?.message !== 'string') {
+    return <InvalidCompletionSession onBack={() => navigation.popTo('DashboardRoot')} />;
+  }
+  return <FocusCompletionContent />;
+}
+
+function FocusCompletionContent() {
   const navigation = useNavigation<AppNavigation>();
   const { params } = useRoute<AppRoute<'FocusCompletion'>>();
   const { state, streak, dispatch } = useStore();
   const { mode, scheme } = useTheme();
   const { session } = params;
   const userId = state.user?.id;
-  const sessionType: SessionType = session.status === 'completed' ? 'complete' : 'early';
+  const hasReachedPlannedDuration = session.plannedSeconds === null ||
+    session.focusedSeconds >= session.plannedSeconds;
+  const sessionType: SessionType = session.status === 'completed' && hasReachedPlannedDuration
+    ? 'complete'
+    : 'early';
   const [selectedSubject, setSelectedSubject] = useState<string>(
     () => session.subject || session.topic || INITIAL_SUBJECTS[0],
   );
@@ -248,6 +299,7 @@ export default function FocusCompletionScreen() {
   // --- Refs & Animated Values ---
   const proofCardRef = useRef<View>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cardLayout, setCardLayout] = useState({ width: 340, height: 320 });
 
   // Hero Ring SVG Stroke Offset
@@ -275,7 +327,7 @@ export default function FocusCompletionScreen() {
   const percent = plannedSeconds && plannedSeconds > 0
     ? Math.max(0, Math.min(100, Math.round((focusedSeconds / plannedSeconds) * 100)))
     : sessionType === 'complete' ? 100 : 0;
-  const sessionDateKey = new Date(session.endedAt).toISOString().slice(0, 10);
+  const sessionDateKey = dayKey(new Date(session.endedAt));
   const dailyMinutes = (state.studyLog[sessionDateKey] ?? 0) +
     (state.recordedFocusSessionIds.includes(session.id) ? 0 : focusedSeconds / 60);
   const dailyGoalMinutes = Math.max(0, state.settings.dailyGoalMin);
@@ -323,7 +375,7 @@ export default function FocusCompletionScreen() {
   const weekStreak = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(sessionEndedAt);
     date.setDate(date.getDate() - (6 - index));
-    const key = date.toISOString().slice(0, 10);
+    const key = dayKey(date);
     return {
       day: date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 1).toUpperCase(),
       done: (state.studyLog[key] ?? 0) > 0,
@@ -424,7 +476,8 @@ export default function FocusCompletionScreen() {
       }).start();
     });
 
-    setTimeout(() => {
+    if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    confettiTimerRef.current = setTimeout(() => {
       setConfetti([]);
     }, 1700);
   }, []);
@@ -456,6 +509,7 @@ export default function FocusCompletionScreen() {
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
     };
   }, []);
 

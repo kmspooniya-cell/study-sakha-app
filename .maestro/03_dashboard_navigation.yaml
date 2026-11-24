@@ -1,0 +1,11 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- assertVisible: "Make today count."
+- tapOn: "Library"
+- assertVisible: "Library"
+- tapOn: "Groups"
+- assertVisible: "Groups"
+- tapOn: "Sakha AI"
+- assertVisible: "Sakha AI"
+- takeScreenshot: dashboard-navigation

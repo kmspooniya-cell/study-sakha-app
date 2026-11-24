@@ -1,6 +1,6 @@
 import type { AppNavigationTarget } from './navigation';
 
-export type ExamId = 'upsc' | 'ssc' | 'banking' | 'neet' | 'jee';
+export type ExamId = 'upsc' | 'ras' | 'rpsc_rssb' | 'ssc' | 'banking' | 'neet' | 'jee';
 
 export type Exam = { id: ExamId; name: string; short: string; color: string; aspirants: string };
 

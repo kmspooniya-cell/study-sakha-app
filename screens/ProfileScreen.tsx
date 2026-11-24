@@ -25,7 +25,7 @@ import type { AppNavigation } from '../lib/navigation';
 import { Shell, useLayout } from '../components/Shell';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
-import type { ExamId } from '../lib/types';
+import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
 import Svg, {
   Circle,
   Defs,
@@ -66,7 +66,6 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
-  Target,
   TrendingUp,
   Trophy,
   User,
@@ -117,7 +116,6 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const HERO_RING_CIRCUMFERENCE = 194.77; // 2 * Math.PI * 31
-const GOAL_RING_CIRCUMFERENCE = 144.5; // 2 * Math.PI * 23
 
 const EXAM_OPTIONS: ExamOption[] = [
   { id: 'UPSC', label: 'UPSC CSE', desc: 'Civil Services & IAS' },
@@ -127,13 +125,6 @@ const EXAM_OPTIONS: ExamOption[] = [
   { id: 'Banking', label: 'Banking', desc: 'IBPS, SBI & RBI' },
   { id: 'NEET', label: 'NEET', desc: 'Medical Entrance' },
 ];
-
-const EXAM_ID_BY_FOCUS: Partial<Record<string, ExamId>> = {
-  UPSC: 'upsc',
-  SSC: 'ssc',
-  Banking: 'banking',
-  NEET: 'neet',
-};
 
 const LIGHT_THEME = {
   appBg: '#F7F9FC',
@@ -427,7 +418,6 @@ export default function StudySakhaProfileScreen() {
 
   // Animations (rings, tab transition, pulse dot, dark switch, bars)
   const heroRingOffsetAnim = useRef(new Animated.Value(HERO_RING_CIRCUMFERENCE * 0.5)).current;
-  const goalRingOffsetAnim = useRef(new Animated.Value(118)).current;
   const tabFadeAnim = useRef(new Animated.Value(1)).current;
   const tabSlideAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -486,16 +476,6 @@ export default function StudySakhaProfileScreen() {
     return { pct, missing };
   }, [profile]);
 
-  const goalData = useMemo(() => {
-    const pct = Math.min(100, Math.round((profile.studyMins / profile.dailyGoal) * 100));
-    const remaining = Math.max(0, profile.dailyGoal - profile.studyMins);
-    const barHeightPct = Math.min(
-      100,
-      Math.max(20, Math.round((profile.studyMins / profile.dailyGoal) * 100))
-    );
-    return { pct, remaining, barHeightPct };
-  }, [profile.studyMins, profile.dailyGoal]);
-
   // Emerald status dot pulse animation (matches Tailwind animate-pulse)
   useEffect(() => {
     const loop = Animated.loop(
@@ -537,27 +517,6 @@ export default function StudySakhaProfileScreen() {
     ]).start();
   }, [completionData.pct, heroRingOffsetAnim, nudgeBarAnim]);
 
-  // Animate daily goal ring & today's bar height whenever study minutes change
-  useEffect(() => {
-    const targetGoalOffset =
-      GOAL_RING_CIRCUMFERENCE - (GOAL_RING_CIRCUMFERENCE * goalData.pct) / 100;
-
-    Animated.parallel([
-      Animated.timing(goalRingOffsetAnim, {
-        toValue: targetGoalOffset,
-        duration: 500,
-        easing: Easing.bezier(0.22, 1, 0.36, 1),
-        useNativeDriver: false,
-      }),
-      Animated.timing(todayBarAnim, {
-        toValue: goalData.barHeightPct,
-        duration: 500,
-        easing: Easing.bezier(0.22, 1, 0.36, 1),
-        useNativeDriver: false,
-      }),
-    ]).start();
-  }, [goalData.pct, goalData.barHeightPct, goalRingOffsetAnim, todayBarAnim]);
-
   // Animate dark mode toggle knob
   useEffect(() => {
     Animated.timing(switchKnobAnim, {
@@ -566,6 +525,16 @@ export default function StudySakhaProfileScreen() {
       useNativeDriver: true,
     }).start();
   }, [isDark, switchKnobAnim]);
+
+  useEffect(() => {
+    const today = weeklyData.find((day) => day.today);
+    Animated.timing(todayBarAnim, {
+      toValue: today?.height ?? 10,
+      duration: 500,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+      useNativeDriver: false,
+    }).start();
+  }, [todayBarAnim, weeklyData]);
 
   // Cleanup toast timer on unmount
   useEffect(() => {
@@ -728,11 +697,6 @@ export default function StudySakhaProfileScreen() {
     } finally {
       setSavingProfile(false);
     }
-  };
-
-  const handleLogQuickStudy = () => {
-    dispatch({ type: 'study', minutes: 15 });
-    showToast('+15 mins logged to today’s study!');
   };
 
   const handleChoosePhoto = async () => {
@@ -1214,122 +1178,6 @@ export default function StudySakhaProfileScreen() {
             {/* ==================== TAB 1: OVERVIEW ==================== */}
             {activeTab === 'overview' && (
               <View style={styles.tabStack}>
-                {/* Daily Study Goal Widget */}
-                <View
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: theme.cardBg,
-                      borderColor: theme.cardBorder,
-                    },
-                  ]}
-                >
-                  <View style={styles.cardHeaderRow}>
-                    <View style={styles.cardHeaderLeft}>
-                      <View
-                        style={[
-                          styles.smallIconBadge,
-                          { backgroundColor: theme.blueSoftBg },
-                        ]}
-                      >
-                        <Target size={16} color={theme.blueSoftText} />
-                      </View>
-                      <Text
-                        style={[styles.cardTitle, { color: theme.textPrimary }]}
-                      >
-                        Daily Study Goal
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.softTagPill,
-                        { backgroundColor: theme.blueSoftBg },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.softTagText,
-                          { color: theme.blueSoftText },
-                        ]}
-                      >
-                        {profile.focus} Target
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.goalBodyRow}>
-                    <View style={styles.goalLeftGroup}>
-                      <View style={styles.goalRingWrap}>
-                        <Svg width={56} height={56} viewBox="0 0 56 56">
-                          <Circle
-                            cx={28}
-                            cy={28}
-                            r={23}
-                            fill="none"
-                            stroke={theme.goalTrack}
-                            strokeWidth={5}
-                          />
-                          <AnimatedCircle
-                            cx={28}
-                            cy={28}
-                            r={23}
-                            fill="none"
-                            stroke={theme.goalStroke}
-                            strokeWidth={5}
-                            strokeLinecap="round"
-                            strokeDasharray={GOAL_RING_CIRCUMFERENCE}
-                            strokeDashoffset={goalRingOffsetAnim}
-                            rotation={-90}
-                            origin="28, 28"
-                          />
-                        </Svg>
-                        <View style={styles.goalRingCenter}>
-                          <Text
-                            style={[
-                              styles.goalPctText,
-                              { color: theme.textPrimary },
-                            ]}
-                          >
-                            {goalData.pct}%
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.goalCopyWrap}>
-                        <Text
-                          style={[
-                            styles.goalMinutesPrimary,
-                            { color: theme.textPrimary },
-                          ]}
-                        >
-                          {profile.studyMins}{' '}
-                          <Text style={styles.goalMinutesUnit}>
-                            / {profile.dailyGoal} min
-                          </Text>
-                        </Text>
-                        <Text
-                          style={[
-                            styles.goalSubtext,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          {goalData.remaining > 0
-                            ? `${goalData.remaining} mins left to hit your daily goal`
-                            : 'Daily goal crushed! Amazing consistency 🎉'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={handleLogQuickStudy}
-                      style={styles.quickLogBtn}
-                    >
-                      <Text style={styles.quickLogBtnText}>+15m</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
                 {/* Your Badges Preview Card */}
                 <View
                   style={[
@@ -2873,8 +2721,7 @@ export default function StudySakhaProfileScreen() {
             >
               <Text style={styles.notesIntro}>
                 Interact directly with the prototype—switch tabs, tap{' '}
-                <Text style={styles.notesBold}>Focus: UPSC ▾</Text>, log{' '}
-                <Text style={styles.notesBold}>+15m</Text> study time, toggle{' '}
+                <Text style={styles.notesBold}>Focus: UPSC ▾</Text>, toggle{' '}
                 <Text style={styles.notesBold}>Dark Mode</Text>, or open{' '}
                 <Text style={styles.notesBold}>Edit Profile</Text> to watch the
                 profile completion ring update live.
@@ -2884,7 +2731,7 @@ export default function StudySakhaProfileScreen() {
                 {
                   num: '1',
                   title: 'Smarter Information Architecture',
-                  body: 'Replaced the generic "Other" junk-drawer tab with Overview • Statistics • Account. High-value student features (Daily Goal, Badges, Quick Focus Switcher) are now immediately accessible instead of buried.',
+                  body: 'Replaced the generic "Other" junk-drawer tab with Overview • Statistics • Account. High-value student features (Badges and Quick Focus Switcher) are immediately accessible instead of buried.',
                 },
                 {
                   num: '2',
@@ -3367,68 +3214,6 @@ const styles = StyleSheet.create({
   softTagText: {
     fontSize: 11,
     fontWeight: '600',
-  },
-
-  // Daily Goal Widget
-  goalBodyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  goalLeftGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    flex: 1,
-  },
-  goalRingWrap: {
-    width: 56,
-    height: 56,
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goalRingCenter: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goalPctText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  goalCopyWrap: {
-    flex: 1,
-  },
-  goalMinutesPrimary: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  goalMinutesUnit: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#94A3B8',
-  },
-  goalSubtext: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  quickLogBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
-    backgroundColor: '#2563EB',
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  quickLogBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
   },
 
   // Badges Preview

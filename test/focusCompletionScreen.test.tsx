@@ -39,6 +39,11 @@ jest.mock('@react-navigation/native', () => ({
   useRoute: () => mockRoute,
 }));
 jest.mock('../lib/store', () => ({
+  dayKey: (date: Date) => {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  },
   getUserScopedStorageKey: (key: string, userId: string | null | undefined) =>
     userId ? `${key}:user:${userId}` : key,
   useStore: () => ({
@@ -98,7 +103,10 @@ describe('focus completion screen', () => {
     mockNavigation.popTo.mockClear();
     mockDispatch.mockClear();
     jest.mocked(updateFocusHistoryRecord).mockClear();
-    mockRoute.params.session = { ...initialSession };
+    mockRoute.params = {
+      session: { ...initialSession },
+      message: 'Good Effort! Your Focus Session Has Been Saved.',
+    };
     mockScheme = 'light';
     mockMode = 'light';
   });
@@ -155,6 +163,29 @@ describe('focus completion screen', () => {
         startInBreak: true,
       },
     });
+  });
+
+  it('does not report goal achievement when a completed record is short of its plan', () => {
+    mockRoute.params.session = {
+      ...mockRoute.params.session,
+      focusedSeconds: 120,
+      actualSeconds: 120,
+      plannedSeconds: 1500,
+      status: 'completed',
+    };
+    const view = render(<FocusCompletionScreen />);
+
+    expect(view.getAllByText('Saved Early')).toHaveLength(2);
+    expect(view.queryByText('Goal Met')).toBeNull();
+  });
+
+  it('shows a safe recovery screen for malformed session parameters', () => {
+    mockRoute.params = { session: { id: 'broken' } } as never;
+    const view = render(<FocusCompletionScreen />);
+
+    expect(view.getByText('This focus session could not be opened.')).toBeTruthy();
+    fireEvent.press(view.getByText('Return to Dashboard'));
+    expect(mockNavigation.popTo).toHaveBeenCalledWith('DashboardRoot');
   });
 
   it('routes statistics to the existing screen', () => {

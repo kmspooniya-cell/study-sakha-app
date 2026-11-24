@@ -26,6 +26,17 @@ const STORAGE_KEY_PREFIX = 'study-sakha-downloaded-audio-';
 const listeners: Record<string, Set<(state: AudioDownloadState) => void>> = {};
 const currentStates: Record<string, AudioDownloadState> = {};
 
+function isAudioDownloadState(value: unknown): value is AudioDownloadState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<AudioDownloadState>;
+  return (state.status === 'idle' || state.status === 'downloading' || state.status === 'downloaded' || state.status === 'error') &&
+    typeof state.progress === 'number' && Number.isFinite(state.progress) && state.progress >= 0 && state.progress <= 1 &&
+    typeof state.bytesWritten === 'number' && Number.isFinite(state.bytesWritten) && state.bytesWritten >= 0 &&
+    typeof state.totalBytes === 'number' && Number.isFinite(state.totalBytes) && state.totalBytes >= 0 &&
+    (state.localUri === null || typeof state.localUri === 'string') &&
+    (state.error === undefined || state.error === null || typeof state.error === 'string');
+}
+
 function notifyListeners(id: string, state: AudioDownloadState) {
   currentStates[id] = state;
   const set = listeners[id];
@@ -53,7 +64,9 @@ export const AudioDownloadManager = {
     if (currentStates[id]) {
       callback(currentStates[id]);
     } else {
-      AudioDownloadManager.getState(id).then((st) => callback(st));
+      void AudioDownloadManager.getState(id).then((st) => {
+        if (listeners[id]?.has(callback)) callback(st);
+      });
     }
     return () => {
       listeners[id]?.delete(callback);
@@ -70,7 +83,8 @@ export const AudioDownloadManager = {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY_PREFIX + id);
       if (raw) {
-        const parsed: AudioDownloadState = JSON.parse(raw);
+        const parsed: unknown = JSON.parse(raw);
+        if (!isAudioDownloadState(parsed)) throw new Error('Saved audio download state has an invalid format.');
         // Verify local file exists if native
         if (Platform.OS !== 'web' && parsed.localUri) {
           try {

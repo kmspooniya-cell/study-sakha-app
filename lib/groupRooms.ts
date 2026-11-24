@@ -74,6 +74,13 @@ export type StudyMemberActivity = {
   scheduleOccurrenceId?: string;
 };
 
+function rpcAvailabilityError(error: { code?: string; message?: string }, feature: string) {
+  if (error.code === 'PGRST202') {
+    return new Error(`${feature} is unavailable because its Supabase function is not deployed. Deploy the latest database migration and reload the PostgREST schema.`);
+  }
+  return new Error(error.message ?? `Could not use ${feature}.`);
+}
+
 function assertSupabaseConfigured() {
   if (!supabaseConfigured) {
     throw new Error('Connect Supabase to join a study room.');
@@ -155,7 +162,7 @@ export async function createStudyGroup({
     group_privacy: privacy,
     group_join_method: joinMethod,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw rpcAvailabilityError(error, 'Group creation');
 }
 
 export async function updateRoomSession(
@@ -242,7 +249,12 @@ export async function getStudyRoomLogs(groupId: string) {
   const { data, error } = await supabase.rpc('get_study_room_insights', {
     group_key: groupId,
   });
-  if (error) throw new Error(`Could not load group study logs: ${error.message}`);
+  if (error) {
+    const availabilityError = rpcAvailabilityError(error, 'Group insights');
+    throw new Error(availabilityError.message === error.message
+      ? `Could not load group study logs: ${error.message}`
+      : availabilityError.message);
+  }
   return (data ?? []) as StudyRoomLog[];
 }
 

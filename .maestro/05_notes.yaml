@@ -1,0 +1,14 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Library"
+- tapOn: "Open Notes"
+- tapOn: "New note"
+- assertVisible: "New note"
+- tapOn: "Title"
+- inputText: "Maestro note ${MAESTRO_RUN_ID}"
+- tapOn: "Your note"
+- inputText: "Automated note persistence check"
+- tapOn: "Save"
+- assertVisible: "Saved"
+- takeScreenshot: notes-created

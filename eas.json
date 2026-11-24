@@ -5,21 +5,36 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "android": {
+        "credentialsSource": "remote",
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Pandroid.enableBundleCompression=true"
       }
     },
     "production": {
       "distribution": "store",
+      "environment": "production",
       "android": {
+        "credentialsSource": "remote",
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Pandroid.enableBundleCompression=true"
       }
     },
+    "production-apk": {
+      "distribution": "internal",
+      "environment": "production",
+      "android": {
+        "credentialsSource": "remote",
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Pandroid.enableBundleCompression=true"
+      }
+    },
     "arm64-apk": {
       "distribution": "internal",
+      "environment": "preview",
       "android": {
+        "credentialsSource": "remote",
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Pandroid.enableBundleCompression=true"
       }

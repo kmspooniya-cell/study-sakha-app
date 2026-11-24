@@ -5,6 +5,32 @@ import initializeSkia from './lib/skiaWebInit';
 
 type AppComponent = React.ComponentType;
 
+type ErrorBoundaryState = { error: Error | null };
+
+class AppErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('Study Sakha rendered an unrecoverable error:', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return React.createElement(
+        View,
+        { style: { flex: 1, backgroundColor: '#0b0c10', alignItems: 'center', justifyContent: 'center', padding: 24 } },
+        React.createElement(Text, { style: { color: '#ffffff', textAlign: 'center' } }, 'Study Sakha could not render this screen.'),
+        React.createElement(Text, { style: { color: '#aeb7d6', textAlign: 'center', marginTop: 12 } }, this.state.error.message),
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AppBootstrap() {
 	const [App, setApp] = useState<AppComponent | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -42,7 +68,7 @@ function AppBootstrap() {
 		);
 	}
 
-	return React.createElement(App);
+  return React.createElement(AppErrorBoundary, null, React.createElement(App));
 }
 
 registerRootComponent(AppBootstrap);

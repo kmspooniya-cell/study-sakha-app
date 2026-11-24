@@ -64,6 +64,9 @@ export type AppStackParamList = {
       topic?: string;
       focusQuality?: 'distracted' | 'steady' | 'flow';
       taskId?: string;
+      scheduleId?: string;
+      scheduleOccurrenceId?: string;
+      groupId?: string;
       minutes?: number;
       status: 'completed' | 'saved_early';
     };
@@ -130,4 +133,17 @@ export function getAndroidBackTarget(
     return previousRoutes.at(-1) ?? 'DashboardRoot';
   }
   return APP_BACK_TARGETS[currentRoute] ?? 'DashboardRoot';
+}
+
+export function getNotificationNavigationRoute(response: unknown): 'Notifications' | null {
+  if (!response || typeof response !== 'object') return null;
+  const notification = (response as { notification?: unknown }).notification;
+  if (!notification || typeof notification !== 'object') return null;
+  const request = (notification as { request?: unknown }).request;
+  if (!request || typeof request !== 'object') return null;
+  const content = (request as { content?: unknown }).content;
+  if (!content || typeof content !== 'object') return null;
+  const data = (content as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return null;
+  return (data as { route?: unknown }).route === 'Notifications' ? 'Notifications' : null;
 }

@@ -3,6 +3,8 @@ import type { AppNavigationTarget } from './navigation';
 import { ChatMsg, ExamId, SourceRef } from './types';
 import GEMINI_MODELS from './geminiModels.json';
 import { supabase, supabaseConfigured } from './supabase';
+import { validateApiBaseUrl } from './apiConfig';
+export { validateApiBaseUrl } from './apiConfig';
 
 export const GEMINI_MODEL_OPTIONS = GEMINI_MODELS;
 export type GeminiModelId = (typeof GEMINI_MODEL_OPTIONS)[number]['id'];
@@ -25,17 +27,17 @@ export type ExamContext = {
     comparisonStatus?: 'unavailable' | 'estimated' | 'measured';
     weakestSubject?: string;
   } | null;
-  activeReading?: Array<{
+  activeReading?: {
     resourceId: string;
     title: string;
     percent: number;
-  }>;
-  todayTasks?: Array<{
+  }[];
+  todayTasks?: {
     label: string;
     category: string;
     taskType: string;
     completed: boolean;
-  }>;
+  }[];
 };
 
 export type GeminiChatResponse = {
@@ -56,6 +58,8 @@ export type ApiHealthStatus = {
   timestamp: number;
 };
 
+const API_REQUEST_TIMEOUT_MS = 15_000;
+
 /**
  * Resolves the backend base URL for API requests.
  * Uses EXPO_PUBLIC_API_BASE_URL in mobile and production builds.
@@ -66,8 +70,7 @@ export function getApiBaseUrl(): string {
   const configuredUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 
   if (configuredUrl) {
-    // Strip trailing slash if present
-    return configuredUrl.replace(/\/+$/, '');
+    return validateApiBaseUrl(configuredUrl);
   }
 
   // In web browser / AI Studio preview environments, always use relative path ('/api/...')
@@ -81,6 +84,31 @@ export function getApiBaseUrl(): string {
   );
 }
 
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs = API_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  init.signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !init.signal?.aborted) {
+      throw new Error('The Study Sakha API request timed out. Check your connection and try again.');
+    }
+    if (error instanceof TypeError) {
+      throw new Error('The Study Sakha API could not be reached. Check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    init.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 /**
  * Checks server health and verifies that the backend is reachable and configured.
  * Does not expose any secrets.
@@ -89,7 +117,7 @@ export async function checkApiHealth(): Promise<ApiHealthStatus> {
   const baseUrl = getApiBaseUrl();
   const endpoint = `${baseUrl}/api/health`;
 
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -135,7 +163,7 @@ export async function askGemini(params: {
       text: m.text,
     }));
 
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

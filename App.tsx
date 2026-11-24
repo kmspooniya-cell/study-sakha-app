@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { createDrawerNavigator, DrawerContentScrollView } from '@react-navigation/drawer';
-import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,7 +11,7 @@ import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
 import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Image, Platform, Share, View, Text, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -26,7 +26,8 @@ import type {
   DrawerParamList,
   RootStackParamList,
 } from './lib/navigation';
-import {
+import { getNotificationNavigationRoute } from './lib/navigation';
+import LibraryScreen, {
   LibraryBooksScreen,
   LibraryDownloadsScreen,
   LibraryNotesScreen,
@@ -43,7 +44,6 @@ import FocusCenterScreen from './screens/FocusCenterScreen';
 import FocusCompletionScreen from './screens/FocusCompletionScreen';
 import FocusLockScreen from './screens/FocusLockScreen';
 import GroupsScreen from './screens/GroupsScreen';
-import LibraryScreen from './screens/LibraryScreen';
 import MoreScreen from './screens/MoreScreen';
 import NoteEditorScreen from './screens/NoteEditorScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
@@ -60,11 +60,14 @@ import StudyPlannerScreen from './screens/StudyPlannerScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
+import * as Notifications from 'expo-notifications';
+import { syncUpcomingPlannerReminder } from './lib/notifications';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
 const Drawer = createDrawerNavigator<DrawerParamList>();
 const MASCOT_SPLASH = require('./assets/mascot/study-sakha-mascot.png');
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const DRAWER_ITEMS = [
   { label: 'Offline downloads', icon: 'cloud-download-outline', target: { screen: 'LibraryDownloads' } },
@@ -77,7 +80,7 @@ const DRAWER_ITEMS = [
 }[];
 
 const linking: AppLinkingOptions = {
-  prefixes: [],
+  prefixes: ['studysakha://'],
   config: {
     screens: {
       SignIn: 'sign-in',
@@ -135,11 +138,11 @@ function Splash() {
 }
 
 function BrandIntro({ onFinished }: { onFinished: () => void }) {
-  const mascotOpacity = useRef(new Animated.Value(0)).current;
-  const mascotScale = useRef(new Animated.Value(0.9)).current;
-  const mascotY = useRef(new Animated.Value(14)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const mascotOpacity = useMemo(() => new Animated.Value(0), []);
+  const mascotScale = useMemo(() => new Animated.Value(0.9), []);
+  const mascotY = useMemo(() => new Animated.Value(14), []);
+  const titleOpacity = useMemo(() => new Animated.Value(0), []);
+  const glowOpacity = useMemo(() => new Animated.Value(0), []);
 
   useEffect(() => {
     Animated.parallel([
@@ -316,7 +319,17 @@ function Navigation() {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
   const [showBrandIntro, setShowBrandIntro] = useState(true);
+  const pendingNotificationRoute = useRef<'Notifications' | null>(null);
   const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
+
+  const openNotificationRoute = useCallback(() => {
+    if (pendingNotificationRoute.current !== 'Notifications' || !navigationRef.isReady()) return;
+    pendingNotificationRoute.current = null;
+    navigationRef.navigate('Dashboard', { screen: 'MainStack', params: { screen: 'Notifications' } });
+    void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
+      console.error('Notification response could not be cleared:', error);
+    });
+  }, []);
 
   const navTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
@@ -330,12 +343,37 @@ function Navigation() {
     },
   };
 
+  useEffect(() => {
+    void syncUpcomingPlannerReminder(state.settings.notifications, state.plannerScheduleItems).catch((error: unknown) => {
+      console.error('Planner notification reminder could not be synchronized:', error);
+    });
+  }, [state.plannerScheduleItems, state.settings.notifications]);
+
+  useEffect(() => {
+    let active = true;
+    const handleResponse = (response: unknown) => {
+      if (getNotificationNavigationRoute(response) !== 'Notifications') return;
+      pendingNotificationRoute.current = 'Notifications';
+      openNotificationRoute();
+    };
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (active && response) handleResponse(response);
+    }).catch((error: unknown) => {
+      if (active) console.error('Initial notification response could not be read:', error);
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [openNotificationRoute]);
+
   if (!state.hydrated) return <Splash />;
   if (!state.authReady) return <Splash />;
   if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
   return (
-    <NavigationContainer theme={navTheme} linking={linking} fallback={<Splash />}>
+    <NavigationContainer ref={navigationRef} onReady={openNotificationRoute} theme={navTheme} linking={linking} fallback={<Splash />}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <NavigationBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator

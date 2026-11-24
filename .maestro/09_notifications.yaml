@@ -1,0 +1,8 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Open menu"
+- tapOn: "Settings"
+- assertVisible: "Notification Preferences"
+- tapOn: "Notification Preferences"
+- takeScreenshot: notification-preferences

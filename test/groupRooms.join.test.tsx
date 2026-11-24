@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 let mockSupabaseConfigured = true;
-const mockRpc = jest.fn(async (): Promise<{ data: string | boolean | null; error: { message: string } | null }> => ({
+const mockRpc = jest.fn(async (): Promise<{ data: string | boolean | unknown[] | null; error: { code?: string; message: string } | null }> => ({
   data: 'session-id',
   error: null,
 }));
@@ -28,7 +28,7 @@ jest.mock('../lib/supabase', () => ({
   },
 }));
 
-const { createRoomSession, submitStudyMemberActivity, submitStudyMemberActivityToJoinedGroups } =
+const { createRoomSession, createStudyGroup, getStudyRoomLogs, submitStudyMemberActivity, submitStudyMemberActivityToJoinedGroups } =
   require('../lib/groupRooms') as typeof import('../lib/groupRooms');
 
 describe('createRoomSession', () => {
@@ -176,5 +176,37 @@ describe('createRoomSession', () => {
 
     expect(result).toEqual({ groupIds: [], failures: [] });
     expect(mockRpc).not.toHaveBeenCalledWith('submit_study_member_activity', expect.anything());
+  });
+});
+
+describe('group backend RPC contracts', () => {
+  beforeEach(() => {
+    mockSupabaseConfigured = true;
+    mockRpc.mockReset();
+  });
+
+  it('calls create_study_group with the deployed named arguments', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await expect(createStudyGroup({
+      groupId: 'group-1',
+      name: 'Study Group',
+      privacy: 'Private',
+      joinMethod: 'Leader Approval',
+    })).resolves.toBeUndefined();
+    expect(mockRpc).toHaveBeenCalledWith('create_study_group', {
+      group_key: 'group-1',
+      group_name: 'Study Group',
+      group_privacy: 'Private',
+      group_join_method: 'Leader Approval',
+    });
+  });
+
+  it('calls get_study_room_insights with group_key and reports an unavailable function distinctly', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    await expect(getStudyRoomLogs('group-1')).resolves.toEqual([]);
+    expect(mockRpc).toHaveBeenCalledWith('get_study_room_insights', { group_key: 'group-1' });
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'missing function' } });
+    await expect(getStudyRoomLogs('group-1')).rejects.toThrow('Group insights is unavailable because its Supabase function is not deployed');
   });
 });

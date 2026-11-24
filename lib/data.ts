@@ -13,6 +13,8 @@ import {
 
 export const EXAMS: Exam[] = [
   { id: 'upsc', name: 'UPSC Civil Services', short: 'UPSC', color: '#243B80', aspirants: '12.4L' },
+  { id: 'ras', name: 'Rajasthan Administrative Service', short: 'RAS', color: '#C2410C', aspirants: '1.8L' },
+  { id: 'rpsc_rssb', name: 'RPSC / RSSB State Exams', short: 'RPSC/RSSB', color: '#0F766E', aspirants: '3.4L' },
   { id: 'ssc', name: 'SSC CGL & CHSL', short: 'SSC', color: '#4778F5', aspirants: '28.1L' },
   { id: 'banking', name: 'Banking (IBPS / SBI)', short: 'Banking', color: '#18B6A4', aspirants: '19.7L' },
   { id: 'neet', name: 'NEET UG', short: 'NEET', color: '#7C5CF0', aspirants: '23.3L' },

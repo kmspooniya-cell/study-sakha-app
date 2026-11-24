@@ -3,7 +3,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleProp,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient as SvgGrad, Stop } from 'react-native-svg';
 import { fonts, radii, shadow, spacing, typography, useTheme } from '../lib/theme';
+import { Popup, PopupConfirmation } from './Popup';
 
 export function Card({
   children,
@@ -783,22 +783,10 @@ export function ModalSheet({ visible, onClose, title, children, actions, style }
   actions?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { colors } = useTheme();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ flex: 1 }} />
-        <View style={[{ maxHeight: '88%', backgroundColor: colors.surfaceRaised, borderTopLeftRadius: radii.dialog, borderTopRightRadius: radii.dialog, padding: spacing.card, ...shadow(colors, 3) }, style]}>
-          <View style={{ width: 38, height: 4.5, borderRadius: 2.5, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 14 }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            {title ? <Txt size={17} weight="700" display>{title}</Txt> : <View />}
-            <IconButton icon="close" onPress={onClose} accessibilityLabel="Close" />
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false}>{children}</ScrollView>
-          {actions ? <View style={{ marginTop: 16 }}>{actions}</View> : null}
-        </View>
-      </View>
-    </Modal>
+    <Popup visible={visible} onClose={onClose} title={title} actions={actions} style={style}>
+      {children}
+    </Popup>
   );
 }
 
@@ -812,8 +800,7 @@ export function ConfirmDialog({ visible, title, message, confirmLabel = 'Confirm
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const { colors } = useTheme();
-  return <ModalSheet visible={visible} onClose={onCancel} title={title} actions={<View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm }}><Button label={cancelLabel} variant="ghost" onPress={onCancel} /><Button label={confirmLabel} variant={danger ? 'danger' : 'primary'} onPress={onConfirm} /></View>}><Txt variant="body" color={colors.textSecondary}>{message}</Txt></ModalSheet>;
+  return <PopupConfirmation visible={visible} onCancel={onCancel} onConfirm={onConfirm} title={title} message={message} confirmLabel={confirmLabel} cancelLabel={cancelLabel} danger={danger} />;
 }
 
 export function InlineBanner({ tone = 'info', title, body, action, onAction }: {

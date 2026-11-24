@@ -1,0 +1,7 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Welcome back"
+- assertVisible: "Sign in"
+- takeScreenshot: app-launch-signed-out

@@ -1,0 +1,7 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Groups"
+- assertVisible: "Groups"
+- tapOn: "Filters"
+- takeScreenshot: groups-network-state

@@ -265,6 +265,22 @@ describe('shared focus session setup', () => {
     jest.useRealTimers();
   });
 
+  it('rejects a malformed focus setup instead of creating a negative timer', async () => {
+    mockRoute.params = {
+      focusSession: {
+        mode: 'timer',
+        durationMinutes: -5,
+        selection: null,
+        tag: '',
+        task: null,
+      },
+    };
+    render(<FocusCenterScreen />);
+
+    await waitFor(() => expect(mockNavigation.setParams).toHaveBeenCalledWith({ focusSession: undefined }));
+    expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
+  });
+
   it('leaves Silent Focus Hall only after confirmation and returns to the Groups screen', async () => {
     jest.useFakeTimers();
     const view = render(<GroupsScreen />);

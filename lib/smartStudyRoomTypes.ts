@@ -20,6 +20,8 @@ export interface StudyMember {
   targetSeconds: number | null;
   elapsedSeconds: number;
   startedAt: string | null;
+  /** Server or room heartbeat timestamp used to render active elapsed time locally. */
+  focusUpdatedAt?: string | null;
 }
 
 export interface ResponsiveMetrics {

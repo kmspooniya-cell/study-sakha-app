@@ -1,11 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, RefreshControl, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Platform, Pressable, RefreshControl, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Shell, useLayout } from '../components/Shell';
 import { Button, Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
+import { Popup } from '../components/Popup';
 import { EXAMS, getResources, SUBJECTS } from '../lib/data';
 import { downloadResourceFile, getResourceDownloads, removeResourceDownload } from '../lib/resourceDownloads';
 import type { ResourceDownload } from '../lib/resourceDownloads';
@@ -502,20 +503,8 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
         />
       )}
       {sectionKey === 'book' ? (
-        <Modal visible={bookCategoryOpen} transparent animationType="fade" onRequestClose={() => setBookCategoryOpen(false)}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close category selector"
-            onPress={() => setBookCategoryOpen(false)}
-            style={{ flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.45)' }}
-          >
-            <Pressable onPress={() => undefined} style={{ maxHeight: '86%', borderRadius: radii.lg, padding: 18, backgroundColor: colors.surface, gap: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Txt size={17} weight="800">Books & PDFs category</Txt>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close category selector" onPress={() => setBookCategoryOpen(false)} hitSlop={10}>
-                  <Ionicons name="close" size={22} color={colors.textMuted} />
-                </Pressable>
-              </View>
+        <Popup visible={bookCategoryOpen} onClose={() => setBookCategoryOpen(false)} presentation="center" title="Books & PDFs category">
+          <View style={{ gap: 12 }}>
               {['all', ...bookCategories].map((category) => {
                 const active = bookCategory === category;
                 return (
@@ -534,9 +523,8 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
                   </Pressable>
                 );
               })}
-            </Pressable>
-          </Pressable>
-        </Modal>
+          </View>
+        </Popup>
       ) : null}
     </Shell>
   );

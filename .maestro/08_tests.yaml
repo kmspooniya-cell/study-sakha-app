@@ -1,0 +1,7 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Open menu"
+- tapOn: "Test Series"
+- assertVisible: "Test Series"
+- takeScreenshot: tests-screen

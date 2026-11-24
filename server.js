@@ -22,9 +22,34 @@ const { handleChat } = require('./server/gemini');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const METRO_PORT = 8081;
-const isDev = process.env.NODE_ENV !== 'production';
+// The same Express app is used by the local launcher and the Vercel function.
+// Only the direct launcher starts Metro or opens a listening socket.
+const isDev = process.env.NODE_ENV !== 'production' && require.main === module;
 const SUPABASE_AUTH_TIMEOUT_MS = getTimeoutMs(process.env.SUPABASE_AUTH_TIMEOUT_MS, 10_000);
 const SUPABASE_AUTH_TIMEOUT_CODE = 'SUPABASE_AUTH_TIMEOUT';
+
+function getSupabaseConfigDiagnostics() {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? '';
+  const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? '';
+  let parses = false;
+  let hostnameEndsInSupabase = false;
+  try {
+    const parsedUrl = new URL(url);
+    parses = true;
+    hostnameEndsInSupabase = parsedUrl.hostname.endsWith('.supabase.co');
+  } catch {
+    // Keep diagnostics safe and continue with the normal configuration guard.
+  }
+  return {
+    urlPresent: Boolean(url),
+    urlParses: parses,
+    urlHostnameEndsInSupabaseCo: hostnameEndsInSupabase,
+    publishableKeyPresent: Boolean(key),
+    publishableKeyHasExpectedPrefix: key.startsWith('sb_publishable_'),
+  };
+}
+
+console.info('[Study Sakha] Supabase configuration diagnostics', getSupabaseConfigDiagnostics());
 
 // Global CORS & preflight middleware
 app.use((req, res, next) => {
@@ -49,7 +74,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/healthz', (req, res) => {
+app.get(['/healthz', '/api/healthz'], (req, res) => {
   res.status(200).send('OK');
 });
 
@@ -61,6 +86,14 @@ function getSupabaseAuthClient() {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
   if (!url || !key) return null;
+  try {
+    const parsedUrl = new URL(url);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol) || !parsedUrl.hostname || parsedUrl.username || parsedUrl.password) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
   if (!supabaseAuthClient) {
     supabaseAuthClient = createClient(url, key, {
       auth: {
@@ -81,11 +114,11 @@ async function authenticateChatRequest(req, res, next) {
   if (!match || match[1].length > 4096) {
     return res.status(401).json({ error: 'Sign in to use Sakha AI.' });
   }
-  const authClient = getSupabaseAuthClient();
-  if (!authClient) {
-    return res.status(503).json({ error: 'Sakha AI authentication is not configured on this server.' });
-  }
   try {
+    const authClient = getSupabaseAuthClient();
+    if (!authClient) {
+      return res.status(503).json({ error: 'Sakha AI authentication is not configured on this server.' });
+    }
     const { data, error } = await authClient.auth.getUser(match[1]);
     if (error || !data.user) return res.status(401).json({ error: 'Your session is invalid or expired.' });
     req.authenticatedUser = data.user;
@@ -154,10 +187,10 @@ app.post('/api/chat', authenticateChatRequest, validateChatRequest, rateLimitCha
 
 // Audio Library catalog endpoint
 app.get('/api/audio-catalog', (req, res) => {
-  const pDeep = path.join(__dirname, 'assets', 'audio_library', 'deep_positive_energy.mp3');
-  const sizeDeep = fs.existsSync(pDeep) ? fs.statSync(pDeep).size : 6000726;
-  const pCosmic = path.join(__dirname, 'assets', 'audio_library', 'pure_cosmic_waves.mp3');
-  const sizeCosmic = fs.existsSync(pCosmic) ? fs.statSync(pCosmic).size : 9852000;
+  const pDeep = getAudioFilePath('deep_positive_energy.mp3');
+  const sizeDeep = pDeep ? fs.statSync(pDeep).size : 6000726;
+  const pCosmic = getAudioFilePath('pure_cosmic_waves.mp3');
+  const sizeCosmic = pCosmic ? fs.statSync(pCosmic).size : 9852000;
   res.json([
     {
       id: 'deep_positive_energy',
@@ -180,11 +213,28 @@ app.get('/api/audio-catalog', (req, res) => {
   ]);
 });
 
-// Audio Library streaming and download endpoint with byte range support
+// Audio Library streaming and download endpoint with byte range support.
+const audioFiles = new Set(['deep_positive_energy.mp3', 'pure_cosmic_waves.mp3']);
+const audioLibraryDirectories = [
+  path.join(__dirname, 'assets', 'audio_library'),
+  path.join(__dirname, 'dist', 'assets', 'audio_library'),
+];
+
+function getAudioFilePath(filename) {
+  for (const directory of audioLibraryDirectories) {
+    const filePath = path.join(directory, filename);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
 app.get('/api/audio/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
-  const filePath = path.join(__dirname, 'assets', 'audio_library', filename);
-  if (!fs.existsSync(filePath)) {
+  if (!audioFiles.has(filename)) {
+    return res.status(404).json({ error: 'Audio file not found' });
+  }
+  const filePath = getAudioFilePath(filename);
+  if (!filePath) {
     return res.status(404).json({ error: 'Audio file not found' });
   }
 
@@ -193,9 +243,16 @@ app.get('/api/audio/:filename', (req, res) => {
   const range = req.headers.range;
 
   if (range) {
-    const parts = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || (!match[1] && !match[2])) {
+      return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+    }
+    let start = match[1] ? Number(match[1]) : Math.max(fileSize - Number(match[2]), 0);
+    let end = match[2] ? Number(match[2]) : fileSize - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= fileSize) {
+      return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+    }
+    end = Math.min(end, fileSize - 1);
     const chunksize = end - start + 1;
     const file = fs.createReadStream(filePath, { start, end });
     const head = {
@@ -335,30 +392,31 @@ app.use((req, res, next) => {
   }
 });
 
-const server = http.createServer(app);
+if (require.main === module) {
+  const server = http.createServer(app);
 
-// Handle WebSocket upgrade for Metro bundler
-server.on('upgrade', (req, socket, head) => {
-  if (isDev && !req.url.startsWith('/api/')) {
-    // Sanitize origin for websocket requests
-    delete req.headers.origin;
-    req.headers.host = `127.0.0.1:${METRO_PORT}`;
-    proxy.ws(req, socket, head, { target: `http://127.0.0.1:${METRO_PORT}` });
-  } else {
-    socket.destroy();
+  // Handle WebSocket upgrade for the local Metro bundler only.
+  server.on('upgrade', (req, socket, head) => {
+    if (isDev && !req.url.startsWith('/api/')) {
+      delete req.headers.origin;
+      req.headers.host = `127.0.0.1:${METRO_PORT}`;
+      proxy.ws(req, socket, head, { target: `http://127.0.0.1:${METRO_PORT}` });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Study Sakha Server] Running on http://0.0.0.0:${PORT} (Gemini Chat ready)`);
+  });
+
+  function cleanup() {
+    if (metroProcess) metroProcess.kill('SIGTERM');
+    process.exit();
   }
-});
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Study Sakha Server] Running on http://0.0.0.0:${PORT} (Gemini Chat ready)`);
-});
-
-function cleanup() {
-  if (metroProcess) {
-    metroProcess.kill('SIGTERM');
-  }
-  process.exit();
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }
 
-process.on('SIGINT', cleanup);
-process.on('SIGTERM', cleanup);
+module.exports = { app };

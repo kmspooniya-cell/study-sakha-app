@@ -100,11 +100,13 @@ export default function TestPlayerScreen() {
   const [confirm, setConfirm] = useState(false);
   const submittedRef = useRef(false);
   const mountedRef = useRef(true);
-  const startedAtRef = useRef(Date.now());
+  const startedAtRef = useRef(0);
   const deadlineAtRef = useRef<number | null>(null);
   const attemptWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const resultsRef = useRef(state.results);
-  resultsRef.current = state.results;
+  useEffect(() => {
+    resultsRef.current = state.results;
+  }, [state.results]);
   const attemptReady = attemptReadyKey === attemptStorageKey;
 
   const q = test.questions[index];

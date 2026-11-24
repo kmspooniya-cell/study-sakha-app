@@ -1,0 +1,10 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Open menu"
+- tapOn: "Profile"
+- assertVisible: "Profile"
+- tapOn: "Open menu"
+- tapOn: "Settings"
+- assertVisible: "Personalise your Study Sakha experience"
+- takeScreenshot: profile-settings

@@ -1,0 +1,28 @@
+name: Mobile quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  host-validation:
+    name: TypeScript, lint, Jest and web export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --noEmit --pretty false
+      - run: pnpm exec eslint lib/authValidation.ts screens/SignInScreen.tsx test/mocks/native.ts test/authValidation.test.tsx test/supabasePersistence.test.tsx test/store.reducer.test.tsx test/notifications.test.tsx test/statistics.test.tsx test/theme.test.tsx --max-warnings=0
+      - run: pnpm run test:ci
+      - run: pnpm exec expo config --type public
+      - run: pnpm run build:web
+

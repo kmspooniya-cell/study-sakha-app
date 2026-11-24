@@ -18,7 +18,12 @@
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "package": "com.anonymous.agonpreview"
     },
@@ -47,7 +52,9 @@
     "scheme": "studysakha",
     "backgroundColor": "#F6F8FC",
     "plugins": [
+      "./plugins/withFocusLock",
       "expo-audio",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {

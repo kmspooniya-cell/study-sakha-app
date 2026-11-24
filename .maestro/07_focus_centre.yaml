@@ -1,0 +1,11 @@
+appId: com.anonymous.agonpreview
+---
+- launchApp
+- tapOn: "Focus"
+- assertVisible: "Focus Session Setup"
+- tapOn: "Continue to Full Focus"
+- assertVisible: "Pause"
+- tapOn: "Pause"
+- assertVisible: "Resume"
+- tapOn: "Resume"
+- takeScreenshot: focus-centre-paused-resumed

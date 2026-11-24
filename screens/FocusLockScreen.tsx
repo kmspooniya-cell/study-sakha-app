@@ -7,7 +7,10 @@ import {
   Animated,
   AppState,
   BackHandler,
+  Image,
   Modal,
+  Platform,
+  Pressable,
   TextInput,
   View,
 } from 'react-native';
@@ -17,6 +20,7 @@ import type { AppNavigation } from '../lib/navigation';
 import { useTheme } from '../lib/theme';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { appendFocusHistory } from '../lib/focusHistory';
+import { focusLockNative, isFocusLockNativeAvailable, type InstalledFocusApp } from '../lib/focusLockNative';
 
 const SESSION_STORAGE_KEY = 'study-sakha-focus-lock-session-v1';
 const PRESET_DURATIONS = [25, 45, 60, 90];
@@ -111,9 +115,57 @@ export default function FocusLockScreen() {
   const [endTime, setEndTime] = useState('18:00');
   const [longDays, setLongDays] = useState('2');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [installedApps, setInstalledApps] = useState<InstalledFocusApp[]>([]);
+  const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
+  const [accessibilityEnabled, setAccessibilityEnabled] = useState(false);
+  const [usageAccessEnabled, setUsageAccessEnabled] = useState(false);
+  const [nativeStatusError, setNativeStatusError] = useState<string | null>(null);
+  const [appSearch, setAppSearch] = useState('');
   const [showStopConfirmation, setShowStopConfirmation] = useState(false);
+  const mountedRef = useRef(true);
   const heroOpacity = useRef(new Animated.Value(0)).current;
   const creditedSessionId = useRef<string | null>(null);
+
+  const loadNativeStatus = useCallback(async () => {
+    if (Platform.OS !== 'android' || !focusLockNative) return;
+    try {
+      const [apps, status] = await Promise.all([
+        focusLockNative.getInstalledApps(),
+        focusLockNative.getBlockingStatus(),
+      ]);
+      setInstalledApps(apps);
+      setAccessibilityEnabled(status.accessibilityEnabled);
+      setUsageAccessEnabled(status.usageAccessEnabled);
+      setNativeStatusError(null);
+      if (status.activeSession?.status === 'active' && !session) {
+        setSession({
+          id: status.activeSession.id,
+          status: 'active',
+          startedAt: status.activeSession.startedAt,
+          endsAt: status.activeSession.endsAt,
+          durationMinutes: Math.max(1, Math.ceil((status.activeSession.endsAt - status.activeSession.startedAt) / 60000)),
+          categories: status.activeSession.packageIds,
+        });
+        setSelectedPackages(status.activeSession.packageIds);
+      }
+    } catch (error) {
+      console.error('Focus Lock native status could not be loaded:', error);
+      setNativeStatusError('Android blocking status could not be verified. Retry before starting.');
+    }
+  }, [session]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => void loadNativeStatus(), 0);
+    return () => clearTimeout(timer);
+  }, [loadNativeStatus]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void loadNativeStatus();
+    });
+    return () => subscription.remove();
+  }, [loadNativeStatus]);
 
   const creditSession = useCallback((completedSession: FocusSession, endedAt: number) => {
     if (creditedSessionId.current === completedSession.id) return;
@@ -143,10 +195,19 @@ export default function FocusLockScreen() {
       actualSeconds: elapsedSeconds,
       plannedMinutes: completedSession.durationMinutes,
     }).catch((error: unknown) => {
-      console.error('Focus Lock history could not be saved:', error);
-      setStorageError('The session was recorded in your study totals, but focus history could not be saved.');
+      if (mountedRef.current) {
+        console.error('Focus Lock history could not be saved:', error);
+        setStorageError('The session was recorded in your study totals, but focus history could not be saved.');
+      }
     });
   }, [dispatch, historyKey]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     Animated.timing(heroOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -167,8 +228,12 @@ export default function FocusLockScreen() {
 
   useEffect(() => {
     let mounted = true;
-    setLoadStatus('loading');
-    setStorageError(null);
+    const resetTimer = setTimeout(() => {
+      if (mounted) {
+        setLoadStatus('loading');
+        setStorageError(null);
+      }
+    }, 0);
     AsyncStorage.getItem(storageKey)
       .then(async (raw) => {
         let saved = parseSavedSession(raw);
@@ -194,6 +259,7 @@ export default function FocusLockScreen() {
       });
     return () => {
       mounted = false;
+      clearTimeout(resetTimer);
     };
   }, [creditSession, loadAttempt, storageKey]);
 
@@ -266,16 +332,39 @@ export default function FocusLockScreen() {
     );
   };
 
-  const startTimer = () => {
-    if (!durationMinutes || selectedCategories.length === 0 || loadStatus !== 'ready' || storageError) return;
+  const startTimer = async () => {
+    const usingNativeBlocking = Platform.OS === 'android' && isFocusLockNativeAvailable();
+    const selected = usingNativeBlocking ? selectedPackages : selectedCategories;
+    if (!durationMinutes || selected.length === 0 || loadStatus !== 'ready' || storageError) return;
+    if (usingNativeBlocking && !accessibilityEnabled) {
+      setNativeStatusError('Enable the Study Sakha Accessibility Service before starting app blocking.');
+      return;
+    }
     const startedAt = Date.now();
-    void saveSession({
-      id: `focus-${startedAt}-${Math.floor(Math.random() * 1_000_000)}`,
+    const id = `focus-${startedAt}-${Math.floor(Math.random() * 1_000_000)}`;
+    const endsAt = startedAt + durationMinutes * 60000;
+    if (usingNativeBlocking) {
+      try {
+        await focusLockNative?.startBlockingSession({
+          sessionId: id,
+          userId: state.user?.id ?? 'local-user',
+          startedAt,
+          endsAt,
+          packageIds: selectedPackages,
+        });
+      } catch (error) {
+        console.error('Native Focus Lock session could not start:', error);
+        setNativeStatusError(error instanceof Error ? error.message : 'Native app blocking could not start.');
+        return;
+      }
+    }
+    await saveSession({
+      id,
       status: 'active',
       startedAt,
-      endsAt: startedAt + durationMinutes * 60000,
+      endsAt,
       durationMinutes,
-      categories: selectedCategories,
+      categories: selected,
     });
   };
 
@@ -284,6 +373,14 @@ export default function FocusLockScreen() {
     const stoppedAt = Date.now();
     const stopped = { ...activeSession, status: 'stopped' as const, stoppedAt };
     setShowStopConfirmation(false);
+    if (Platform.OS === 'android' && focusLockNative) {
+      try {
+        await focusLockNative.stopBlockingSession(activeSession.id, true);
+      } catch (error) {
+        console.error('Native Focus Lock session could not stop:', error);
+        setNativeStatusError('The native blocker did not confirm emergency exit. Check Accessibility status.');
+      }
+    }
     setSession(stopped);
     creditSession(stopped, stoppedAt);
     try {
@@ -381,7 +478,7 @@ export default function FocusLockScreen() {
                   <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.orange }} />
                   <Txt size={13} weight="800">FOCUS TIMER RUNNING</Txt>
                 </View>
-                <Txt size={11.5} weight="700" color={colors.orange}>APP BLOCKING OFF</Txt>
+                  <Txt size={11.5} weight="700" color={Platform.OS === 'android' ? colors.success : colors.orange}>{Platform.OS === 'android' ? 'APP BLOCKING ON' : 'APP BLOCKING OFF'}</Txt>
               </View>
               <Txt size={42} weight="800" display style={{ fontVariant: ['tabular-nums'] }}>{formatClock(remainingSeconds)}</Txt>
               <Txt size={13} color={colors.textMuted}>
@@ -497,30 +594,42 @@ export default function FocusLockScreen() {
         <Card>
           <View style={{ gap: 14 }}>
             <View>
-              <Txt size={16} weight="800">Choose what to avoid</Txt>
-              <Txt size={12} color={colors.textMuted} style={{ marginTop: 3 }}>Select broad focus categories; this build cannot show installed apps.</Txt>
+              <Txt size={16} weight="800">{Platform.OS === 'android' ? 'Select apps to block' : 'Choose a focus preference'}</Txt>
+              <Txt size={12} color={colors.textMuted} style={{ marginTop: 3 }}>
+                {Platform.OS === 'android' ? 'Only selected launchable apps are interrupted while this session is active.' : 'The web version can time a focus preference; Android app blocking requires the installed Android app.'}
+              </Txt>
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {DISTRACTION_CATEGORIES.map((category) => (
-                <Chip
-                  key={category.id}
-                  label={category.label}
-                  icon={category.icon}
-                  active={selectedCategories.includes(category.id)}
-                  onPress={() => toggleCategory(category.id)}
-                  disabled={!!activeSession}
-                />
-              ))}
-            </View>
-            {selectedCategories.length === 0 && !activeSession ? (
-              <Txt size={12} color={colors.textMuted}>Choose one or more categories to create a focus timer.</Txt>
-            ) : null}
+            {Platform.OS === 'android' ? (
+              <>
+                <TextInput accessibilityLabel="Search installed apps" value={appSearch} onChangeText={setAppSearch} placeholder="Search apps" placeholderTextColor={colors.textFaint} style={[inputStyle, { minWidth: 0, textAlign: 'left', flex: 1 }]} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button label="Select all" variant="soft" onPress={() => setSelectedPackages(installedApps.map((app) => app.packageId))} disabled={!!activeSession || installedApps.length === 0} />
+                  <Button label="Deselect all" variant="outline" onPress={() => setSelectedPackages([])} disabled={!!activeSession || selectedPackages.length === 0} />
+                </View>
+                <View style={{ gap: 6 }}>
+                  {installedApps.filter((app) => app.name.toLowerCase().includes(appSearch.toLowerCase()) || app.packageId.toLowerCase().includes(appSearch.toLowerCase())).map((app) => {
+                    const selected = selectedPackages.includes(app.packageId);
+                    return <Pressable key={app.packageId} accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={() => setSelectedPackages((current) => selected ? current.filter((id) => id !== app.packageId) : [...current, app.packageId])} disabled={!!activeSession} style={{ minHeight: 52, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.blue : colors.borderSubtle, backgroundColor: selected ? (isDark ? '#20375D' : '#EEF4FF') : colors.surfaceRaised, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      {app.iconBase64 ? <Image source={{ uri: `data:image/png;base64,${app.iconBase64}` }} style={{ width: 32, height: 32, borderRadius: 8 }} /> : null}
+                      <View style={{ flex: 1 }}><Txt size={13} weight="700">{app.name}</Txt><Txt size={10.5} color={colors.textMuted}>{app.packageId}</Txt></View>
+                      <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={selected ? colors.blue : colors.textFaint} />
+                    </Pressable>;
+                  })}
+                </View>
+                {installedApps.length === 0 ? <Txt size={12} color={colors.textMuted}>No launchable applications were returned. Android package visibility can restrict discovery; enter a supported package through your device’s app settings if needed.</Txt> : null}
+                {selectedPackages.length === 0 && !activeSession ? <Txt size={12} color={colors.danger}>Select at least one application to enable blocking.</Txt> : null}
+              </>
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {DISTRACTION_CATEGORIES.map((category) => <Chip key={category.id} label={category.label} icon={category.icon} active={selectedCategories.includes(category.id)} onPress={() => toggleCategory(category.id)} disabled={!!activeSession} />)}
+              </View>
+            )}
             <View style={{ borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: 12, gap: 8 }}>
               <Txt size={12} weight="800" color={colors.textMuted}>SESSION SUMMARY</Txt>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                <Txt size={12.5} color={colors.textMuted}>Focus categories</Txt>
+                <Txt size={12.5} color={colors.textMuted}>{Platform.OS === 'android' ? 'Protected applications' : 'Focus preference'}</Txt>
                 <Txt size={12.5} weight="700" style={{ flex: 1, textAlign: 'right' }}>
-                  {selectedCategories.map((id) => DISTRACTION_CATEGORIES.find((item) => item.id === id)?.label ?? id).join(', ') || 'None selected'}
+                  {Platform.OS === 'android' ? `${selectedPackages.length} selected` : selectedCategories.map((id) => DISTRACTION_CATEGORIES.find((item) => item.id === id)?.label ?? id).join(', ') || 'None selected'}
                 </Txt>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
@@ -539,38 +648,30 @@ export default function FocusLockScreen() {
         <Card>
           <View style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Ionicons name="shield-outline" size={22} color={colors.orange} />
+              <Ionicons name="shield-outline" size={22} color={Platform.OS === 'android' && accessibilityEnabled ? colors.success : colors.orange} />
               <View style={{ flex: 1 }}>
-                <Txt size={15} weight="800">Android app blocking unavailable</Txt>
-                <Txt size={12} color={colors.textMuted} style={{ marginTop: 2 }}>Permission status: not requested. This build contains no native blocking service.</Txt>
+                <Txt size={15} weight="800">{Platform.OS === 'android' ? 'Android blocking service' : 'Android blocking capability'}</Txt>
+                <Txt size={12} color={colors.textMuted} style={{ marginTop: 2 }}>{Platform.OS === 'android' ? (accessibilityEnabled ? 'Accessibility Service enabled' : 'Accessibility Service disabled') : 'Unavailable in a web browser'}</Txt>
               </View>
             </View>
             <Txt size={12.5} color={colors.textMuted}>
-              A timer does not restrict other apps. This screen does not enumerate installed apps, and selected categories are saved as focus preferences only.
+              {Platform.OS === 'android' ? 'Study Sakha uses foreground app transitions to show a blocking screen for your selected applications. Android can revoke or limit Accessibility access at any time.' : 'A browser cannot enumerate or block installed Android applications. Install the Android build to use Focus Lock.'}
             </Txt>
-            <Button
-              label="Start Blocking"
-              icon="lock-closed-outline"
-              disabled
-              accessibilityHint="Unavailable until a native Android blocking service and required permissions are added."
-              full
-            />
-            <Txt size={12} weight="800">Requirements for a real Android blocker</Txt>
-            <Txt size={12} color={colors.textMuted}>
-              A custom Expo development/production build needs a native module and config plugin. Enable its service at Android Settings &gt; Accessibility &gt; Installed apps. Grant usage access at Settings &gt; Apps &gt; Special app access &gt; Usage access. Grant Display over other apps only if an interruption screen needs it. Menus vary by device. Reliable recovery also needs a foreground service notification and boot recovery. Installed-app discovery needs package visibility declarations; broad package access is restricted by Google Play policy. Expo Go cannot run this service.
-            </Txt>
+            {Platform.OS === 'android' && !accessibilityEnabled ? <Button label="Open Accessibility Settings" icon="settings-outline" variant="outline" onPress={() => void focusLockNative?.openAccessibilitySettings()} full /> : null}
+            {Platform.OS === 'android' && !usageAccessEnabled ? <Button label="Open Usage Access Settings" icon="analytics-outline" variant="outline" onPress={() => void focusLockNative?.openUsageAccessSettings()} full /> : null}
+            {nativeStatusError ? <Txt size={12} color={colors.danger}>{nativeStatusError}</Txt> : null}
           </View>
         </Card>
 
         {!activeSession ? (
           <Button
-            label="Start focus timer"
+            label={Platform.OS === 'android' ? 'Start Blocking' : 'Start focus timer'}
             icon="timer-outline"
-            onPress={startTimer}
-            disabled={loadStatus !== 'ready' || !!storageError || !durationMinutes || selectedCategories.length === 0 || session?.status === 'completed' || session?.status === 'stopped'}
+            onPress={() => void startTimer()}
+            disabled={loadStatus !== 'ready' || !!storageError || !durationMinutes || (Platform.OS === 'android' ? selectedPackages.length === 0 || !accessibilityEnabled : selectedCategories.length === 0) || session?.status === 'completed' || session?.status === 'stopped'}
             full
             size="lg"
-            accessibilityHint="Starts a local countdown only. It will not block other apps."
+            accessibilityHint={Platform.OS === 'android' ? 'Starts the native app blocking session.' : 'Starts a local countdown only. It will not block other apps.'}
           />
         ) : null}
       </View>
