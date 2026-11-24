@@ -1,9 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { CustomStudyPlan } from '../components/DashboardStudyTools';
@@ -11,8 +11,10 @@ import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell, useLayout } from '../components/Shell';
 import { TODAY_PLAN } from '../lib/data';
-import { getDisplayName, useStore } from '../lib/store';
+import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
+import { focusLockNative } from '../lib/focusLockNative';
+import { readFocusLockSnapshot, type FocusLockSnapshot } from '../lib/focusLockSnapshot';
 
 const greeting = () => {
   const hour = new Date().getHours();
@@ -40,12 +42,15 @@ export default function DashboardScreen() {
   const { isTablet, isDesktop } = useLayout();
   const isTabletOrLarger = isTablet || isDesktop;
   const styles = useMemo(() => makeStyles(colors, scheme), [colors, scheme]);
+  const lastBackPress = useRef(0);
 
   const goal = Math.max(1, Number(state.settings.dailyGoalMin) || 1);
   const safeTodayMinutes = Math.max(0, Number(todayMinutes) || 0);
   const target = clamp(safeTodayMinutes / goal, 0, 1);
   const [anim, setAnim] = useState(0);
   const [focusSetupVisible, setFocusSetupVisible] = useState(false);
+  const [focusLockSnapshot, setFocusLockSnapshot] = useState<FocusLockSnapshot | null>(null);
+  const [focusLockNativeReady, setFocusLockNativeReady] = useState<boolean | null>(null);
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
     durationMinutes: 25,
@@ -63,6 +68,39 @@ export default function DashboardScreen() {
     }, 16);
     return () => clearInterval(id);
   }, [target]);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    const load = async () => {
+      const snapshot = await readFocusLockSnapshot(state.user?.id);
+      if (!active) return;
+      setFocusLockSnapshot(snapshot);
+      if (focusLockNative) {
+        try {
+          const status = await focusLockNative.getBlockingStatus();
+          if (active) setFocusLockNativeReady(status.available && status.accessibilityEnabled);
+        } catch { if (active) setFocusLockNativeReady(false); }
+      } else if (active) setFocusLockNativeReady(false);
+    };
+    void load();
+    return () => { active = false; };
+  }, [state.user?.id]));
+
+  useFocusEffect(useCallback(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      const now = Date.now();
+      if (now - lastBackPress.current < 2000) return false;
+      lastBackPress.current = now;
+      ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+      return true;
+    });
+    return () => subscription.remove();
+  }, []));
+
+  const focusLockActive = focusLockSnapshot?.sessionState === 'active_focus' || focusLockSnapshot?.sessionState === 'active_strict' || focusLockSnapshot?.sessionState === 'scheduled_lock';
+  const focusLockRemaining = Math.max(0, Math.ceil(focusLockSnapshot?.remainingSecs ?? 0));
+  const focusLockClock = `${String(Math.floor(focusLockRemaining / 60)).padStart(2, '0')}:${String(focusLockRemaining % 60).padStart(2, '0')}`;
 
   const first = getDisplayName(state.user).split(/\s+/)[0];
 
@@ -111,6 +149,27 @@ export default function DashboardScreen() {
 
             <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
               <View style={styles.layoutCol}>
+
+                <View style={[styles.focusLockCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                  <View style={styles.focusLockCardHeader}>
+                    <View style={styles.focusLockCardTitleRow}>
+                      <Ionicons name="lock-closed-outline" size={18} color={colors.teal} />
+                      <Text style={[styles.focusLockCardTitle, { color: colors.text }]}>Focus Lock</Text>
+                    </View>
+                    <Text style={[styles.focusLockCardStatus, { color: focusLockActive ? colors.success : colors.textMuted }]}>
+                      {focusLockActive ? 'ACTIVE' : focusLockNativeReady === false ? 'SETUP REQUIRED' : 'READY'}
+                    </Text>
+                  </View>
+                  <View style={styles.focusLockCardMetrics}>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockActive ? focusLockClock : `${Math.round((state.studyLog[dayKey(new Date())] ?? 0))}m`}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{focusLockActive ? 'remaining' : 'studied today'}</Text></View>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.selectedAppIds?.length ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>blocked apps</Text></View>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.blockedAttemptsToday ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>blocked today</Text></View>
+                  </View>
+                  <Pressable onPress={() => nav.navigate('FocusLock')} style={[styles.focusLockCardButton, { backgroundColor: colors.tint }]}>
+                    <Text style={[styles.focusLockCardButtonText, { color: colors.blue }]}>{focusLockActive ? 'Resume Focus Lock' : 'Open Focus Lock'}</Text>
+                    <Ionicons name="arrow-forward" size={15} color={colors.blue} />
+                  </Pressable>
+                </View>
                 
                 <View style={styles.plannerWrap}>
                   <CustomStudyPlan 
@@ -190,6 +249,16 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
     layoutFlex: { flexDirection: 'column', gap: 0 },
     tabletLayout: { flexDirection: 'row', alignItems: 'flex-start' },
     layoutCol: { flex: 1, minWidth: 0 },
+    focusLockCard: { borderWidth: 1, borderRadius: 18, padding: 14, marginBottom: 14 },
+    focusLockCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    focusLockCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    focusLockCardTitle: { fontSize: 15, fontWeight: '800' },
+    focusLockCardStatus: { fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
+    focusLockCardMetrics: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
+    focusLockMetricValue: { fontSize: 18, fontWeight: '800' },
+    focusLockMetricLabel: { fontSize: 10, marginTop: 2 },
+    focusLockCardButton: { marginTop: 14, minHeight: 38, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    focusLockCardButtonText: { fontSize: 12, fontWeight: '800' },
     plannerWrap: { marginBottom: 14 },
     testsSection: { marginBottom: 0 },
     sectionCard: { padding: 16, marginBottom: 14 },

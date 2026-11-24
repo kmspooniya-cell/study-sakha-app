@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
@@ -74,7 +74,6 @@ function parseSavedAttempt(value: unknown, testId: string, questionCount: number
 }
 
 export default function TestPlayerScreen() {
-  useSmartAndroidBack();
   const { colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'TestPlayer'>>();
@@ -98,6 +97,7 @@ export default function TestPlayerScreen() {
   const [attemptRetry, setAttemptRetry] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [confirmMode, setConfirmMode] = useState<'submit' | 'exit'>('submit');
   const submittedRef = useRef(false);
   const mountedRef = useRef(true);
   const startedAtRef = useRef(0);
@@ -108,6 +108,12 @@ export default function TestPlayerScreen() {
     resultsRef.current = state.results;
   }, [state.results]);
   const attemptReady = attemptReadyKey === attemptStorageKey;
+
+  useSmartAndroidBack(useCallback(() => {
+    setConfirmMode('exit');
+    setConfirm(true);
+    return true;
+  }, []));
 
   const q = test.questions[index];
 
@@ -380,7 +386,7 @@ export default function TestPlayerScreen() {
           );
         })}
       </View>
-      <Button label="Submit test" icon="checkmark-done-outline" full onPress={() => setConfirm(true)} />
+      <Button label="Submit test" icon="checkmark-done-outline" full onPress={() => { setConfirmMode('submit'); setConfirm(true); }} />
     </View>
   );
 
@@ -400,7 +406,10 @@ export default function TestPlayerScreen() {
         }}
       >
         <Pressable
-          onPress={() => setConfirm(true)}
+          onPress={() => {
+            setConfirmMode('exit');
+            setConfirm(true);
+          }}
           style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border }}
         >
           <Ionicons name="close" size={19} color={colors.text} />
@@ -512,7 +521,7 @@ export default function TestPlayerScreen() {
             <Button label="Clear" icon="refresh-outline" variant="ghost" onPress={() => setAnswers((a) => ({ ...a, [q.id]: null }))} />
             <View style={{ flex: 1 }} />
             {index === test.questions.length - 1 ? (
-              <Button label="Submit" icon="checkmark-done-outline" onPress={() => setConfirm(true)} />
+              <Button label="Submit" icon="checkmark-done-outline" onPress={() => { setConfirmMode('submit'); setConfirm(true); }} />
             ) : (
               <Button label="Save & next" icon="chevron-forward" onPress={() => goTo(index + 1)} />
             )}
@@ -547,14 +556,27 @@ export default function TestPlayerScreen() {
               <Ionicons name="checkmark-done-outline" size={24} color={colors.blue} />
             </View>
             <Txt size={18} weight="800" display>
-              Submit this test?
+              {confirmMode === 'exit' ? 'Leave this test?' : 'Submit this test?'}
             </Txt>
             <Txt size={13.5} color={colors.textMuted}>
-              {counts.answered} answered · {counts.total - counts.answered} unanswered · {counts.review} marked for review. Negative marking applies to wrong answers only.
+              {confirmMode === 'exit'
+                ? 'Your answers and remaining time will be saved so you can resume this attempt later.'
+                : `${counts.answered} answered · ${counts.total - counts.answered} unanswered · ${counts.review} marked for review. Negative marking applies to wrong answers only.`}
             </Txt>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Button label="Keep solving" variant="outline" onPress={() => setConfirm(false)} style={{ flex: 1 }} />
-              <Button label="Submit now" onPress={() => submit(false)} style={{ flex: 1 }} />
+              <Button label="Keep solving" variant="outline" onPress={() => { setConfirmMode('submit'); setConfirm(false); }} style={{ flex: 1 }} />
+              <Button
+                label={confirmMode === 'exit' ? 'Leave test' : 'Submit now'}
+                onPress={() => {
+                  if (confirmMode === 'exit') {
+                    setConfirm(false);
+                    nav.goBack();
+                  } else {
+                    submit(false);
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
             </View>
           </Card>
         </View>

@@ -6,6 +6,8 @@ export type InstalledFocusApp = {
   iconBase64?: string;
 };
 
+export type FocusAppUsage = { packageId: string; dailyMins: number; launches: number };
+
 export type NativeBlockingSession = {
   id: string;
   userId: string;
@@ -22,6 +24,7 @@ export type BlockingStatus = {
   usageAccessEnabled: boolean;
   serviceRunning: boolean;
   activeSession: NativeBlockingSession | null;
+  blockedAttemptsToday?: number;
 };
 
 export type FocusLockEventName =
@@ -34,6 +37,7 @@ export type FocusLockEventName =
 
 type FocusLockModule = {
   getInstalledApps(): Promise<InstalledFocusApp[]>;
+  getUsageStats(): Promise<FocusAppUsage[]>;
   getBlockingStatus(): Promise<BlockingStatus>;
   openAccessibilitySettings(): Promise<void>;
   requestAccessibilityPermission(): Promise<void>;

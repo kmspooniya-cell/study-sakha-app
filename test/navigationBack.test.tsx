@@ -4,6 +4,10 @@ import { getAndroidBackTarget, getNotificationNavigationRoute } from '../lib/nav
 describe('Android back targets', () => {
   it('returns from a library detail screen to its main screen', () => {
     expect(getAndroidBackTarget('LibraryBooks', ['DashboardRoot', 'Library'])).toBe('Library');
+    expect(getAndroidBackTarget('LibraryNotes', ['DashboardRoot', 'Library'])).toBe('Library');
+    expect(getAndroidBackTarget('LibraryPYQSets', ['DashboardRoot', 'Library'])).toBe('Library');
+    expect(getAndroidBackTarget('LibraryStarred', ['DashboardRoot', 'Library'])).toBe('Library');
+    expect(getAndroidBackTarget('LibraryDownloads', ['DashboardRoot', 'Library'])).toBe('Library');
   });
 
   it('returns from feature screens directly to the dashboard', () => {
@@ -17,6 +21,13 @@ describe('Android back targets', () => {
 
   it('returns contextual detail screens to the screen that opened them', () => {
     expect(getAndroidBackTarget('BookReader', ['DashboardRoot', 'Search'])).toBe('Search');
+    expect(getAndroidBackTarget('NoteEditor', ['DashboardRoot', 'Library'])).toBe('Library');
+  });
+
+  it('returns test and statistics details to their section parents', () => {
+    expect(getAndroidBackTarget('TestPlayer', ['DashboardRoot', 'Tests'])).toBe('Tests');
+    expect(getAndroidBackTarget('TestResult', ['DashboardRoot', 'Tests'])).toBe('Tests');
+    expect(getAndroidBackTarget('TaskPerformance', ['DashboardRoot', 'Statistics'])).toBe('Statistics');
   });
 
   it('leaves Android back handling to the system on the dashboard', () => {
