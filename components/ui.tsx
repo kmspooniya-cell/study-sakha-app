@@ -90,6 +90,7 @@ export function Txt({
   numberOfLines,
   display,
   variant,
+  allowFontScaling = true,
 }: {
   children: React.ReactNode;
   size?: number;
@@ -99,12 +100,14 @@ export function Txt({
   numberOfLines?: number;
   display?: boolean;
   variant?: keyof typeof typography;
+  allowFontScaling?: boolean;
 }) {
   const { colors, f } = useTheme();
   const role = variant ? typography[variant] : undefined;
   const resolvedSize = size ?? role?.fontSize ?? 14;
   return (
     <Text
+      allowFontScaling={allowFontScaling}
       numberOfLines={numberOfLines}
       style={[
         {
@@ -536,6 +539,7 @@ export function Field({
           multiline={multiline}
           editable={!disabled}
           accessibilityLabel={accessibilityLabel ?? label}
+          allowFontScaling
           selectionColor={colors.blue}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}

@@ -52,7 +52,6 @@ import type { FocusSessionMode, FocusSessionSetup } from '../components/FocusSes
 
 const STUDY_HISTORY_KEY = 'study-sakha-focus-history-v1';
 const ACTIVE_SESSION_KEY = 'study-sakha-focus-active-session-v1';
-const BREAK_SECONDS = 5 * 60;
 const PRAISE_MESSAGES = [
   "Outstanding Work! You've made great progress.",
   'A strong session. Keep building on this momentum.',
@@ -101,6 +100,7 @@ type ActiveFocusSession = {
   resumePhase: 'focus' | 'break' | null;
   breakElapsedMilliseconds: number;
   breakStartedAt: number | null;
+  breakDurationSeconds?: number;
   subject: string | null;
   topic: string | null;
   taskId: string | null;
@@ -177,6 +177,7 @@ function isActiveFocusSession(value: unknown): value is ActiveFocusSession {
     (value.phase === 'focus' || value.phase === 'break' || value.phase === 'paused') &&
     (value.resumePhase === null || value.resumePhase === 'focus' || value.resumePhase === 'break') &&
     isNonNegativeFiniteNumber(value.breakElapsedMilliseconds) &&
+    (value.breakDurationSeconds === undefined || isNonNegativeFiniteNumber(value.breakDurationSeconds)) &&
     (value.breakStartedAt === null || isNonNegativeFiniteNumber(value.breakStartedAt)) &&
     (value.subject === null || typeof value.subject === 'string') &&
     (value.topic === null || typeof value.topic === 'string') &&
@@ -219,6 +220,7 @@ export default function FocusCenterScreen() {
   const navigation = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'FocusCenter'>>();
   const { state: storeState, dispatch } = useStore();
+  const breakSeconds = Math.max(0, (storeState.settings?.shortBreakMinutes ?? 5) * 60);
   const userId = storeState.user?.id ?? null;
   const activeStorageKey = useMemo(
     () => getUserScopedStorageKey(ACTIVE_SESSION_KEY, userId),
@@ -236,7 +238,7 @@ export default function FocusCenterScreen() {
   const [saveError, setSaveError] = useState('');
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [musicSelectionVisible, setMusicSelectionVisible] = useState(false);
-  const [selectedMusicId, setSelectedMusicId] = useState('pure_cosmic_waves');
+  const selectedMusicId = storeState.settings?.focusMusicId ?? 'pure_cosmic_waves';
   const [menuModalVisible, setMenuModalVisible] = useState(false);
   const [groupSelectModalVisible, setGroupSelectModalVisible] = useState(false);
   const [joinedGroups, setJoinedGroups] = useState<ActiveStudyGroup[]>([]);
@@ -246,7 +248,6 @@ export default function FocusCenterScreen() {
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const [customTagInput, setCustomTagInput] = useState('');
   const [selectedGroupName, setSelectedGroupName] = useState('Study Group');
-  const [selectedTheme, setSelectedTheme] = useState('Starry Sky');
   const [blockedAppsCount, setBlockedAppsCount] = useState(5);
 
   const endNavigationAction = useRef<NavigationAction | null>(null);
@@ -380,6 +381,7 @@ export default function FocusCenterScreen() {
       resumePhase: null,
       breakElapsedMilliseconds: 0,
       breakStartedAt: setup.startInBreak ? now : null,
+      breakDurationSeconds: (storeState.settings?.shortBreakMinutes ?? 5) * 60,
       subject,
       topic: getTaskTitle(task),
       taskId: setup.scheduleOccurrenceId ?? task?.id ?? null,
@@ -796,6 +798,9 @@ export default function FocusCenterScreen() {
         focusSegmentStartedAt: null,
         breakElapsedMilliseconds: 0,
         breakStartedAt: now,
+        breakDurationSeconds: (current.mode === 'pomodoro'
+          ? storeState.settings?.longBreakMinutes ?? 15
+          : storeState.settings?.shortBreakMinutes ?? 5) * 60,
       };
       publishRoomUpdate(next, 'break', 'break', now);
     }
@@ -804,7 +809,7 @@ export default function FocusCenterScreen() {
       console.error('Focus session state could not be persisted:', error);
       setSaveError(error instanceof Error ? error.message : 'Focus session state could not be persisted.');
     });
-  }, [commitSession, persistSession, publishRoomUpdate]);
+  }, [commitSession, persistSession, publishRoomUpdate, storeState.settings?.longBreakMinutes, storeState.settings?.shortBreakMinutes]);
 
   const selectPreset = useCallback((label: string, minutes: number) => {
     const current = sessionRef.current;
@@ -842,7 +847,7 @@ export default function FocusCenterScreen() {
     if (!current || finalizing.current) return;
     const next = createRuntime({
       mode: 'timer',
-      durationMinutes: 25,
+      durationMinutes: storeState.settings?.focusDurationMinutes ?? 25,
       selection: current.task ? 'schedule' : current.subject ? 'manual' : null,
       tag: current.subject ?? '',
       task: current.task,
@@ -880,21 +885,23 @@ export default function FocusCenterScreen() {
     if (current.phase === 'break') {
       const elapsed = current.breakElapsedMilliseconds +
         Math.max(0, now - (current.breakStartedAt ?? now));
-      if (elapsed >= BREAK_SECONDS * 1000) {
+      if (elapsed >= (current.breakDurationSeconds ?? breakSeconds * 60) * 1000) {
         const next: ActiveFocusSession = {
           ...current,
-          phase: 'focus',
+          phase: storeState.settings?.focusAutoStartNextSession !== false ? 'focus' : 'break',
           resumePhase: null,
-          breakElapsedMilliseconds: 0,
+          breakElapsedMilliseconds: storeState.settings?.focusAutoStartNextSession !== false
+            ? 0
+            : (current.breakDurationSeconds ?? breakSeconds * 60) * 1000,
           breakStartedAt: null,
-          focusSegmentStartedAt: now,
+          focusSegmentStartedAt: storeState.settings?.focusAutoStartNextSession !== false ? now : null,
         };
         commitSession(next);
         void persistSession(next).catch((error: unknown) => {
           console.error('Focus session state could not be persisted:', error);
           setSaveError(error instanceof Error ? error.message : 'Focus session state could not be persisted.');
         });
-        publishRoomUpdate(next, 'focusing', 'resume', now);
+        publishRoomUpdate(next, storeState.settings?.focusAutoStartNextSession !== false ? 'focusing' : 'paused', storeState.settings?.focusAutoStartNextSession !== false ? 'resume' : 'pause', now);
       }
       return;
     }
@@ -915,7 +922,7 @@ export default function FocusCenterScreen() {
         resumePhase: 'focus',
       }, 'completed');
     }
-  }, [commitSession, completeSession, persistSession, publishRoomUpdate]);
+  }, [breakSeconds, commitSession, completeSession, persistSession, publishRoomUpdate, storeState.settings?.focusAutoStartNextSession, storeState.settings?.shortBreakMinutes]);
 
   useEffect(() => {
     let active = true;
@@ -932,6 +939,7 @@ export default function FocusCenterScreen() {
         scheduleId: parsed.scheduleId ?? null,
         scheduleOccurrenceId: parsed.scheduleOccurrenceId ?? null,
         schedulePlannedSeconds: parsed.schedulePlannedSeconds ?? null,
+        breakDurationSeconds: parsed.breakDurationSeconds ?? (storeState.settings?.shortBreakMinutes ?? 5) * 60,
       };
       if (restored.groupId) sessionOrigin.current = 'Groups';
       commitSession(restored);
@@ -1098,13 +1106,13 @@ export default function FocusCenterScreen() {
   const secondsRemaining = !currentSession
     ? 0
     : isOnBreak
-      ? Math.max(0, BREAK_SECONDS - Math.floor(breakElapsed / 1000))
+      ? Math.max(0, (currentSession.breakDurationSeconds ?? breakSeconds * 60) - Math.floor(breakElapsed / 1000))
       : currentSession.mode === 'stopwatch'
         ? Math.floor(focusedMilliseconds / 1000)
         : Math.max(0, (currentSession.plannedSeconds ?? 0) - Math.floor(focusedMilliseconds / 1000));
   const focusTimerController: FocusTimerController | null = currentSession ? {
     totalSeconds: isOnBreak
-      ? BREAK_SECONDS
+      ? currentSession.breakDurationSeconds ?? breakSeconds * 60
       : currentSession.mode === 'stopwatch'
         ? Math.max(1, secondsRemaining)
         : currentSession.plannedSeconds ?? 0,
@@ -1257,8 +1265,9 @@ export default function FocusCenterScreen() {
         <FocusMusicSelection
           visible={musicSelectionVisible}
           selectedId={selectedMusicId}
+          volume={storeState.settings?.focusMusicVolume ?? 0.65}
           sessionRunning={currentSession.phase === 'focus'}
-          onSelect={setSelectedMusicId}
+          onSelect={(id) => dispatch({ type: 'settings', patch: { focusMusicId: id } })}
           onClose={() => setMusicSelectionVisible(false)}
         />
 
@@ -1342,9 +1351,9 @@ export default function FocusCenterScreen() {
               <View style={[styles.menuRow, { backgroundColor: colors.surfaceAlt }]}>
                 <View style={styles.menuLabel}>
                   <Ionicons name="color-palette-outline" size={18} color={colors.violet} />
-                  <Txt size={13} weight="700">Themes ({selectedTheme})</Txt>
+                  <Txt size={13} weight="700">Themes ({storeState.settings?.focusThemeId ?? 'obsidian'})</Txt>
                 </View>
-                <Pressable accessibilityRole="button" onPress={() => setSelectedTheme(selectedTheme === 'Starry Sky' ? 'Deep Forest' : 'Starry Sky')} style={styles.menuAction}>
+                <Pressable accessibilityRole="button" onPress={() => dispatch({ type: 'settings', patch: { focusThemeId: (storeState.settings?.focusThemeId ?? 'obsidian') === 'obsidian' ? 'misty-mountain' : 'obsidian' } })} style={styles.menuAction}>
                   <Txt size={12} weight="700" color={colors.violet}>Switch</Txt>
                 </Pressable>
               </View>

@@ -41,6 +41,7 @@ function buildSystemInstruction(userContext) {
     activeReading,
     todayTasks,
     testsAttempted,
+    aiPreferences,
   } = userContext || {};
 
   const nameInstruction = name
@@ -77,6 +78,22 @@ function buildSystemInstruction(userContext) {
       .join(', ');
     personalizedStudyContext += `\n- Today's Planner Schedule: ${taskSummary}.`;
   }
+
+  const allowedLanguages = ['English', 'Hindi', 'Bilingual (Hinglish)'];
+  const allowedLengths = ['Concise', 'Balanced', 'Detailed'];
+  const language = allowedLanguages.includes(aiPreferences?.responseLanguage)
+    ? aiPreferences.responseLanguage
+    : 'Bilingual (Hinglish)';
+  const responseLength = allowedLengths.includes(aiPreferences?.responseLength)
+    ? aiPreferences.responseLength
+    : 'Balanced';
+  const detailLevel = typeof aiPreferences?.detailLevel === 'string' && aiPreferences.detailLevel.length <= 40
+    ? aiPreferences.detailLevel
+    : 'Exam-Ready';
+  const learningMode = typeof aiPreferences?.learningMode === 'string' && aiPreferences.learningMode.length <= 40
+    ? aiPreferences.learningMode
+    : 'Teacher Mode';
+  personalizedStudyContext += `\n- Response preferences: answer in ${language}; use ${responseLength} length; ${detailLevel} detail; teaching mode: ${learningMode}.`;
 
   return `You are Sakha, the intelligent, syllabus-aware personal AI study partner and tutor for the Study Sakha platform.
 
@@ -668,6 +685,11 @@ function sanitizeExamContext(input, authenticatedUser) {
   const recent = context.recentResult && typeof context.recentResult === 'object'
     ? context.recentResult
     : null;
+  const preferences = context.aiPreferences && typeof context.aiPreferences === 'object'
+    ? context.aiPreferences
+    : {};
+  const responseLanguages = new Set(['English', 'Hindi', 'Bilingual (Hinglish)']);
+  const responseLengths = new Set(['Concise', 'Balanced', 'Detailed']);
   return {
     name: typeof metadata.display_name === 'string' ? metadata.display_name.slice(0, 80) : undefined,
     exam: metadataExam ?? contextExam,
@@ -720,6 +742,20 @@ function sanitizeExamContext(input, authenticatedUser) {
           completed: item.completed,
         }))
       : [],
+    aiPreferences: {
+      responseLanguage: responseLanguages.has(preferences.responseLanguage)
+        ? preferences.responseLanguage
+        : 'Bilingual (Hinglish)',
+      responseLength: responseLengths.has(preferences.responseLength)
+        ? preferences.responseLength
+        : 'Balanced',
+      detailLevel: typeof preferences.detailLevel === 'string'
+        ? preferences.detailLevel.slice(0, 40)
+        : 'Exam-Ready',
+      learningMode: typeof preferences.learningMode === 'string'
+        ? preferences.learningMode.slice(0, 40)
+        : 'Teacher Mode',
+    },
   };
 }
 

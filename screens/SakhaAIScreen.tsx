@@ -42,6 +42,10 @@ export default function SakhaAIScreen() {
   const requestInFlight = useRef(false);
   const mounted = useRef(true);
 
+  const dispatchChat = useCallback((msg: ChatMsg) => {
+    dispatch({ type: state.settings.aiSaveChatHistory ? 'chat' : 'chatEphemeral', msg });
+  }, [dispatch, state.settings.aiSaveChatHistory]);
+
   const hasCustomName = Boolean(state.user?.name && state.user.name !== 'Guest User' && state.user.name !== 'Aspirant');
 
   const latestResult = state.results && state.results.length > 0 ? state.results[0] : null;
@@ -92,6 +96,12 @@ export default function SakhaAIScreen() {
       : null,
     activeReading: activeReadingList,
     todayTasks: todayTasksList,
+    aiPreferences: {
+      responseLanguage: state.settings.aiResponseLanguage,
+      responseLength: state.settings.aiResponseLength,
+      detailLevel: state.settings.aiDetailLevel,
+      learningMode: state.settings.aiLearningMode,
+    },
   };
 
   const send = useCallback(
@@ -114,30 +124,24 @@ export default function SakhaAIScreen() {
         setNeedsKey(false);
       }
 
-      dispatch({
-        type: 'chat',
-        msg: {
-          id: requestId,
-          role: 'user',
-          requestId,
-          text: clean,
-          at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
-          status: 'sending',
-        },
+      dispatchChat({
+        id: requestId,
+        role: 'user',
+        requestId,
+        text: clean,
+        at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
+        status: 'sending',
       });
       if (!isRetry) {
         setInput('');
       } else {
-        dispatch({
-          type: 'chat',
-          msg: {
-            id: responseId,
-            role: 'sakha',
-            requestId,
-            text: 'Retrying your request…',
-            at: Date.now(),
-            status: 'sending',
-          },
+        dispatchChat({
+          id: responseId,
+          role: 'sakha',
+          requestId,
+          text: 'Retrying your request…',
+          at: Date.now(),
+          status: 'sending',
         });
       }
 
@@ -150,25 +154,22 @@ export default function SakhaAIScreen() {
       try {
         const reply = await askGemini({
           message: clean,
-          history: state.chat.filter(
+          history: state.settings.aiSaveChatHistory ? state.chat.filter(
             (item) => item.id !== requestId && item.requestId !== requestId && item.status !== 'error'
-          ),
+          ) : [],
           model: selectedModel,
           signal: controller.signal,
           examContext,
         });
 
         if (generation !== requestGeneration.current) return;
-        dispatch({
-          type: 'chat',
-          msg: {
-            id: requestId,
-            role: 'user',
-            requestId,
-            text: clean,
-            at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
-            status: 'sent',
-          },
+        dispatchChat({
+          id: requestId,
+          role: 'user',
+          requestId,
+          text: clean,
+          at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
+          status: 'sent',
         });
         const sakhaMsg: ChatMsg = {
           id: responseId,
@@ -184,7 +185,7 @@ export default function SakhaAIScreen() {
           status: 'sent',
         };
 
-        dispatch({ type: 'chat', msg: sakhaMsg });
+        dispatchChat(sakhaMsg);
       } catch (err: unknown) {
         if (generation !== requestGeneration.current) return;
         const error = err instanceof Error ? err : new Error('Unable to reach Sakha AI.');
@@ -197,16 +198,13 @@ export default function SakhaAIScreen() {
           setNeedsKey(Boolean(isKeyMissing));
           setErrorMessage(errorDesc);
         }
-        dispatch({
-          type: 'chat',
-          msg: {
+        dispatchChat({
             id: requestId,
             role: 'user',
             requestId,
             text: clean,
             at: state.chat.find((item) => item.id === requestId)?.at ?? Date.now(),
             status: 'error',
-          },
         });
         const errorMsg: ChatMsg = {
           id: responseId,
@@ -220,7 +218,7 @@ export default function SakhaAIScreen() {
           error: errorDesc,
           retryText: clean,
         };
-        dispatch({ type: 'chat', msg: errorMsg });
+        dispatchChat(errorMsg);
       } finally {
         if (activeRequest.current?.requestId === requestId) activeRequest.current = null;
         requestInFlight.current = false;
@@ -230,7 +228,7 @@ export default function SakhaAIScreen() {
         }
       }
     },
-    [dispatch, examContext, selectedModel, state.chat]
+    [dispatchChat, examContext, selectedModel, state.chat, state.settings.aiSaveChatHistory]
   );
 
   useEffect(() => {

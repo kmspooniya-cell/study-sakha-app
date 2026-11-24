@@ -65,6 +65,10 @@ export type PlannerSettings = {
   preferredStudyTimes: string[];
   autoScheduling: boolean;
   aiSuggestions: boolean;
+  defaultTaskDurationMinutes: number;
+  autoCarryForward: boolean;
+  recurringTasksEnabled: boolean;
+  breakIntervalMinutes: number;
 };
 
 export type PlannerScheduleCategory = 'Tasks' | 'Classes' | 'Exams' | 'Vacations' | 'Activities';
@@ -133,6 +137,39 @@ export type State = {
     dailyGoalMin: number;
     textScale: number;
     notifications: boolean;
+    accentColor: string;
+    customAccentHex: string | null;
+    highContrast: boolean;
+    reduceMotion: boolean;
+    animationIntensity: 'minimal' | 'balanced' | 'rich';
+    displayScaling: number;
+    layoutDensity: 'compact' | 'comfortable';
+    backgroundId: string;
+    backgroundOpacity: number;
+    overlayIntensity: number;
+    dashboardWidgets: {
+      streakCard: boolean;
+      dailyGoalRing: boolean;
+      quickRevision: boolean;
+      sakhaAiPrompt: boolean;
+      upcomingTests: boolean;
+    };
+    dashboardQuickActions: string[];
+    focusDurationMinutes: number;
+    shortBreakMinutes: number;
+    longBreakMinutes: number;
+    meditationDurationMinutes: number;
+    focusAutoStartNextSession: boolean;
+    focusThemeId: string;
+    focusAnimationIntensity: 'minimal' | 'balanced' | 'rich';
+    reduceFocusMotion: boolean;
+    focusMusicId: string;
+    focusMusicVolume: number;
+    aiResponseLanguage: string;
+    aiResponseLength: 'Concise' | 'Balanced' | 'Detailed';
+    aiDetailLevel: string;
+    aiLearningMode: string;
+    aiSaveChatHistory: boolean;
   };
   notes: UserNote[];
   starred: string[];
@@ -450,6 +487,77 @@ function normalizePlannerSettings(value: unknown, existingDailyGoal?: unknown): 
     preferredStudyTimes: [...new Set(preferred)],
     autoScheduling: saved.autoScheduling === true,
     aiSuggestions: saved.aiSuggestions === true,
+    defaultTaskDurationMinutes: Number.isFinite(Number(saved.defaultTaskDurationMinutes))
+      ? Math.min(240, Math.max(5, Number(saved.defaultTaskDurationMinutes)))
+      : initialState.plannerSettings.defaultTaskDurationMinutes,
+    autoCarryForward: saved.autoCarryForward === true,
+    recurringTasksEnabled: saved.recurringTasksEnabled !== false,
+    breakIntervalMinutes: Number.isFinite(Number(saved.breakIntervalMinutes))
+      ? Math.min(60, Math.max(0, Number(saved.breakIntervalMinutes)))
+      : initialState.plannerSettings.breakIntervalMinutes,
+  };
+}
+
+function normalizeSettings(value: unknown): State['settings'] {
+  const saved = value && typeof value === 'object' ? value as Partial<State['settings']> : {};
+  const themeMode = saved.themeMode === 'light' || saved.themeMode === 'dark' || saved.themeMode === 'system'
+    ? saved.themeMode
+    : initialState.settings.themeMode;
+  const language = saved.language === 'hi' ? 'hi' : 'en';
+  const bounded = (candidate: unknown, fallback: number, min: number, max: number) => {
+    const numeric = Number(candidate);
+    return Number.isFinite(numeric) ? Math.min(max, Math.max(min, numeric)) : fallback;
+  };
+  const intensity = saved.focusAnimationIntensity === 'minimal' || saved.focusAnimationIntensity === 'rich'
+    ? saved.focusAnimationIntensity
+    : 'balanced';
+  const length = saved.aiResponseLength === 'Concise' || saved.aiResponseLength === 'Detailed'
+    ? saved.aiResponseLength
+    : 'Balanced';
+  return {
+    ...initialState.settings,
+    ...saved,
+    themeMode,
+    language,
+    dailyGoalMin: bounded(saved.dailyGoalMin, initialState.settings.dailyGoalMin, 1, 1440),
+    textScale: bounded(saved.textScale, initialState.settings.textScale, 0.8, 1.4),
+    notifications: saved.notifications !== false,
+    accentColor: typeof saved.accentColor === 'string' ? saved.accentColor : initialState.settings.accentColor,
+    customAccentHex: typeof saved.customAccentHex === 'string' && /^#[0-9a-f]{6}$/i.test(saved.customAccentHex)
+      ? saved.customAccentHex
+      : null,
+    highContrast: saved.highContrast === true,
+    reduceMotion: saved.reduceMotion === true,
+    animationIntensity: saved.animationIntensity === 'minimal' || saved.animationIntensity === 'rich'
+      ? saved.animationIntensity
+      : 'balanced',
+    displayScaling: bounded(saved.displayScaling, initialState.settings.displayScaling, 90, 115),
+    layoutDensity: saved.layoutDensity === 'compact' ? 'compact' : 'comfortable',
+    backgroundId: typeof saved.backgroundId === 'string' ? saved.backgroundId : initialState.settings.backgroundId,
+    backgroundOpacity: bounded(saved.backgroundOpacity, initialState.settings.backgroundOpacity, 10, 100),
+    overlayIntensity: bounded(saved.overlayIntensity, initialState.settings.overlayIntensity, 0, 85),
+    dashboardWidgets: {
+      ...initialState.settings.dashboardWidgets,
+      ...(saved.dashboardWidgets && typeof saved.dashboardWidgets === 'object' ? saved.dashboardWidgets : {}),
+    },
+    dashboardQuickActions: Array.isArray(saved.dashboardQuickActions)
+      ? saved.dashboardQuickActions.filter((value): value is string => typeof value === 'string').slice(0, 8)
+      : initialState.settings.dashboardQuickActions,
+    focusDurationMinutes: bounded(saved.focusDurationMinutes, initialState.settings.focusDurationMinutes, 1, 240),
+    shortBreakMinutes: bounded(saved.shortBreakMinutes, initialState.settings.shortBreakMinutes, 0, 120),
+    longBreakMinutes: bounded(saved.longBreakMinutes, initialState.settings.longBreakMinutes, 0, 240),
+    meditationDurationMinutes: bounded(saved.meditationDurationMinutes, initialState.settings.meditationDurationMinutes, 1, 240),
+    focusAutoStartNextSession: saved.focusAutoStartNextSession === true,
+    focusThemeId: typeof saved.focusThemeId === 'string' ? saved.focusThemeId : initialState.settings.focusThemeId,
+    focusAnimationIntensity: intensity,
+    reduceFocusMotion: saved.reduceFocusMotion === true,
+    focusMusicId: typeof saved.focusMusicId === 'string' ? saved.focusMusicId : initialState.settings.focusMusicId,
+    focusMusicVolume: bounded(saved.focusMusicVolume, initialState.settings.focusMusicVolume, 0, 1),
+    aiResponseLanguage: typeof saved.aiResponseLanguage === 'string' ? saved.aiResponseLanguage : initialState.settings.aiResponseLanguage,
+    aiResponseLength: length,
+    aiDetailLevel: typeof saved.aiDetailLevel === 'string' ? saved.aiDetailLevel : initialState.settings.aiDetailLevel,
+    aiLearningMode: typeof saved.aiLearningMode === 'string' ? saved.aiLearningMode : initialState.settings.aiLearningMode,
+    aiSaveChatHistory: saved.aiSaveChatHistory !== false,
   };
 }
 
@@ -470,7 +578,20 @@ const initialState: State = {
   storageReady: false,
   authReady: false,
   user: null,
-  settings: { themeMode: 'system', language: 'en', dailyGoalMin: 180, textScale: 1, notifications: true },
+  settings: {
+    themeMode: 'system', language: 'en', dailyGoalMin: 180, textScale: 1, notifications: true,
+    accentColor: 'indigo', customAccentHex: null, highContrast: false, reduceMotion: false,
+    animationIntensity: 'balanced', displayScaling: 100, layoutDensity: 'comfortable',
+    backgroundId: 'none', backgroundOpacity: 100, overlayIntensity: 0,
+    dashboardWidgets: { streakCard: true, dailyGoalRing: true, quickRevision: true, sakhaAiPrompt: true, upcomingTests: true },
+    dashboardQuickActions: ['Focus Timer', 'Sakha AI', 'Daily PYQ', 'Add Task'],
+    focusDurationMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, meditationDurationMinutes: 10,
+    focusAutoStartNextSession: false,
+    focusThemeId: 'obsidian', focusAnimationIntensity: 'balanced', reduceFocusMotion: false,
+    focusMusicId: 'pure_cosmic_waves', focusMusicVolume: 0.65,
+    aiResponseLanguage: 'Bilingual (Hinglish)', aiResponseLength: 'Balanced', aiDetailLevel: 'Exam-Ready',
+    aiLearningMode: 'Teacher Mode', aiSaveChatHistory: true,
+  },
   notes: [
     {
       id: 'un1',
@@ -517,6 +638,10 @@ const initialState: State = {
     preferredStudyTimes: ['Morning'],
     autoScheduling: false,
     aiSuggestions: false,
+    defaultTaskDurationMinutes: 25,
+    autoCarryForward: false,
+    recurringTasksEnabled: true,
+    breakIntervalMinutes: 10,
   },
   plannerScheduleItems: [],
   plannerScheduleCompletions: {},
@@ -600,6 +725,7 @@ export type Action =
   | { type: 'study'; minutes: number }
   | { type: 'result'; result: TestResult }
   | { type: 'chat'; msg: ChatMsg }
+  | { type: 'chatEphemeral'; msg: ChatMsg }
   | { type: 'clearChat' }
   | { type: 'readNotif'; id?: string }
   | { type: 'notify'; notif: AppNotification }
@@ -1061,6 +1187,7 @@ export function reducer(state: State, action: Action): State {
     case 'result':
       return { ...state, results: [action.result, ...state.results] };
     case 'chat':
+    case 'chatEphemeral':
       return {
         ...state,
         chat: state.chat.some((item) => item.id === action.msg.id)
@@ -1288,6 +1415,14 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
     tasks = Array.from(merged.values());
   }
 
+  const plannerSettings = normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin);
+  const carryForwardDate = todayKey();
+  if (plannerSettings.autoCarryForward) {
+    tasks = tasks.map((task) => task.scope === 'daily' && !task.completedOn && task.targetDate < carryForwardDate
+      ? { ...task, targetDate: carryForwardDate, periodKey: carryForwardDate, completed: false }
+      : task);
+  }
+
   const plannerMinutesCredited =
     saved.plannerMinutesCredited ??
     Object.fromEntries(
@@ -1307,7 +1442,7 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
       authReady: false,
       managedContent: [],
       managedContentError: null,
-      settings: { ...initialState.settings, ...saved.settings },
+      settings: normalizeSettings(saved.settings),
       plannerSelectedDate: todayKey(),
       plannerTasks: tasks,
       plannerTasksLoaded: false,
@@ -1326,7 +1461,7 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
           )
         : {},
       plannerCompletions: saved.plannerCompletions ?? {},
-      plannerSettings: normalizePlannerSettings(saved.plannerSettings, saved.settings?.dailyGoalMin),
+      plannerSettings,
       plannerMinutesCredited,
       plannerTaskStudySeconds: isRecord(saved.plannerTaskStudySeconds)
         ? saved.plannerTaskStudySeconds as Record<string, number>

@@ -8,14 +8,23 @@ const mockStore = {
   state: {
     settings: { themeMode: 'system', language: 'en', textScale: 1, notifications: true },
     user: { name: 'Asha', email: 'asha@example.test', role: 'learner', exam: 'upsc' },
+    plannerSettings: { dailyTargetHours: 3, weeklyTargetHours: 10 },
+    notes: [],
+    studyLog: {},
+    results: [],
+    recordedFocusSessionIds: [],
+    plannerTasks: [],
+    plannerScheduleItems: [],
   },
+  streak: 0,
+  todayMinutes: 0,
   dispatch: jest.fn(),
   signOut: jest.fn(async () => ({ ok: true })),
   saveProfile: jest.fn(async () => ({ ok: true })),
 };
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => ({ navigate: mockNavigate, popTo: mockNavigate }),
 }));
 
 jest.mock('../components/Shell', () => {
@@ -34,7 +43,16 @@ jest.mock('@expo/vector-icons/Ionicons', () => ({ __esModule: true, default: () 
 jest.mock('../lib/store', () => ({ useStore: () => mockStore }));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
-  default: { clear: jest.fn(async () => undefined) },
+  default: {
+    clear: jest.fn(async () => undefined),
+    getItem: jest.fn(async () => null),
+    setItem: jest.fn(async () => undefined),
+  },
+}));
+jest.mock('../lib/notifications', () => ({ requestNotificationPermission: jest.fn(async () => true) }));
+jest.mock('../lib/supabase', () => ({
+  supabaseConfigured: false,
+  supabase: { auth: { signInWithPassword: jest.fn(), updateUser: jest.fn() } },
 }));
 
 const SettingsScreen = require('../screens/SettingsScreen').default as typeof import('../screens/SettingsScreen').default;
@@ -51,20 +69,16 @@ describe('SettingsScreen', () => {
       </ThemeProvider>,
     );
 
-    expect(view.getByText('Personal Settings')).toBeTruthy();
-    expect(view.getByText('Group Settings')).toBeTruthy();
-    expect(view.getByText('About & Support')).toBeTruthy();
+    await waitFor(() => {
+      expect(view.getByText(/Account & Profile/)).toBeTruthy();
+      expect(view.getByText(/Groups & Community/)).toBeTruthy();
+      expect(view.getByText(/About Study Sakha/)).toBeTruthy();
+    });
 
-    fireEvent.press(view.getByRole('button', { name: 'Dark theme' }));
-    expect(mockStore.dispatch).toHaveBeenCalledWith({ type: 'settings', patch: { themeMode: 'dark' } });
+    fireEvent.press(view.getByText('Study Planner & Goals'));
+    expect(view.getByText('Daily Study Goal')).toBeTruthy();
 
-    fireEvent.press(view.getByRole('button', { name: 'Study Preferences' }));
-    expect(mockNavigate).toHaveBeenCalledWith('StudyPlanner');
-    fireEvent.press(view.getByRole('button', { name: /My Groups/ }));
-    expect(mockNavigate).toHaveBeenCalledWith('Groups');
-
-    fireEvent.press(view.getByRole('button', { name: /Category/ }));
-    fireEvent.press(view.getByText('SSC CGL & CHSL'));
-    await waitFor(() => expect(mockStore.saveProfile).toHaveBeenCalledWith({ exam: 'ssc' }));
+    fireEvent.press(view.getByLabelText('Back to previous Settings screen'));
+    expect(view.getByText(/Account & Profile/)).toBeTruthy();
   });
 });

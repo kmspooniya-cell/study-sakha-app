@@ -17,6 +17,7 @@ import { radii, useTheme } from '../lib/theme';
 import { Resource } from '../lib/types';
 import type { ExamId } from '../lib/types';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
+import { translateLabel } from '../lib/i18n';
 
 const LIBRARY_SECTIONS = [
   { route: 'LibraryNotes', key: 'note', label: 'Notes', icon: 'document-text-outline', description: 'Your revision notes and study material.' },
@@ -51,13 +52,14 @@ function getSectionResources(section: LibrarySectionKey, state: State): Resource
 
 function SectionCount({ section, state }: { section: LibrarySection; state: State }) {
   const count = getSectionResources(section.key, state).length;
+  const language = state.settings.language;
   return (
     <Txt size={12} weight="700" color={useTheme().colors.textMuted}>
       {section.key === 'downloads'
-        ? 'Manage saved files'
+        ? (language === 'hi' ? 'सहेजी गई फ़ाइलें प्रबंधित करें' : 'Manage saved files')
         : section.key === 'tests'
-          ? 'Open test series'
-          : `${count} resource${count === 1 ? '' : 's'}`}
+          ? (language === 'hi' ? 'टेस्ट सीरीज़ खोलें' : 'Open test series')
+          : `${count} ${language === 'hi' ? 'संसाधन' : `resource${count === 1 ? '' : 's'}`}`}
     </Txt>
   );
 }
@@ -78,9 +80,10 @@ export default function LibraryScreen() {
   const { colors } = useTheme();
   const { state } = useStore();
   const { isMobile } = useLayout();
+  const language = state.settings.language;
 
   return (
-    <Shell active="Library" title="Library" subtitle="Your study resources, organized in one place" scroll={false}>
+    <Shell active="Library" title={translateLabel('Library', language)} subtitle={language === 'hi' ? 'आपके अध्ययन संसाधन एक ही स्थान पर' : 'Your study resources, organized in one place'} scroll={false}>
       <FlatList
         data={LIBRARY_SECTIONS}
         keyExtractor={(section) => section.route}
@@ -91,7 +94,7 @@ export default function LibraryScreen() {
           <StitchCard style={{ flex: 1, padding: 0 }} tone="glass">
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open ${section.label}`}
+              accessibilityLabel={`${language === 'hi' ? 'खोलें' : 'Open'} ${translateLabel(section.label, language)}`}
               onPress={() => {
                 if (section.route === 'Tests') {
                   nav.navigate('Tests', route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : undefined);
@@ -113,7 +116,7 @@ export default function LibraryScreen() {
                 <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
               </View>
               <View style={{ flex: 1, gap: 3 }}>
-                <Txt size={14} weight="800">{section.label}</Txt>
+                <Txt size={14} weight="800">{translateLabel(section.label, language)}</Txt>
                 <Txt size={11.5} color={colors.textMuted} numberOfLines={2}>{section.description}</Txt>
               </View>
               <SectionCount section={section} state={state} />

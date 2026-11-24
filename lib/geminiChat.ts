@@ -38,6 +38,12 @@ export type ExamContext = {
     taskType: string;
     completed: boolean;
   }[];
+  aiPreferences?: {
+    responseLanguage: string;
+    responseLength: 'Concise' | 'Balanced' | 'Detailed';
+    detailLevel: string;
+    learningMode: string;
+  };
 };
 
 export type GeminiChatResponse = {

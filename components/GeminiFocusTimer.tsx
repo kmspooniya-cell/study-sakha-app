@@ -1,5 +1,4 @@
 /* eslint-disable react-hooks/refs, react-hooks/immutability -- Animated values and web canvas nodes synchronize with native/web rendering APIs. */
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import {
@@ -10,7 +9,7 @@ import {
   Picture,
   Skia,
 } from '@shopify/react-native-skia';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import {
   Animated,
@@ -28,7 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useProceduralPicture } from '../hooks/useProceduralPicture';
 import { themeById } from '../themes';
 import type { ThemeDefinition, ThemeId } from '../types';
-import { getUserScopedStorageKey, useStore } from '../lib/store';
+import { useStore } from '../lib/store';
 
 const SUBJECTS = ['No subject selected', 'Mathematics', 'Physics', 'Computer Science', 'Design & Art', 'Reading'];
 const SESSION_PRESETS = [
@@ -37,7 +36,6 @@ const SESSION_PRESETS = [
   { label: 'Quick Sprint', minutes: 15 },
   { label: 'Evening Study', minutes: 45 },
 ];
-const FOCUS_THEME_STORAGE_KEY = 'study-sakha-focus-theme-v1';
 
 export type FocusTimerController = {
   totalSeconds: number;
@@ -268,17 +266,15 @@ export default function GeminiFocusTimer({
 }: Props) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { state } = useStore();
-  const themeStorageKey = useMemo(
-    () => getUserScopedStorageKey(FOCUS_THEME_STORAGE_KEY, state.user?.id),
-    [state.user?.id],
-  );
-  const [themeId, setThemeId] = useState<ThemeId>('obsidian');
-  const [loadedThemeKey, setLoadedThemeKey] = useState<string | null>(null);
+  const { state, dispatch } = useStore();
+  const focusSettings = state.settings ?? ({ focusThemeId: 'obsidian', focusAnimationIntensity: 'balanced', reduceFocusMotion: false, focusDurationMinutes: 25 } as const);
+  const themeId = Object.prototype.hasOwnProperty.call(themeById, focusSettings.focusThemeId)
+    ? focusSettings.focusThemeId as ThemeId
+    : 'obsidian';
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
-  const [motionEnabled, setMotionEnabled] = useState(true);
+  const motionEnabled = !focusSettings.reduceFocusMotion && focusSettings.focusAnimationIntensity !== 'minimal';
   const [dropdown, setDropdown] = useState<'session' | 'subject' | null>(null);
   const [toast, setToast] = useState('');
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,32 +284,6 @@ export default function GeminiFocusTimer({
   const theme = themeById[themeId];
   const artWidth = Math.max(1, Math.ceil(width));
   const artHeight = Math.max(1, Math.ceil(height));
-
-  useEffect(() => {
-    let active = true;
-    AsyncStorage.getItem(themeStorageKey).then((savedTheme) => {
-      if (!active) return;
-      if (savedTheme && Object.prototype.hasOwnProperty.call(themeById, savedTheme)) {
-        setThemeId(savedTheme as ThemeId);
-      }
-      setLoadedThemeKey(themeStorageKey);
-    }).catch((error: unknown) => {
-      if (active) {
-        console.warn('Focus theme preference could not be loaded:', error);
-        setLoadedThemeKey(themeStorageKey);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [themeStorageKey]);
-
-  useEffect(() => {
-    if (loadedThemeKey !== themeStorageKey) return;
-    AsyncStorage.setItem(themeStorageKey, themeId).catch((error: unknown) => {
-      console.warn('Focus theme preference could not be saved:', error);
-    });
-  }, [loadedThemeKey, themeId, themeStorageKey]);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -333,7 +303,7 @@ export default function GeminiFocusTimer({
   const applyTheme = (nextTheme: ThemeId) => {
     if (nextTheme === themeId) return;
     Animated.timing(fade, { toValue: 0.58, duration: 140, useNativeDriver: true }).start(() => {
-      setThemeId(nextTheme);
+      dispatch({ type: 'settings', patch: { focusThemeId: nextTheme } });
       transitionTimeout.current = setTimeout(() => {
         Animated.timing(fade, { toValue: 0, duration: 340, useNativeDriver: true }).start();
       }, 30);
@@ -528,14 +498,17 @@ export default function GeminiFocusTimer({
               </View>
               <Switch
                 value={motionEnabled}
-                onValueChange={(value) => { setMotionEnabled(value); showToast(value ? 'Living atmosphere enabled' : 'Static artwork mode'); }}
+                onValueChange={(value) => {
+                  dispatch({ type: 'settings', patch: { reduceFocusMotion: !value } });
+                  showToast(value ? 'Living atmosphere enabled' : 'Static artwork mode');
+                }}
                 trackColor={{ false: '#41434b', true: '#168650' }}
                 thumbColor={motionEnabled ? '#56e69b' : '#f3f4f6'}
                 accessibilityLabel="Living Atmosphere"
               />
             </View>
             <Pressable onPress={resetTimer} style={styles.resetButton}>
-              <Text style={styles.resetText}>Reset Timer to 25:00</Text>
+              <Text style={styles.resetText}>Reset Timer to {focusSettings.focusDurationMinutes}:00</Text>
             </Pressable>
             <Pressable onPress={() => { setSettingsOpen(false); onMoreOptions(); }} style={styles.moreOptionsButton}>
               <Text style={styles.moreOptionsText}>More Focus Center Options</Text>

@@ -189,6 +189,9 @@ type Ctx = {
   colors: Palette;
   textScale: number;
   f: (size: number) => number;
+  reduceMotion: boolean;
+  animationIntensity: 'minimal' | 'balanced' | 'rich';
+  layoutDensity: 'compact' | 'comfortable';
 };
 
 const ThemeCtx = createContext<Ctx>({
@@ -197,29 +200,95 @@ const ThemeCtx = createContext<Ctx>({
   colors: lightPalette,
   textScale: 1,
   f: (s) => s,
+  reduceMotion: false,
+  animationIntensity: 'balanced',
+  layoutDensity: 'comfortable',
 });
+
+const accentValues: Record<string, string> = {
+  indigo: '#4f46e5',
+  amber: '#d97706',
+  emerald: '#059669',
+  rose: '#e11d48',
+  violet: '#7c3aed',
+  teal: '#0d9488',
+  slate: '#334155',
+};
+
+const backgroundValues: Record<string, { light: string; dark: string }> = {
+  'subtle-grid': { light: '#eef2f7', dark: '#172033' },
+  'warm-paper': { light: '#fefce8', dark: '#292524' },
+  'royal-jaipur': { light: '#fff7ed', dark: '#431407' },
+  'deep-aurora': { light: '#eef2ff', dark: '#064e3b' },
+};
 
 export function ThemeProvider({
   mode,
   textScale = 1,
+  accentColor = 'indigo',
+  customAccentHex = null,
+  highContrast = false,
+  reduceMotion = false,
+  animationIntensity = 'balanced',
+  displayScaling = 100,
+  layoutDensity = 'comfortable',
+  backgroundId = 'none',
+  backgroundOpacity = 100,
+  overlayIntensity = 0,
   children,
 }: {
   mode: ThemeMode;
   textScale?: number;
+  accentColor?: string;
+  customAccentHex?: string | null;
+  highContrast?: boolean;
+  reduceMotion?: boolean;
+  animationIntensity?: 'minimal' | 'balanced' | 'rich';
+  displayScaling?: number;
+  layoutDensity?: 'compact' | 'comfortable';
+  backgroundId?: string;
+  backgroundOpacity?: number;
+  overlayIntensity?: number;
   children: React.ReactNode;
 }) {
   const system = useColorScheme();
   const scheme: 'light' | 'dark' = mode === 'system' ? (system === 'dark' ? 'dark' : 'light') : mode;
-  const value = useMemo<Ctx>(
-    () => ({
+  const value = useMemo<Ctx>(() => {
+      const base = scheme === 'dark' ? darkPalette : lightPalette;
+      const accent = /^#[0-9a-f]{6}$/i.test(customAccentHex ?? '')
+        ? customAccentHex!
+        : accentValues[accentColor] ?? accentValues.indigo;
+      const background = backgroundValues[backgroundId]?.[scheme] ?? base.bg;
+      const opacity = Math.min(1, Math.max(0.1, backgroundOpacity / 100));
+      const overlay = Math.min(0.85, Math.max(0, overlayIntensity / 100));
+      const blendedBackground = backgroundId === 'none'
+        ? base.bg
+        : scheme === 'dark'
+          ? `rgba(12,18,32,${1 - opacity * (1 - overlay)})`
+          : `rgba(242,242,247,${1 - opacity * (1 - overlay)})`;
+      const colors = {
+        ...base,
+        bg: blendedBackground,
+        blue: accent,
+        brandPrimary: accent,
+        focus: accent,
+        selected: accent,
+        info: accent,
+        focusRing: `${accent}55`,
+        selectedSurface: `${accent}18`,
+        border: highContrast ? (scheme === 'dark' ? '#94a3b8' : '#334155') : base.border,
+      } as Palette;
+      return {
       mode,
       scheme,
-      colors: scheme === 'dark' ? darkPalette : lightPalette,
+      colors,
       textScale,
-      f: (s: number) => Math.round(s * textScale),
-    }),
-    [mode, scheme, textScale]
-  );
+      f: (s: number) => Math.round(s * textScale * (displayScaling / 100)),
+      reduceMotion,
+      animationIntensity,
+      layoutDensity,
+    };
+    }, [accentColor, animationIntensity, backgroundId, backgroundOpacity, customAccentHex, displayScaling, highContrast, layoutDensity, mode, overlayIntensity, reduceMotion, scheme, textScale]);
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 }
 

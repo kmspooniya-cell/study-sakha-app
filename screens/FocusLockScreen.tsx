@@ -98,7 +98,7 @@ import { appendFocusHistory, type FocusHistoryRecord } from '../lib/focusHistory
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { focusLockNative, subscribeFocusLockEvent } from '../lib/focusLockNative';
 import { FOCUS_LOCK_STORAGE_KEY } from '../lib/focusLockSnapshot';
-import { useTheme } from '../lib/theme';
+import { useTheme, type Palette } from '../lib/theme';
 
 /* ============================================================================
  * MODULE 1: TYPES (types/index.ts)
@@ -322,34 +322,34 @@ interface ThemePalette {
   sky: string;
 }
 
-function getTheme(isDark: boolean): ThemePalette {
+function getTheme(colors: Palette, isDark: boolean): ThemePalette {
   return {
     isDark,
-    screenBg: isDark ? '#0B0E16' : '#F8FAFC',
-    headerBg: isDark ? 'rgba(11, 14, 22, 0.94)' : 'rgba(248, 250, 252, 0.94)',
-    cardBg: isDark ? '#121621' : '#FFFFFF',
-    surfaceBg: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
-    surfaceElevated: isDark ? 'rgba(255, 255, 255, 0.07)' : '#F1F5F9',
-    border: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.85)',
-    borderSubtle: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(226, 232, 240, 0.65)',
-    textPrimary: isDark ? '#FFFFFF' : '#0F172A',
-    textSecondary: isDark ? '#CBD5E1' : '#475569',
-    textMuted: isDark ? '#94A3B8' : '#64748B',
-    navBg: isDark ? 'rgba(15, 19, 30, 0.96)' : 'rgba(255, 255, 255, 0.96)',
-    indigo: '#4F46E5',
-    indigoLight: isDark ? '#818CF8' : '#4F46E5',
-    indigoSoft: isDark ? 'rgba(99, 102, 241, 0.14)' : 'rgba(99, 102, 241, 0.1)',
-    indigoBorder: isDark ? 'rgba(129, 140, 248, 0.25)' : 'rgba(99, 102, 241, 0.22)',
-    emerald: isDark ? '#34D399' : '#059669',
+    screenBg: colors.bg,
+    headerBg: colors.surface,
+    cardBg: colors.surface,
+    surfaceBg: colors.surfaceAlt,
+    surfaceElevated: colors.surfaceInteractive,
+    border: colors.border,
+    borderSubtle: colors.borderSubtle,
+    textPrimary: colors.text,
+    textSecondary: colors.textSecondary,
+    textMuted: colors.textMuted,
+    navBg: colors.surface,
+    indigo: colors.brandPrimary,
+    indigoLight: colors.brandPrimary,
+    indigoSoft: colors.selectedSurface,
+    indigoBorder: colors.focusRing,
+    emerald: colors.success,
     emeraldSoft: 'rgba(16, 185, 129, 0.14)',
-    rose: isDark ? '#FB7185' : '#E11D48',
+    rose: colors.danger,
     roseSoft: 'rgba(244, 63, 94, 0.14)',
-    amber: isDark ? '#FBBF24' : '#D97706',
+    amber: colors.warning,
     amberSoft: 'rgba(245, 158, 11, 0.14)',
-    teal: isDark ? '#2DD4BF' : '#0D9488',
+    teal: colors.teal,
     tealSoft: 'rgba(20, 184, 166, 0.14)',
-    violet: '#8B5CF6',
-    sky: '#0EA5E9',
+    violet: colors.purple,
+    sky: colors.info,
   };
 }
 
@@ -869,6 +869,7 @@ export function FocusStatusCard({
   blockedAttemptsToday,
   onOpenPermissions,
   onResumeActive,
+  reduceMotion,
   theme,
 }: {
   sessionState: SessionState;
@@ -879,13 +880,14 @@ export function FocusStatusCard({
   blockedAttemptsToday: number;
   onOpenPermissions: () => void;
   onResumeActive: () => void;
+  reduceMotion: boolean;
   theme: ThemePalette;
 }) {
   const pingAnim = useRef(new Animated.Value(0)).current;
   const isRunning = ['active_focus', 'active_strict', 'scheduled_lock', 'break_active'].includes(sessionState);
 
   useEffect(() => {
-    if (!isRunning) {
+    if (!isRunning || reduceMotion) {
       pingAnim.setValue(0);
       return;
     }
@@ -897,7 +899,7 @@ export function FocusStatusCard({
     );
     loop.start();
     return () => loop.stop();
-  }, [isRunning, pingAnim]);
+  }, [isRunning, pingAnim, reduceMotion]);
 
   const statusMeta: Record<SessionState, { label: string; bg: string; text: string; border: string; dot: string; glow: string }> = {
     initial: { label: 'Protection Off', bg: 'rgba(100,116,139,0.15)', text: theme.textSecondary, border: 'rgba(148,163,184,0.22)', dot: '#94A3B8', glow: 'rgba(100,116,139,0.06)' },
@@ -2025,6 +2027,7 @@ export function InterventionModal({
   onRequestEmergency: () => void;
   onContinueFocus: () => void;
 }) {
+  const { reduceMotion } = useTheme();
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [styleMode, setStyleMode] = useState<'breath' | 'wait' | 'exam'>('breath');
   const [countdown, setCountdown] = useState<number>(10);
@@ -2053,14 +2056,17 @@ export function InterventionModal({
   }, [open, countdown]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || reduceMotion) {
+      breathScale.setValue(1);
+      return;
+    }
     Animated.timing(breathScale, {
       toValue: countdown % 2 === 0 ? 1.12 : 0.9,
       duration: 900,
       easing: Easing.inOut(Easing.ease),
       useNativeDriver: true,
     }).start();
-  }, [open, countdown, breathScale]);
+  }, [open, countdown, breathScale, reduceMotion]);
 
   return (
     <Modal visible={open} animationType="fade" transparent statusBarTranslucent>
@@ -2350,10 +2356,10 @@ export function SessionCompletionModal({
 
 export default function FocusLockScreen() {
   const { state, dispatch } = useStore();
-  const { scheme } = useTheme();
+  const { scheme, colors, reduceMotion } = useTheme();
   // Theme & Navigation State (React Navigation compatible)
   const isDark = scheme === 'dark';
-  const theme = useMemo(() => getTheme(isDark), [isDark]);
+  const theme = useMemo(() => getTheme(colors, isDark), [colors, isDark]);
   const [screen, setScreen] = useState<ScreenName>('home');
   const [showStateLab, setShowStateLab] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string>('');
@@ -2858,6 +2864,7 @@ export default function FocusLockScreen() {
                 blockedAttemptsToday={blockedAttemptsToday}
                 onOpenPermissions={() => setScreen('settings')}
                 onResumeActive={() => setScreen('active_session')}
+                reduceMotion={reduceMotion}
                 theme={theme}
               />
 

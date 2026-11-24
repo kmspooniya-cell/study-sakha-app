@@ -16,6 +16,7 @@ import { ActivityIndicator, Alert, Animated, Easing, Image, Platform, Share, Vie
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
+import { Txt } from './components/ui';
 import { getDisplayName, StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
 import type {
@@ -27,6 +28,7 @@ import type {
   RootStackParamList,
 } from './lib/navigation';
 import { getNotificationNavigationRoute } from './lib/navigation';
+import { translateLabel } from './lib/i18n';
 import LibraryScreen, {
   LibraryBooksScreen,
   LibraryDownloadsScreen,
@@ -201,11 +203,11 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.82 : 1 })}
           >
             <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surfaceRaised, alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
-              <Text style={{ color: colors.brandPrimary, fontSize: 20, fontWeight: 'bold' }}>{first.charAt(0)}</Text>
+              <Txt size={20} weight="700" color={colors.brandPrimary}>{first.charAt(0)}</Txt>
             </View>
             <View>
-              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>{getDisplayName(state.user)}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 2 }}>View Profile</Text>
+              <Txt size={18} weight="700" color="#FFF">{getDisplayName(state.user)}</Txt>
+              <Txt size={13} color="rgba(255,255,255,0.78)" style={{ marginTop: 2 }}>{translateLabel('View Profile', state.settings.language)}</Txt>
             </View>
           </Pressable>
         </LinearGradient>
@@ -222,7 +224,7 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
               style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.target.screen ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
             >
               <Ionicons name={item.icon} size={22} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} />
-              <Text style={{ fontSize: 15, fontWeight: currentRoute === item.target.screen ? '800' : '600', color: currentRoute === item.target.screen ? colors.brandPrimary : colors.text, marginLeft: 15 }}>{item.label}</Text>
+              <Txt size={15} weight={currentRoute === item.target.screen ? '800' : '600'} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} style={{ marginLeft: 15 }}>{translateLabel(item.label, state.settings.language)}</Txt>
             </Pressable>
           ))}
         </View>
@@ -249,7 +251,7 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
         style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 64, padding: 20, borderTopWidth: 1, borderTopColor: colors.borderSubtle, backgroundColor: colors.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
       >
         <Ionicons name="share-social-outline" size={22} color={colors.brandPrimary} />
-        <Text style={{ fontSize: 15, fontWeight: 'bold', color: colors.brandPrimary, marginLeft: 15 }}>Share with friends</Text>
+        <Txt size={15} weight="700" color={colors.brandPrimary} style={{ marginLeft: 15 }}>{translateLabel('Share with friends', state.settings.language)}</Txt>
       </Pressable>
     </View>
   );
@@ -259,12 +261,12 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
 // 2. AUTHENTICATED APP NAVIGATORS
 // ----------------------------------------------------
 function AuthenticatedStackNavigator() {
-  const { colors } = useTheme();
+  const { colors, reduceMotion } = useTheme();
   return (
     <AppStack.Navigator
       screenOptions={{
         headerShown: false,
-        animation: Platform.OS === 'web' ? 'none' : 'default',
+        animation: Platform.OS === 'web' || reduceMotion ? 'none' : 'default',
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
@@ -317,7 +319,7 @@ function MainDrawerNavigator() {
 // ----------------------------------------------------
 function Navigation() {
   const { state } = useStore();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, reduceMotion } = useTheme();
   const [showBrandIntro, setShowBrandIntro] = useState(true);
   const pendingNotificationRoute = useRef<'Notifications' | null>(null);
   const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
@@ -379,7 +381,7 @@ function Navigation() {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          animation: Platform.OS === 'web' ? 'none' : 'default',
+          animation: Platform.OS === 'web' || reduceMotion ? 'none' : 'default',
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
@@ -401,7 +403,20 @@ function Navigation() {
 function Themed() {
   const { state } = useStore();
   return (
-    <ThemeProvider mode={state.settings.themeMode} textScale={state.settings.textScale}>
+    <ThemeProvider
+      mode={state.settings.themeMode}
+      textScale={state.settings.textScale}
+      accentColor={state.settings.accentColor}
+      customAccentHex={state.settings.customAccentHex}
+      highContrast={state.settings.highContrast}
+      reduceMotion={state.settings.reduceMotion}
+      animationIntensity={state.settings.animationIntensity}
+      displayScaling={state.settings.displayScaling}
+      layoutDensity={state.settings.layoutDensity}
+      backgroundId={state.settings.backgroundId}
+      backgroundOpacity={state.settings.backgroundOpacity}
+      overlayIntensity={state.settings.overlayIntensity}
+    >
       <Navigation />
     </ThemeProvider>
   );

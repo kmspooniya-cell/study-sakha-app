@@ -1410,11 +1410,17 @@ export default function App() {
   const [focusSetupVisible, setFocusSetupVisible] = useState(false);
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
-    durationMinutes: 25,
+    durationMinutes: state.settings?.focusDurationMinutes ?? 25,
     selection: null,
     tag: '',
     task: null,
   });
+
+  useEffect(() => {
+    setFocusSetup((current) => current.mode === 'timer'
+      ? { ...current, durationMinutes: state.settings?.focusDurationMinutes ?? 25 }
+      : current);
+  }, [state.settings?.focusDurationMinutes]);
 
   // Form interactive state (exact 1:1 parity)
   const [formCategory, setFormCategory] = useState('task');
@@ -1801,7 +1807,7 @@ export default function App() {
       return;
     }
 
-    const supportsRepeat = ['task', 'class', 'vacation'].includes(formCategory);
+    const supportsRepeat = (state.plannerSettings?.recurringTasksEnabled ?? true) && ['task', 'class', 'vacation'].includes(formCategory);
     const finalRecurrence = supportsRepeat && formRecurrenceMode === 'repeating' ? formRecurrence : 'none';
     let finalRepeatDays = [];
     if (finalRecurrence === 'weekly') {
@@ -1824,10 +1830,10 @@ export default function App() {
     const existingPlan = editingPlanId ? plans.find((plan) => plan.id === editingPlanId) : undefined;
     const plannedDurationMinutes = existingPlan
       ? existingPlan.durationMinutes
-      : formCategory === 'task' ? 25 : 60;
+      : formCategory === 'task' ? (state.plannerSettings?.defaultTaskDurationMinutes ?? 25) : 60;
     const plannedDurationLabel = existingPlan
       ? existingPlan.duration
-      : `${formCategory === 'task' ? 25 : 60} min`;
+      : `${formCategory === 'task' ? (state.plannerSettings?.defaultTaskDurationMinutes ?? 25) : 60} min`;
     const planPayload = {
       id: editingPlanId || `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       category: formCategory,

@@ -216,6 +216,12 @@ export function CustomStudyPlan({
   const total = visiblePlan.length + visibleTasks.length;
   const doneCount = completedDefaultCount + completedCustomCount;
   const percent = total ? Math.round((doneCount / total) * 100) : 0;
+  const suggestionTask = tasks
+    .filter((task) => !task.completedOn && isDateKey(task.targetDate))
+    .sort((a, b) => a.targetDate.localeCompare(b.targetDate))[0];
+  const suggestionSubject = plannerState.results[0]?.bySubject
+    ? [...plannerState.results[0].bySubject].sort((a, b) => (a.correct / (a.total || 1)) - (b.correct / (b.total || 1)))[0]?.subject
+    : undefined;
 
   function openAdd(scope: PlannerScope = 'daily', periodKey = selectedDate, date = selectedDate) {
     setEditingId(null);
@@ -624,7 +630,13 @@ export function CustomStudyPlan({
                   <Ionicons name="sparkles-outline" size={30} color={colors.blue} />
                 </View>
                 <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>
-                  Personalized study suggestions will appear here soon.
+                  {!plannerState.plannerSettings.aiSuggestions
+                    ? 'Smart suggestions are disabled in Settings.'
+                    : suggestionTask
+                      ? `Prioritize “${suggestionTask.label}” (${suggestionTask.minutes} min) before adding another task.`
+                      : suggestionSubject
+                        ? `Your latest test indicates that ${suggestionSubject} needs the next revision block.`
+                        : 'There is not enough study data to make a personalized suggestion yet.'}
                 </Text>
               </View>
             ) : null}

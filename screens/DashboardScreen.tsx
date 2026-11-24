@@ -15,6 +15,7 @@ import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
 import { focusLockNative } from '../lib/focusLockNative';
 import { readFocusLockSnapshot, type FocusLockSnapshot } from '../lib/focusLockSnapshot';
+import { translateLabel } from '../lib/i18n';
 
 const greeting = () => {
   const hour = new Date().getHours();
@@ -36,9 +37,11 @@ const stitchDark = {
 };
 
 export default function DashboardScreen() {
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, reduceMotion } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, streak, todayMinutes, dispatch } = useStore();
+  const dashboardWidgets = state.settings.dashboardWidgets ?? { streakCard: true, dailyGoalRing: true };
+  const language = state.settings.language;
   const { isTablet, isDesktop } = useLayout();
   const isTabletOrLarger = isTablet || isDesktop;
   const styles = useMemo(() => makeStyles(colors, scheme), [colors, scheme]);
@@ -53,13 +56,23 @@ export default function DashboardScreen() {
   const [focusLockNativeReady, setFocusLockNativeReady] = useState<boolean | null>(null);
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
-    durationMinutes: 25,
+    durationMinutes: state.settings.focusDurationMinutes,
     selection: null,
     tag: 'History',
     task: null,
   });
 
   useEffect(() => {
+    setFocusSetup((current) => current.mode === 'timer'
+      ? { ...current, durationMinutes: state.settings.focusDurationMinutes }
+      : current);
+  }, [state.settings.focusDurationMinutes]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      setAnim(1);
+      return undefined;
+    }
     let frame = 0;
     const id = setInterval(() => {
       frame += 1;
@@ -67,7 +80,7 @@ export default function DashboardScreen() {
       if (frame >= 28) clearInterval(id);
     }, 16);
     return () => clearInterval(id);
-  }, [target]);
+  }, [reduceMotion, target]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -111,6 +124,16 @@ export default function DashboardScreen() {
     else nav.navigate('TestPlayer', { testId: item.refId });
   };
 
+  const quickActionHandlers: Record<string, { title: string; icon: keyof typeof Ionicons.glyphMap; color: string; onPress: () => void }> = {
+    'Focus Timer': { title: 'Focus Timer', icon: 'timer-outline', color: colors.violet, onPress: () => setFocusSetupVisible(true) },
+    'Sakha AI': { title: 'Sakha AI', icon: 'sparkles-outline', color: colors.purple, onPress: () => nav.navigate('SakhaAI') },
+    'Daily PYQ': { title: 'Daily PYQ', icon: 'albums-outline', color: colors.blue, onPress: () => nav.navigate('PYQ') },
+    'Add Task': { title: 'Add Task', icon: 'add-circle-outline', color: colors.teal, onPress: () => nav.navigate('StudyPlanner') },
+  };
+  const dashboardActions = (state.settings.dashboardQuickActions ?? ['Focus Timer', 'Sakha AI', 'Daily PYQ', 'Add Task'])
+    .map((action) => quickActionHandlers[action])
+    .filter((action): action is (typeof quickActionHandlers)[string] => Boolean(action));
+
   const radius = 15.9;
   const circumference = 2 * Math.PI * radius;
 
@@ -131,20 +154,20 @@ export default function DashboardScreen() {
                   <Text style={styles.heroTitle}>Make today count.</Text>
                   <Text style={styles.heroSub}>One focused session at a time, Learner.</Text>
                 </View>
-                <View style={styles.progressCircleContainer}>
+                {dashboardWidgets.dailyGoalRing ? <View style={styles.progressCircleContainer}>
                   <Svg width={48} height={48} viewBox="0 0 36 36">
                     <Circle cx="18" cy="18" r={radius} stroke="rgba(255,255,255,0.15)" strokeWidth="3" fill="none" />
-                    <Circle cx="18" cy="18" r={radius} stroke="#007AFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} transform="rotate(-90 18 18)" />
+                    <Circle cx="18" cy="18" r={radius} stroke={colors.blue} strokeWidth="3" fill="none" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference - target * anim * circumference} transform="rotate(-90 18 18)" />
                   </Svg>
                   <View style={styles.progressCircleTextWrap}><Text style={styles.progressCircleText}>{Math.round(target * 100)}%</Text></View>
-                </View>
+                </View> : null}
               </View>
               <View style={styles.heroStatsRow}>
-                <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="time" size={14} color="#5AC8FA" /><Text style={styles.heroStatValue}>{safeTodayMinutes} min</Text></View><Text style={styles.heroStatLabel}>Studied today</Text></View>
-                <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="flame" size={14} color="#FF9500" /><Text style={styles.heroStatValue}>{streak} day</Text></View><Text style={styles.heroStatLabel}>Study streak</Text></View>
+                <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="time" size={14} color={colors.info} /><Text style={styles.heroStatValue}>{safeTodayMinutes} min</Text></View><Text style={styles.heroStatLabel}>{translateLabel('Studied today', language)}</Text></View>
+                {dashboardWidgets.streakCard ? <View style={styles.heroStatBox}><View style={styles.heroStatLine}><Ionicons name="flame" size={14} color={colors.warning} /><Text style={styles.heroStatValue}>{streak} day</Text></View><Text style={styles.heroStatLabel}>{translateLabel('Study streak', language)}</Text></View> : null}
               </View>
               <View style={styles.linearTrack}><LinearGradient colors={['#2DD4BF', '#38BDF8']} style={[styles.linearFill, { width: `${target * 100}%` }]} /></View>
-              <Pressable accessibilityRole="button" onPress={() => nav.navigate('Library')} style={styles.resumeBtn}><Ionicons name="book-outline" size={16} color="#CBD5E1" /><Text style={styles.resumeBtnText}>Resume learning</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => nav.navigate('Library')} style={styles.resumeBtn}><Ionicons name="book-outline" size={16} color="#CBD5E1" /><Text style={styles.resumeBtnText}>{translateLabel('Resume learning', language)}</Text></Pressable>
             </LinearGradient>
 
             <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
@@ -154,19 +177,19 @@ export default function DashboardScreen() {
                   <View style={styles.focusLockCardHeader}>
                     <View style={styles.focusLockCardTitleRow}>
                       <Ionicons name="lock-closed-outline" size={18} color={colors.teal} />
-                      <Text style={[styles.focusLockCardTitle, { color: colors.text }]}>Focus Lock</Text>
+                      <Text style={[styles.focusLockCardTitle, { color: colors.text }]}>{translateLabel('Focus Lock', language)}</Text>
                     </View>
                     <Text style={[styles.focusLockCardStatus, { color: focusLockActive ? colors.success : colors.textMuted }]}>
                       {focusLockActive ? 'ACTIVE' : focusLockNativeReady === false ? 'SETUP REQUIRED' : 'READY'}
                     </Text>
                   </View>
                   <View style={styles.focusLockCardMetrics}>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockActive ? focusLockClock : `${Math.round((state.studyLog[dayKey(new Date())] ?? 0))}m`}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{focusLockActive ? 'remaining' : 'studied today'}</Text></View>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.selectedAppIds?.length ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>blocked apps</Text></View>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.blockedAttemptsToday ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>blocked today</Text></View>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockActive ? focusLockClock : `${Math.round((state.studyLog[dayKey(new Date())] ?? 0))}m`}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel(focusLockActive ? 'remaining' : 'studied today', language)}</Text></View>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.selectedAppIds?.length ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel('blocked apps', language)}</Text></View>
+                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.blockedAttemptsToday ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel('blocked today', language)}</Text></View>
                   </View>
                   <Pressable onPress={() => nav.navigate('FocusLock')} style={[styles.focusLockCardButton, { backgroundColor: colors.tint }]}>
-                    <Text style={[styles.focusLockCardButtonText, { color: colors.blue }]}>{focusLockActive ? 'Resume Focus Lock' : 'Open Focus Lock'}</Text>
+                    <Text style={[styles.focusLockCardButtonText, { color: colors.blue }]}>{translateLabel(focusLockActive ? 'Resume Focus Lock' : 'Open Focus Lock', language)}</Text>
                     <Ionicons name="arrow-forward" size={15} color={colors.blue} />
                   </Pressable>
                 </View>
@@ -186,11 +209,7 @@ export default function DashboardScreen() {
                     onOpenFocus={() => setFocusSetupVisible(true)}
                     onOpenPlanner={() => nav.navigate('StudyPlanner')} 
                     dashboardMode
-                    dashboardActions={[
-                      { title: 'Schedule', icon: 'calendar-outline', color: colors.blue, onPress: () => nav.navigate('StudyPlanner') },
-                      { title: 'Lock', icon: 'lock-closed-outline', color: colors.teal, onPress: () => nav.navigate('FocusLock') },
-                      { title: 'Focus', icon: 'timer-outline', color: colors.violet, onPress: () => setFocusSetupVisible(true) },
-                    ]}
+                    dashboardActions={dashboardActions}
                   />
                 </View>
 
@@ -216,7 +235,23 @@ export default function DashboardScreen() {
 }
 
 function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'light' | 'dark') {
-  const palette = scheme === 'light' ? stitchLight : stitchDark;
+  const base = scheme === 'light' ? stitchLight : stitchDark;
+  const palette = {
+    ...base,
+    bg: colors.bg,
+    surface: colors.surface,
+    surfaceAlt: colors.surfaceAlt,
+    border: colors.border,
+    text: colors.text,
+    muted: colors.textMuted,
+    blue: colors.blue,
+    green: colors.green,
+    orange: colors.orange,
+    purple: colors.purple,
+    red: colors.red,
+    teal: colors.teal,
+    dark: colors.dark,
+  };
   return StyleSheet.create({
     mainContainer: { flex: 1, backgroundColor: palette.bg },
     scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },

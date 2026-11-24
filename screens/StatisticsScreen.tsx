@@ -206,33 +206,33 @@ const SUBJECT_COLORS: Record<string, string> = {
 const getSubjectColor = (subject: string): string => SUBJECT_COLORS[subject] || '#0EA5E9';
 
 /** Exact Tailwind-matched Light & Dark color tokens from the original web UI */
-const getThemeColors = (dark: boolean) => ({
-  bgPage: dark ? '#0B1120' : '#F4F7FA',
-  bgHeader: dark ? 'rgba(11, 17, 32, 0.94)' : 'rgba(255, 255, 255, 0.94)',
-  bgNav: dark ? 'rgba(11, 17, 32, 0.96)' : 'rgba(255, 255, 255, 0.97)',
-  bgCard: dark ? 'rgba(15, 23, 42, 0.95)' : '#FFFFFF',
-  bgSubtle: dark ? 'rgba(2, 6, 23, 0.50)' : 'rgba(248, 250, 252, 0.85)',
-  bgSubtleStrong: dark ? 'rgba(2, 6, 23, 0.65)' : '#F8FAFC',
-  bgPill: dark ? '#0F172A' : '#F1F5F9',
-  bgTrack: dark ? '#1E293B' : '#F1F5F9',
-  bgTrackAlt: dark ? '#1E293B' : 'rgba(226, 232, 240, 0.8)',
-  bgButtonGhost: dark ? '#1E293B' : '#F1F5F9',
-  borderCard: dark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(226, 232, 240, 0.85)',
-  borderSubtle: dark ? 'rgba(30, 41, 59, 0.8)' : 'rgba(226, 232, 240, 0.7)',
-  borderHeader: dark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(226, 232, 240, 0.85)',
-  textPrimary: dark ? '#FFFFFF' : '#0F172A',
-  textHeading: dark ? '#F1F5F9' : '#0F172A',
-  textSecondary: dark ? '#94A3B8' : '#64748B',
-  textBody: dark ? '#CBD5E1' : '#334155',
-  textMuted: dark ? '#64748B' : '#94A3B8',
-  tealText: dark ? '#2DD4BF' : '#0F766E',
-  tealAccent: dark ? '#14B8A6' : '#0D9488',
-  skyText: dark ? '#38BDF8' : '#0284C7',
-  emeraldText: '#10B981',
-  amberText: '#F59E0B',
-  roseText: '#F43F5E',
-  violetText: '#7C3AED',
-  cyanText: dark ? '#22D3EE' : '#0891B2',
+const getThemeColors = (dark: boolean, colors: ReturnType<typeof useTheme>['colors']) => ({
+  bgPage: colors.bg,
+  bgHeader: colors.surface,
+  bgNav: colors.surface,
+  bgCard: colors.surfaceRaised,
+  bgSubtle: colors.surfaceSubtle,
+  bgSubtleStrong: colors.surfaceAlt,
+  bgPill: colors.surfaceInteractive,
+  bgTrack: colors.surfaceInteractive,
+  bgTrackAlt: colors.surfaceAlt,
+  bgButtonGhost: colors.surfaceAlt,
+  borderCard: colors.border,
+  borderSubtle: colors.borderSubtle,
+  borderHeader: colors.border,
+  textPrimary: colors.textPrimary,
+  textHeading: colors.textPrimary,
+  textSecondary: colors.textSecondary,
+  textBody: colors.text,
+  textMuted: colors.textMuted,
+  tealText: colors.teal,
+  tealAccent: colors.teal,
+  skyText: colors.info,
+  emeraldText: colors.success,
+  amberText: colors.warning,
+  roseText: colors.danger,
+  violetText: colors.purple,
+  cyanText: colors.teal,
 });
 
 /* ============================================================================
@@ -1663,7 +1663,8 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
   style,
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
-  const c = getThemeColors(dark);
+  const { colors } = useTheme();
+  const c = getThemeColors(dark, colors);
 
   const toneStyles: Record<string, { bg: string; fg: string }> = {
     teal: { bg: dark ? 'rgba(20,184,166,0.15)' : '#F0FDFA', fg: dark ? '#2DD4BF' : '#0F766E' },
@@ -1774,7 +1775,7 @@ function StudySakhaStatisticsScreen() {
   const isLg = screenWidth >= 1024;
   const navigation = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
-  const { scheme } = useTheme();
+  const { scheme, colors } = useTheme();
   const historyKey = getUserScopedStorageKey(HISTORY_KEY, state.user?.id);
 
   // Theme & Dataset Switcher States
@@ -1807,7 +1808,7 @@ function StudySakhaStatisticsScreen() {
   const [actionSheet, setActionSheet] = useState<ActionSheetState | null>(null);
   const [toastMsg, setToastMsg] = useState('');
 
-  const c = getThemeColors(dark);
+  const c = getThemeColors(dark, colors);
 
   const loadHistory = useCallback(async () => {
     const requestId = ++historyRequestId.current;

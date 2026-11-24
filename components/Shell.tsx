@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DrawerActions, StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
-import { BackHandler, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { BackHandler, Modal, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
@@ -9,6 +9,7 @@ import { Logo, LogoMark } from './Logo';
 import { Divider, IconButton, Txt } from './ui';
 import { getAndroidBackTarget } from '../lib/navigation';
 import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
+import { translateLabel } from '../lib/i18n';
 
 export type NavKey =
 | 'Dashboard'
@@ -163,7 +164,7 @@ const openMenu = () => nav.dispatch(DrawerActions.openDrawer());
 const goHome = () => navigate('DashboardRoot');
 
 const glassBackground = scheme === 'dark' ? 'rgba(20,28,46,0.92)' : 'rgba(248,248,250,0.92)';
-const secondaryText = scheme === 'dark' ? colors.textMuted : '#3C3C4399';
+const secondaryText = colors.textMuted;
 
 const handleContinue = () => {
 if (helpStep === 1) {
@@ -217,7 +218,7 @@ style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
 <Ionicons name="notifications-outline" size={20} color={secondaryText} />
 {unread > 0 ? (
 <View style={{ position: 'absolute', top: -5, right: -6, width: 16, height: 16, borderRadius: 8, backgroundColor: scheme === 'dark' ? colors.danger : '#FF3B30', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: scheme === 'dark' ? colors.surface : '#F2F2F7' }}>
-<Text style={{ color: '#FFF', fontSize: 9, fontWeight: '600' }}>{unread > 9 ? '9+' : unread}</Text>
+<Txt size={9} weight="600" color="#FFF">{unread > 9 ? '9+' : unread}</Txt>
 </View>
 ) : null}
 </View>
@@ -446,6 +447,8 @@ export function AppBottomNav({ active }: { active: NavKey }) {
 const nav = useNavigation<AppNavigation>();
 const insets = useSafeAreaInsets();
 const { colors } = useTheme();
+const { state } = useStore();
+const language = state.settings.language;
 const { width } = useWindowDimensions();
 
 const go = (key: NavKey) => {
@@ -454,7 +457,7 @@ popToRoute(nav, routeName);
 };
 
 const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
-const inactive = colors.bg === '#0C1220' ? colors.textMuted : '#8E8E93';
+const inactive = colors.textMuted;
 return (
 <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: insets.bottom, ...shadow(colors, 2) }}>
 <View style={{ width: '92%', maxWidth: width < 768 ? 383 : 545, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24 }}>
@@ -466,7 +469,7 @@ return (
 <Ionicons name={on ? t.icon : (`${t.icon}-outline` as any)} size={20} color={on ? colors.blue : inactive} />
 </View>
 <Txt size={10} weight={on ? '700' : '500'} color={on ? colors.blue : inactive} style={{ marginTop: 2 }}>
-{t.label}
+{translateLabel(t.label, language)}
 </Txt>
 </Pressable>
 );
@@ -476,7 +479,7 @@ return (
 <Ionicons name={active === 'Profile' ? 'person' : 'person-outline'} size={20} color={active === 'Profile' ? colors.blue : inactive} />
 </View>
 <Txt size={10} weight={active === 'Profile' ? '700' : '500'} color={active === 'Profile' ? colors.blue : inactive} style={{ marginTop: 2 }}>
-Profile
+{translateLabel('Profile', language)}
 </Txt>
 </Pressable>
 </View>
@@ -507,17 +510,19 @@ contentPadding?: number;
 appHeaderActions?: React.ReactNode;
 fitContentToBottomNav?: boolean;
 }) {
-const { colors } = useTheme();
+const { colors, layoutDensity } = useTheme();
 const nav = useNavigation<AppNavigation>();
 const { isMobile, isTablet, isDesktop } = useLayout();
 const insets = useSafeAreaInsets();
 const { state, unread } = useStore();
+const language = state.settings.language;
 const [collapsed, setCollapsed] = useState(false);
 
 useSmartAndroidBack();
 
 const isAdmin = state.user?.role === 'admin';
 const sidebarCollapsed = isTablet ? !collapsed : collapsed;
+const effectiveContentPadding = layoutDensity === 'compact' ? Math.max(12, contentPadding - 4) : contentPadding;
 const sidebarWidth = sidebarCollapsed ? 76 : 248;
 const hasPageHeading = Boolean(title.trim() || subtitle?.trim());
 
@@ -551,7 +556,7 @@ return (
 <View key={group.title} style={{ marginBottom: 18 }}>
 {!sidebarCollapsed ? (
 <Txt size={10.5} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.3, paddingHorizontal: 20, marginBottom: 8 }}>
-{group.title.toUpperCase()}
+{translateLabel(group.title, language).toUpperCase()}
 </Txt>
 ) : (
 <View style={{ height: 1, backgroundColor: colors.border, marginHorizontal: 20, marginBottom: 12 }} />
@@ -578,7 +583,7 @@ backgroundColor: on ? colors.tint : pressed ? colors.surfaceAlt : 'transparent',
 <Ionicons name={item.icon} size={19} color={on ? colors.blue : colors.textMuted} />
 {!sidebarCollapsed ? (
 <Txt size={13.5} weight={on ? '800' : '600'} color={on ? colors.blue : colors.textMuted}>
-{item.label}
+{translateLabel(item.label, language)}
 </Txt>
 ) : null}
 {!sidebarCollapsed && item.key === 'Notifications' && unread > 0 ? (
@@ -706,8 +711,8 @@ const body = (
 {scroll ? (
 <ScrollView
 contentContainerStyle={{
-padding: contentPadding,
-paddingBottom: contentPadding + 40,
+padding: effectiveContentPadding,
+paddingBottom: effectiveContentPadding + 40,
 alignSelf: 'center',
 width: '100%',
 maxWidth,
@@ -728,7 +733,7 @@ return (
 <AppHeader appHeaderActions={appHeaderActions} />
 <View style={{ flex: 1 }}>
 {scroll ? (
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 112 }} showsVerticalScrollIndicator={false}>
+<ScrollView contentContainerStyle={{ padding: layoutDensity === 'compact' ? 12 : 16, paddingBottom: 112 }} showsVerticalScrollIndicator={false}>
 {hasPageHeading ? (
 <View style={{ marginBottom: 14 }}>
 <View style={{ marginBottom: 16 }}>
@@ -796,6 +801,8 @@ unread: number;
 onlyKeys?: NavKey[];
 }) {
 const { colors } = useTheme();
+const { state } = useStore();
+const language = state.settings.language;
 const groups = onlyKeys
 ? [{ title: 'More', items: NAV_GROUPS.flatMap((group) => group.items).filter((item) => onlyKeys.includes(item.key)) }]
 : [...NAV_GROUPS].sort((a, b) => (a.title === 'Account' ? -1 : b.title === 'Account' ? 1 : 0));
@@ -807,7 +814,7 @@ if (!items.length) return null;
 return (
 <View key={g.title} style={{ gap: 10 }}>
 <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1.2, paddingHorizontal: 4 }}>
-{g.title.toUpperCase()}
+{translateLabel(g.title, language).toUpperCase()}
 </Txt>
 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
 {items.map((item) => {
@@ -866,7 +873,7 @@ paddingHorizontal: 5,
 )}
 </View>
 <Txt size={13.5} weight="700" color={on ? colors.blue : colors.text} numberOfLines={1}>
-{item.label}
+{translateLabel(item.label, language)}
 </Txt>
 </Pressable>
 );

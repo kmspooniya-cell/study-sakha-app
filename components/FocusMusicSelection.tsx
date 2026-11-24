@@ -11,6 +11,7 @@ import { MEDITATION_SOUND_LIST } from './MeditationPresets';
 type Props = {
   visible: boolean;
   selectedId: string;
+  volume: number;
   sessionRunning: boolean;
   onSelect: (id: string) => void;
   onClose: () => void;
@@ -24,7 +25,7 @@ const EMPTY_DOWNLOAD_STATE: AudioDownloadState = {
   localUri: null,
 };
 
-export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSelect, onClose }: Props) {
+export function FocusMusicSelection({ visible, selectedId, volume, sessionRunning, onSelect, onClose }: Props) {
   const { colors } = useTheme();
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [audioError, setAudioError] = useState('');
@@ -70,6 +71,7 @@ export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSel
     // Expo Audio exposes looping as a mutable player control.
     // eslint-disable-next-line react-hooks/immutability
     audioPlayer.loop = true;
+    audioPlayer.volume = Math.max(0, Math.min(1, volume));
     try {
       if (sessionRunning && musicEnabled) audioPlayer.play();
       else audioPlayer.pause();
@@ -78,7 +80,7 @@ export function FocusMusicSelection({ visible, selectedId, sessionRunning, onSel
       // eslint-disable-next-line react-hooks/set-state-in-effect
       handlePlaybackError(error);
     }
-  }, [audioPlayer, handlePlaybackError, musicEnabled, sessionRunning]);
+  }, [audioPlayer, handlePlaybackError, musicEnabled, sessionRunning, volume]);
 
   useEffect(() => () => {
     audioPlayer.pause();
