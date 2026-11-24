@@ -5,6 +5,7 @@
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
+    "@expo/config-plugins": "~57.0.13",
     "@expo/metro-runtime": "~57.0.19",
     "@expo/vector-icons": "^15.1.1",
     "@google/genai": "^2.32.0",

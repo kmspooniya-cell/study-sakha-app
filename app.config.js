@@ -14,7 +14,14 @@ function assertAbsoluteHttpsUrl(value) {
 }
 
 module.exports = ({ config }) => {
-  const isAndroidEasBuild = process.env.EAS_BUILD === 'true' && process.env.EAS_BUILD_PLATFORM === 'android';
+  // EAS also sets EAS_BUILD/EAS_BUILD_PLATFORM while resolving config for
+  // metadata commands such as env:list and env:pull. Only a build ID proves
+  // that the build job has started and its environment is available.
+  const hasEasBuildExecutionContext = Boolean(process.env.EAS_BUILD_ID);
+  const isAndroidEasBuild =
+    process.env.EAS_BUILD === 'true' &&
+    process.env.EAS_BUILD_PLATFORM === 'android' &&
+    hasEasBuildExecutionContext;
   if (isAndroidEasBuild) {
     const requiredVariables = [
       'EXPO_PUBLIC_SUPABASE_URL',

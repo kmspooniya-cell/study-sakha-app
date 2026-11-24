@@ -169,6 +169,9 @@ importers:
       '@expo-google-fonts/inter':
         specifier: ^0.4.2
         version: 0.4.2
+      '@expo/config-plugins':
+        specifier: ~57.0.13
+        version: 57.0.13(supports-color@8.1.1)(typescript@6.0.3)
       '@expo/metro-runtime':
         specifier: ~57.0.19
         version: 57.0.19(@expo/log-box@57.0.5)(expo@57.0.33)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.13(supports-color@8.1.1))(@react-native/jest-preset@0.86.3(@babel/core@7.29.13(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.13(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
