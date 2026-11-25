@@ -1,5 +1,9 @@
 # Feature Status — Study Sakha
 
+## Deployment update — 2026-11-25
+
+Cross-Device Account Sync is schema/RLS/host verified after production deployment; second-client Realtime delivery remains runtime-unverified. Study Groups and Live Study Rooms have live RPCs, room objects, RLS, and publication entries verified; device/multi-client realtime remains untested.
+
 Last verified: 2026-11-25
 
 Status legend:

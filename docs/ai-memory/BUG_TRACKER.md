@@ -1,5 +1,9 @@
 # Bug Tracker — Study Sakha
 
+## 2026-11-25 Deployment Fix
+
+BUG-005: Account Sync RPC first insert failed with ambiguous version column because RETURNS TABLE output variables conflicted with unqualified RETURNING version. Forward-only migration 202611250003 qualified returned columns. Live owner versioning, stale/retry rejection, and rollback-safe isolation now pass.
+
 Last verified: 2026-11-25
 
 ## Confirmed & Fixed Bugs (Verified on Host)

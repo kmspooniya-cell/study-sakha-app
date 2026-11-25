@@ -1,5 +1,11 @@
 # Development Log — Study Sakha
 
+## 2026-11-25 — Production Supabase Deployment Executed
+- Verified linked production project edjazjfylnpvqykpdtiq as ACTIVE_HEALTHY, connected to PostgreSQL 17.11, and created a 77,934-byte schema backup before writes.
+- Repaired only verified migration history entries; no --include-all or destructive operation was used.
+- Applied 202611250001, 202611250002, and forward-only RPC repair 202611250003.
+- Live verification passed for migration history, Account Sync RLS/ACLs, Auth and Storage objects, room objects, Realtime publication entries, and optimistic concurrency.
+
 Chronological record of significant development work. **Append new entries; do not overwrite history.**
 
 ---
@@ -39,3 +45,10 @@ Chronological record of significant development work. **Append new entries; do n
   - `server.js`: Added error handling on audio `fs.statSync` / `createReadStream`, `/api` 404 JSON fallback, and Express error handler.
 - **Project Memory System:** Created comprehensive root `AGENTS.md` and `docs/ai-memory/` (`PROJECT_CONTEXT.md`, `FEATURE_STATUS.md`, `DEVELOPMENT_LOG.md`, `BUG_TRACKER.md`, `NEXT_TASK.md`, `DECISIONS.md`, `TESTING_STATUS.md`).
 - **Verified in session:** `pnpm run lint` (`tsc --noEmit`) passed; `pnpm run test:ci` (`jest --runInBand`) passed (34 suites, 144 tests).
+
+## 2026-11-25 — Production Supabase Migration Reconciliation & Recovery Plan
+- Re-verified remote `study-sakha-app` (`edjazjfylnpvqykpdtiq`) schema, RLS policies, RPCs, triggers, storage policies, and `supabase_realtime` publication via read-only `supabase migration list --remote` and `supabase db query --remote --read-only`.
+- Confirmed `202611240002` and `202611240003` are 100% applied on remote; confirmed `202611020001` and `202611200001` have missing objects (including `get_study_room_member_profiles(text, uuid[])`, `study_room_break_messages`, `study_room_reports`, `handle_new_study_sakha_user()`, `study_sakha_create_profile_and_learner_role`, `is_published_student_content_object(text)`, 8 `storage.objects` policies, and `supabase_realtime` publication entries).
+- Verified `202611250001_account_sync_documents.sql` compatibility with `lib/sync/` and `lib/store.tsx`.
+- Created [docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md](file:///workspaces/study-sakha-app/docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md) (no remote changes or corrective `.sql` file created yet; awaiting explicit user approval).
+- **Verified in session:** `pnpm run lint` passed; `pnpm run test:ci` passed (35 suites, 156 tests).

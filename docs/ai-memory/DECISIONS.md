@@ -1,5 +1,9 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-008 — 2026-11-25
+
+Reconcile Supabase history only after catalog verification, then deploy forward-only migrations. This preserved existing data and avoided re-executing non-idempotent history or using --include-all blindly. Later defects receive new forward-only migrations.
+
 Last verified: 2026-11-25
 
 | ID | Decision | Rationale | Constraints |

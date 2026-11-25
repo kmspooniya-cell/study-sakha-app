@@ -1,5 +1,12 @@
 # Testing Status — Study Sakha
 
+## Production deployment validation — 2026-11-25
+
+- Production deployment and schema/RLS verification: PASS. Applied 202611250001 through 202611250003; final history has 17 migrations; schema lint has no errors.
+- Live Account Sync concurrency/isolation: PASS. Owner versioning succeeded, stale/retry rejected, cross-user read returned 0, and no test rows persisted.
+- Focused Account Sync tests: PASS — 1 suite, 4 tests.
+- Expo config validation: PASS with pnpm exec expo config --type public --json. expo-doctor is unavailable in this workspace.
+
 Last verified: 2026-11-25
 
 ## Executed & Verified in Current Session (2026-11-25)
@@ -7,7 +14,8 @@ Last verified: 2026-11-25
 | Check | Command | Result | Scope / Notes |
 |---|---|---|---|
 | **TypeScript Typecheck** | `pnpm run lint` (`tsc --noEmit`) | **PASS** (exit 0) | Full project typecheck after all current working-tree edits. |
-| **Full Jest + RNTL Suite** | `pnpm run test:ci` (`jest --runInBand`) | **PASS** — **34 suites passed, 34 total; 144 tests passed, 144 total** (20.593 s) | Ran in current session against current working tree. Note: `test/studyPlannerFilters.test.tsx` emits a non-failing `act(...)` console error from `StudyPlannerScreen.tsx:1600`. |
+| **Full Jest + RNTL Suite** | `pnpm run test:ci` (`jest --runInBand`) | **PASS** — **35 suites passed, 35 total; 156 tests passed, 156 total** (19.825 s) | Ran in current session against current working tree. |
+| **Remote Supabase Read-Only Inspection** | `pnpm exec supabase migration list --remote` & `db query --remote --read-only` | **PASS** | Verified remote `edjazjfylnpvqykpdtiq` state for `docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md` with zero remote writes. |
 
 ## Previously Executed Checks (From `docs/` Audits — Not Re-run in This Session)
 
