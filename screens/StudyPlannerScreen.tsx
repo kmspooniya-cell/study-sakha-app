@@ -1,5 +1,5 @@
 // @ts-nocheck - Generated Gemini UI: React Native/JSX types are intentionally retained at the integration boundary.
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path, Circle, Rect, Ellipse } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { PlannerScheduleItem, useStore } from '../lib/store';
 import { submitStudyMemberActivityToJoinedGroups } from '../lib/groupRooms';
 import { useTheme as useAppTheme } from '../lib/theme';
@@ -1372,6 +1373,7 @@ export default function App() {
   const { state, dispatch } = useStore();
   const navigation = useNavigation<AppNavigation>();
   const { width, height } = useWindowDimensions();
+  const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0 };
   const isSm = width >= 640;
   const isMd = width >= 768;
 
@@ -4200,7 +4202,7 @@ export default function App() {
       {/* =================================================================== */}
       <Modal visible={sheetMounted} transparent animationType="none" onRequestClose={closeBottomSheet}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}
         >
           <Animated.View
@@ -4216,7 +4218,9 @@ export default function App() {
             style={[
               styles.bottomSheetPanel,
               {
-                maxHeight: height * 0.9,
+                height: Math.min(height * 0.9, height - insets.top - insets.bottom),
+                maxHeight: height - insets.top - insets.bottom,
+                paddingBottom: insets.bottom,
                 backgroundColor: theme.bgSurface,
                 borderTopColor: theme.borderDefault,
                 transform: [{ translateY: sheetTranslateY }],
