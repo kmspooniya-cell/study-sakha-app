@@ -13,8 +13,6 @@ import { Shell, useLayout } from '../components/Shell';
 import { TODAY_PLAN } from '../lib/data';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
-import { focusLockNative } from '../lib/focusLockNative';
-import { readFocusLockSnapshot, type FocusLockSnapshot } from '../lib/focusLockSnapshot';
 import { translateLabel } from '../lib/i18n';
 
 const greeting = () => {
@@ -52,8 +50,6 @@ export default function DashboardScreen() {
   const target = clamp(safeTodayMinutes / goal, 0, 1);
   const [anim, setAnim] = useState(0);
   const [focusSetupVisible, setFocusSetupVisible] = useState(false);
-  const [focusLockSnapshot, setFocusLockSnapshot] = useState<FocusLockSnapshot | null>(null);
-  const [focusLockNativeReady, setFocusLockNativeReady] = useState<boolean | null>(null);
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
     durationMinutes: state.settings.focusDurationMinutes,
@@ -83,23 +79,6 @@ export default function DashboardScreen() {
   }, [reduceMotion, target]);
 
   useFocusEffect(useCallback(() => {
-    let active = true;
-    const load = async () => {
-      const snapshot = await readFocusLockSnapshot(state.user?.id);
-      if (!active) return;
-      setFocusLockSnapshot(snapshot);
-      if (focusLockNative) {
-        try {
-          const status = await focusLockNative.getBlockingStatus();
-          if (active) setFocusLockNativeReady(status.available && status.accessibilityEnabled);
-        } catch { if (active) setFocusLockNativeReady(false); }
-      } else if (active) setFocusLockNativeReady(false);
-    };
-    void load();
-    return () => { active = false; };
-  }, [state.user?.id]));
-
-  useFocusEffect(useCallback(() => {
     if (Platform.OS !== 'android') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       const now = Date.now();
@@ -110,10 +89,6 @@ export default function DashboardScreen() {
     });
     return () => subscription.remove();
   }, []));
-
-  const focusLockActive = focusLockSnapshot?.sessionState === 'active_focus' || focusLockSnapshot?.sessionState === 'active_strict' || focusLockSnapshot?.sessionState === 'scheduled_lock';
-  const focusLockRemaining = Math.max(0, Math.ceil(focusLockSnapshot?.remainingSecs ?? 0));
-  const focusLockClock = `${String(Math.floor(focusLockRemaining / 60)).padStart(2, '0')}:${String(focusLockRemaining % 60).padStart(2, '0')}`;
 
   const first = getDisplayName(state.user).split(/\s+/)[0];
 

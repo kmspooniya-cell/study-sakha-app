@@ -22,13 +22,18 @@ export const supabase = createClient(
   }
 );
 
-supabase.auth.onAuthStateChange((_event, session) => {
-  void supabase.realtime.setAuth(session?.access_token ?? null);
-});
+if (supabaseConfigured) {
+  supabase.auth.onAuthStateChange((_event, session) => {
+    void supabase.realtime.setAuth(session?.access_token ?? null).catch(() => {});
+  });
+}
 
 export const STUDENT_CONTENT_BUCKET = 'Student-content';
 
 export async function createStudentContentSignedUrl(objectPath: string) {
+  if (!supabaseConfigured) {
+    throw new Error('Supabase is not configured.');
+  }
   const { data, error } = await supabase.storage
     .from(STUDENT_CONTENT_BUCKET)
     .createSignedUrl(objectPath, 300);

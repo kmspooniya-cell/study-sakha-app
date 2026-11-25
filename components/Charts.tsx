@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { fonts, useTheme } from '../lib/theme';
@@ -109,6 +109,16 @@ export function LineChart({ data, height = 150, color }: { data: { label: string
   );
 }
 
+function buildDonutArcs(segments: { label: string; value: number; color: string }[], total: number, circumference: number) {
+  let runningOffset = 0;
+  return segments.map((s) => {
+    const len = (s.value / total) * circumference;
+    const offset = runningOffset;
+    runningOffset += len;
+    return { color: s.color, len, offset };
+  });
+}
+
 export function Donut({
   segments,
   size = 150,
@@ -124,31 +134,26 @@ export function Donut({
   const total = segments.reduce((a, b) => a + b.value, 0) || 1;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
+  const arcs = useMemo(() => buildDonutArcs(segments, total, c), [c, segments, total]);
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} style={{ position: 'absolute' }}>
         <G transform={`rotate(-90 ${size / 2} ${size / 2})`}>
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceAlt} strokeWidth={stroke} fill="none" />
-          {segments.map((s, i) => {
-            const len = (s.value / total) * c;
-            const offset = segments
-              .slice(0, i)
-              .reduce((sum, segment) => sum + (segment.value / total) * c, 0);
-            return (
+          {arcs.map((arc, i) => (
               <Circle
                 key={i}
                 cx={size / 2}
                 cy={size / 2}
                 r={r}
-                stroke={s.color}
+                stroke={arc.color}
                 strokeWidth={stroke}
                 fill="none"
-                strokeDasharray={`${len} ${c - len}`}
-                strokeDashoffset={-offset}
+                strokeDasharray={`${arc.len} ${c - arc.len}`}
+                strokeDashoffset={-arc.offset}
                 strokeLinecap="butt"
               />
-            );
-          })}
+            ))}
         </G>
       </Svg>
       <View style={{ alignItems: 'center' }}>{center}</View>
@@ -158,16 +163,20 @@ export function Donut({
 
 export function HeatMap({ days, weeks = 18 }: { days: Record<string, number>; weeks?: number }) {
   const { colors } = useTheme();
-  const cells: { key: string; value: number }[] = [];
-  const total = weeks * 7;
-  for (let i = total - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    cells.push({ key, value: days[key] ?? 0 });
-  }
-  const cols: { key: string; value: number }[][] = [];
-  for (let i = 0; i < cells.length; i += 7) cols.push(cells.slice(i, i + 7));
+  const cols = useMemo(() => {
+    const cells: { key: string; value: number }[] = [];
+    const total = weeks * 7;
+    const base = new Date();
+    for (let i = total - 1; i >= 0; i--) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      cells.push({ key, value: days[key] ?? 0 });
+    }
+    const grouped: { key: string; value: number }[][] = [];
+    for (let i = 0; i < cells.length; i += 7) grouped.push(cells.slice(i, i + 7));
+    return grouped;
+  }, [days, weeks]);
   const tone = (v: number) => {
     if (v <= 0) return colors.surfaceAlt;
     if (v < 40) return `${colors.teal}40`;

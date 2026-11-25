@@ -27,7 +27,6 @@ import {
   ScrollView,
   TextInput,
   Modal,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Animated,
@@ -36,6 +35,7 @@ import {
   Dimensions,
   AppState,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
   Circle,
@@ -2541,6 +2541,12 @@ export default function FocusLockScreen() {
     return () => { active = false; };
   }, [historyKey]);
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   // Discover real Android launchable applications and refresh permission state when returning from Settings.
   const refreshNativeState = useCallback(async () => {
     if (Platform.OS !== 'android' || !focusLockNative) return;
@@ -2550,6 +2556,7 @@ export default function FocusLockScreen() {
         focusLockNative.getBlockingStatus(),
         focusLockNative.getUsageStats().catch(() => []),
       ]);
+      if (!mountedRef.current) return;
       const usageByPackage = new Map(usage.map((item) => [item.packageId, item]));
       const discoveredApps = apps.map((app) => ({
         id: app.packageId,
@@ -2579,7 +2586,7 @@ export default function FocusLockScreen() {
         setScreen('active_session');
         setSelectedAppIds(status.activeSession.packageIds);
       }
-    } catch { setNativeStatus(null); }
+    } catch { if (mountedRef.current) setNativeStatus(null); }
   }, []);
 
   useEffect(() => { void refreshNativeState(); }, [refreshNativeState]);

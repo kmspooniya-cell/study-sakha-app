@@ -185,12 +185,22 @@ function rateLimitChat(req, res, next) {
 // Gemini credentials stay on the server; chat requests require a verified account.
 app.post('/api/chat', authenticateChatRequest, validateChatRequest, rateLimitChat, handleChat);
 
+function safeStatSize(filePath, fallback) {
+  if (!filePath) return fallback;
+  try {
+    return fs.statSync(filePath).size;
+  } catch (err) {
+    console.error('[Audio Catalog Stat Error]', err);
+    return fallback;
+  }
+}
+
 // Audio Library catalog endpoint
 app.get('/api/audio-catalog', (req, res) => {
   const pDeep = getAudioFilePath('deep_positive_energy.mp3');
-  const sizeDeep = pDeep ? fs.statSync(pDeep).size : 6000726;
+  const sizeDeep = safeStatSize(pDeep, 6000726);
   const pCosmic = getAudioFilePath('pure_cosmic_waves.mp3');
-  const sizeCosmic = pCosmic ? fs.statSync(pCosmic).size : 9852000;
+  const sizeCosmic = safeStatSize(pCosmic, 9852000);
   res.json([
     {
       id: 'deep_positive_energy',
@@ -238,7 +248,13 @@ app.get('/api/audio/:filename', (req, res) => {
     return res.status(404).json({ error: 'Audio file not found' });
   }
 
-  const stat = fs.statSync(filePath);
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
+    console.error('[Audio Stat Error]', err);
+    return res.status(404).json({ error: 'Audio file not found' });
+  }
   const fileSize = stat.size;
   const range = req.headers.range;
 
@@ -247,8 +263,8 @@ app.get('/api/audio/:filename', (req, res) => {
     if (!match || (!match[1] && !match[2])) {
       return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
     }
-    let start = match[1] ? Number(match[1]) : Math.max(fileSize - Number(match[2]), 0);
-    let end = match[2] ? Number(match[2]) : fileSize - 1;
+    const start = match[1] ? Number(match[1]) : Math.max(fileSize - Number(match[2]), 0);
+    let end = match[1] && match[2] ? Number(match[2]) : fileSize - 1;
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= fileSize) {
       return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
     }
@@ -262,9 +278,17 @@ app.get('/api/audio/:filename', (req, res) => {
       'Content-Type': filename.endsWith('.m4a') ? 'audio/mp4' : 'audio/mpeg',
       'Access-Control-Allow-Origin': '*',
     };
-    res.writeHead(206, head);
+    file.once('open', () => {
+      if (!res.headersSent) res.writeHead(206, head);
+    });
+    file.on('error', (err) => {
+      console.error('[Audio Stream Error]', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Audio stream failed.' });
+      else res.destroy();
+    });
     file.pipe(res);
   } else {
+    const file = fs.createReadStream(filePath);
     const head = {
       'Content-Length': fileSize,
       'Content-Type': filename.endsWith('.m4a') ? 'audio/mp4' : 'audio/mpeg',
@@ -272,8 +296,15 @@ app.get('/api/audio/:filename', (req, res) => {
       'Access-Control-Allow-Origin': '*',
       'Content-Disposition': `inline; filename="${filename}"`,
     };
-    res.writeHead(200, head);
-    fs.createReadStream(filePath).pipe(res);
+    file.once('open', () => {
+      if (!res.headersSent) res.writeHead(200, head);
+    });
+    file.on('error', (err) => {
+      console.error('[Audio Stream Error]', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Audio stream failed.' });
+      else res.destroy();
+    });
+    file.pipe(res);
   }
 });
 
@@ -312,7 +343,7 @@ proxy.on('proxyRes', (proxyRes, req, res) => {
 
 proxy.on('error', (err, req, res) => {
   // If Metro is not ready yet or errors, serve from dist if available
-  if (getHasDist() && res && !res.headersSent) {
+  if (getHasDist() && res && !res.headersSent && typeof res.sendFile === 'function') {
     if (req.url && (req.url === '/' || !path.extname(req.url))) {
       res.sendFile(path.join(distDir, 'index.html'));
       return;
@@ -390,6 +421,17 @@ app.use((req, res, next) => {
   } else {
     res.status(404).send('Not Found');
   }
+});
+
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
+});
+
+app.use((err, _req, res, _next) => {
+  console.error('[Server Error]', err);
+  if (res.headersSent) return;
+  const status = typeof err?.status === 'number' ? err.status : 500;
+  res.status(status).json({ error: status === 400 ? 'Invalid request payload.' : 'Internal server error.' });
 });
 
 if (require.main === module) {

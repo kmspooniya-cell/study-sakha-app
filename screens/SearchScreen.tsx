@@ -38,7 +38,7 @@ export default function SearchScreen() {
     const out: Hit[] = [];
 
     if (filter === 'all' || filter === 'library') {
-      resources.filter((r) => `${r.title} ${r.summary} ${r.tags.join(' ')} ${r.subject} ${r.topic ?? ''}`.toLowerCase().includes(q)).forEach((r) =>
+      resources.filter((r) => `${r.title} ${r.summary} ${(r.tags ?? []).join(' ')} ${r.subject} ${r.topic ?? ''}`.toLowerCase().includes(q)).forEach((r) =>
         out.push({
           id: r.id,
           kind: r.type === 'book' ? 'Book' : r.type === 'note' ? 'Note' : 'PYQ Set',
@@ -66,12 +66,12 @@ export default function SearchScreen() {
     }
 
     if (filter === 'all' || filter === 'tests') {
-      tests.filter((t) => `${t.title} ${t.sections.map((s) => s.name).join(' ')} ${t.subject ?? ''} ${t.topic ?? ''}`.toLowerCase().includes(q)).forEach((t) =>
+      tests.filter((t) => `${t.title} ${(t.sections ?? []).map((s) => s.name).join(' ')} ${t.subject ?? ''} ${t.topic ?? ''}`.toLowerCase().includes(q)).forEach((t) =>
         out.push({
           id: t.id,
           kind: 'Test',
           title: t.title,
-          sub: `${t.questions.length} questions · ${t.durationMin} min · ${t.kind}`,
+          sub: `${(t.questions ?? []).length} questions · ${t.durationMin} min · ${t.kind}`,
           icon: 'timer-outline',
           color: colors.violet,
           go: () => nav.navigate('TestPlayer', { testId: t.id }),
@@ -81,13 +81,13 @@ export default function SearchScreen() {
 
     if (filter === 'all' || filter === 'notes') {
       state.notes
-        .filter((n) => `${n.title} ${n.body} ${n.tags.join(' ')}`.toLowerCase().includes(q))
+        .filter((n) => `${n.title} ${n.body} ${(n.tags ?? []).join(' ')}`.toLowerCase().includes(q))
         .forEach((n) =>
           out.push({
             id: n.id,
             kind: 'My note',
             title: n.title,
-            sub: `${n.folder} · ${n.tags.join(', ')}`,
+            sub: `${n.folder} · ${(n.tags ?? []).join(', ')}`,
             icon: 'create-outline',
             color: colors.amber,
             go: () => nav.navigate('NoteEditor', { noteId: n.id }),
@@ -197,8 +197,8 @@ export default function SearchScreen() {
           <Txt size={12.5} weight="700" color={colors.textMuted}>
             {hits.length} result{hits.length === 1 ? '' : 's'} for “{query.trim()}”
           </Txt>
-          {hits.map((h) => (
-            <Pressable key={`${h.kind}-${h.id}`} onPress={h.go}>
+          {hits.map((h, idx) => (
+            <Pressable key={`${h.kind}-${h.id}-${idx}`} onPress={h.go}>
               {({ pressed }) => (
                 <Card style={{ opacity: pressed ? 0.85 : 1, padding: 14 }}>
                   <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>

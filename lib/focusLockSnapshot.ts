@@ -14,9 +14,9 @@ export type FocusLockSnapshot = {
 };
 
 export async function readFocusLockSnapshot(userId?: string | null): Promise<FocusLockSnapshot | null> {
-  const raw = await AsyncStorage.getItem(getUserScopedStorageKey(FOCUS_LOCK_STORAGE_KEY, userId));
-  if (!raw) return null;
   try {
+    const raw = await AsyncStorage.getItem(getUserScopedStorageKey(FOCUS_LOCK_STORAGE_KEY, userId));
+    if (!raw) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object') return null;
     const record = value as Record<string, unknown>;

@@ -69,7 +69,13 @@ export class AccountSyncEngine {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.channel) await supabase.removeChannel(this.channel);
+    if (this.channel) {
+      try {
+        await supabase.removeChannel(this.channel);
+      } catch (error) {
+        console.warn('Account sync channel cleanup failed:', error);
+      }
+    }
     this.channel = null;
     this.userId = null;
     this.onRemote = null;

@@ -31,12 +31,22 @@ function withFocusLockSources(config) {
 
     fs.mkdirSync(kotlinDestination, { recursive: true });
     for (const fileName of KOTLIN_FILES) {
-      fs.copyFileSync(path.join(sourceRoot, 'java', 'com', 'anonymous', 'agonpreview', fileName), path.join(kotlinDestination, fileName));
+      const rawKotlin = fs.readFileSync(path.join(sourceRoot, 'java', 'com', 'anonymous', 'agonpreview', fileName), 'utf8');
+      const renderedKotlin = packageName === 'com.anonymous.agonpreview'
+        ? rawKotlin
+        : rawKotlin
+            .replace(/^package com\.anonymous\.agonpreview/m, `package ${packageName}`)
+            .replace(/com\.anonymous\.agonpreview\.FOCUS_LOCK_EXPIRED/g, `${packageName}.FOCUS_LOCK_EXPIRED`);
+      fs.writeFileSync(path.join(kotlinDestination, fileName), renderedKotlin, 'utf8');
     }
 
     const resourceDestination = path.join(destinationRoot, 'res', 'xml');
     fs.mkdirSync(resourceDestination, { recursive: true });
-    fs.copyFileSync(path.join(sourceRoot, 'res', 'xml', 'focus_lock_service.xml'), path.join(resourceDestination, 'focus_lock_service.xml'));
+    const rawXml = fs.readFileSync(path.join(sourceRoot, 'res', 'xml', 'focus_lock_service.xml'), 'utf8');
+    const renderedXml = packageName === 'com.anonymous.agonpreview'
+      ? rawXml
+      : rawXml.replace(/com\.anonymous\.agonpreview\.MainActivity/g, `${packageName}.MainActivity`);
+    fs.writeFileSync(path.join(resourceDestination, 'focus_lock_service.xml'), renderedXml, 'utf8');
     return modConfig;
   }]);
 }
@@ -87,12 +97,15 @@ module.exports = function withFocusLock(config) {
       query.intent?.some((intent) => intent.action?.some((action) => action.$?.['android:name'] === 'android.intent.action.MAIN')),
     );
     if (!hasLauncherQuery) {
-      manifest.manifest.queries.push({
-        intent: [{
-          action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
-          category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }],
-        }],
-      });
+      const launcherIntent = {
+        action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
+        category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }],
+      };
+      if (manifest.manifest.queries.length > 0 && Array.isArray(manifest.manifest.queries[0].intent)) {
+        manifest.manifest.queries[0].intent.push(launcherIntent);
+      } else {
+        manifest.manifest.queries.push({ intent: [launcherIntent] });
+      }
     }
     const application = manifest.manifest.application?.[0];
     if (!application) return mod;

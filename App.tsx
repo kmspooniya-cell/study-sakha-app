@@ -116,6 +116,7 @@ const linking: AppLinkingOptions = {
               Statistics: 'statistics',
               TaskPerformance: 'statistics/tasks',
               StudyPlanner: 'study-planner',
+              FocusCenter: 'focus/center',
               FocusCompletion: 'focus/completed',
               Profile: 'profile',
               Settings: 'settings',

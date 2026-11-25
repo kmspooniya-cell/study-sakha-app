@@ -251,12 +251,20 @@ export default function FocusCenterScreen() {
 
   const endNavigationAction = useRef<NavigationAction | null>(null);
   const finalizing = useRef(false);
+  const mountedRef = useRef(true);
   const persistenceQueue = useRef<Promise<void>>(Promise.resolve());
   const activeStateHydrated = useRef(false);
   const returningToOrigin = useRef(false);
   const sessionOrigin = useRef<'DashboardRoot' | 'Groups'>(
     route.params?.roomFocus ? 'Groups' : 'DashboardRoot'
   );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useFocusEffect(useCallback(() => {
     if (!userId) return undefined;
@@ -398,7 +406,7 @@ export default function FocusCenterScreen() {
           : `${setup.durationMinutes}-minute Focus`,
       endRequested: false,
     };
-  }, [route.params?.roomFocus?.groupId, userId]);
+  }, [route.params?.roomFocus?.groupId, storeState.settings?.shortBreakMinutes, userId]);
 
   const completeSession = useCallback(async (
     value: ActiveFocusSession,
@@ -540,6 +548,7 @@ export default function FocusCenterScreen() {
       }
 
       await persistSession(null);
+      if (!mountedRef.current) return;
       commitSession(null);
       setEndConfirmationVisible(false);
       setEarlyExitConfirmationVisible(false);
@@ -553,10 +562,12 @@ export default function FocusCenterScreen() {
       });
     } catch (error) {
       console.error('Focus session could not be saved:', error);
-      setSaveError(error instanceof Error ? error.message : 'Focus session could not be saved.');
+      if (mountedRef.current) {
+        setSaveError(error instanceof Error ? error.message : 'Focus session could not be saved.');
+      }
     } finally {
       finalizing.current = false;
-      setIsFinalizing(false);
+      if (mountedRef.current) setIsFinalizing(false);
     }
   }, [
     commitSession,
@@ -575,6 +586,7 @@ export default function FocusCenterScreen() {
     commitSession(value);
     try {
       await persistSession(null);
+      if (!mountedRef.current) return;
       commitSession(null);
       setEndConfirmationVisible(false);
       setEarlyExitConfirmationVisible(false);
@@ -590,7 +602,9 @@ export default function FocusCenterScreen() {
     } catch (error) {
       returningToOrigin.current = false;
       console.error('Focus session could not be discarded:', error);
-      setSaveError(error instanceof Error ? error.message : 'Focus session could not be discarded.');
+      if (mountedRef.current) {
+        setSaveError(error instanceof Error ? error.message : 'Focus session could not be discarded.');
+      }
     }
   }, [commitSession, endRoomFocus, navigation, persistSession]);
 
@@ -692,7 +706,7 @@ export default function FocusCenterScreen() {
       setup.startInBreak ? 'break' : 'start',
       now,
     );
-  }, [commitSession, createRuntime, persistSession, publishRoomUpdate]);
+  }, [commitSession, createRuntime, persistSession, publishRoomUpdate, storeState.settings?.focusDurationMinutes]);
 
   const togglePause = useCallback(() => {
     const current = sessionRef.current;
@@ -828,7 +842,7 @@ export default function FocusCenterScreen() {
       setSaveError(error instanceof Error ? error.message : 'Reset focus session could not be persisted.');
     });
     publishRoomUpdate(next, 'focusing', 'start');
-  }, [commitSession, createRuntime, persistSession, publishRoomUpdate]);
+  }, [commitSession, createRuntime, persistSession, publishRoomUpdate, storeState.settings?.focusDurationMinutes]);
 
   const updateSessionSubject = useCallback((subject: string) => {
     const current = sessionRef.current;
@@ -853,14 +867,14 @@ export default function FocusCenterScreen() {
     if (current.phase === 'break') {
       const elapsed = current.breakElapsedMilliseconds +
         Math.max(0, now - (current.breakStartedAt ?? now));
-      if (elapsed >= (current.breakDurationSeconds ?? breakSeconds * 60) * 1000) {
+      if (elapsed >= (current.breakDurationSeconds ?? breakSeconds) * 1000) {
         const next: ActiveFocusSession = {
           ...current,
           phase: storeState.settings?.focusAutoStartNextSession !== false ? 'focus' : 'break',
           resumePhase: null,
           breakElapsedMilliseconds: storeState.settings?.focusAutoStartNextSession !== false
             ? 0
-            : (current.breakDurationSeconds ?? breakSeconds * 60) * 1000,
+            : (current.breakDurationSeconds ?? breakSeconds) * 1000,
           breakStartedAt: null,
           focusSegmentStartedAt: storeState.settings?.focusAutoStartNextSession !== false ? now : null,
         };
@@ -890,7 +904,7 @@ export default function FocusCenterScreen() {
         resumePhase: 'focus',
       }, 'completed');
     }
-  }, [breakSeconds, commitSession, completeSession, persistSession, publishRoomUpdate, storeState.settings?.focusAutoStartNextSession, storeState.settings?.shortBreakMinutes]);
+  }, [breakSeconds, commitSession, completeSession, persistSession, publishRoomUpdate, storeState.settings?.focusAutoStartNextSession]);
 
   useEffect(() => {
     let active = true;
@@ -927,7 +941,7 @@ export default function FocusCenterScreen() {
     return () => {
       active = false;
     };
-  }, [activeStorageKey, commitSession, completeSession]);
+  }, [activeStorageKey, commitSession, completeSession, storeState.settings?.shortBreakMinutes]);
 
   useEffect(() => {
     if (!sessionStorageReady || !route.params?.focusSession) return;
@@ -1070,13 +1084,13 @@ export default function FocusCenterScreen() {
   const secondsRemaining = !currentSession
     ? 0
     : isOnBreak
-      ? Math.max(0, (currentSession.breakDurationSeconds ?? breakSeconds * 60) - Math.floor(breakElapsed / 1000))
+      ? Math.max(0, (currentSession.breakDurationSeconds ?? breakSeconds) - Math.floor(breakElapsed / 1000))
       : currentSession.mode === 'stopwatch'
         ? Math.floor(focusedMilliseconds / 1000)
         : Math.max(0, (currentSession.plannedSeconds ?? 0) - Math.floor(focusedMilliseconds / 1000));
   const focusTimerController: FocusTimerController | null = currentSession ? {
     totalSeconds: isOnBreak
-      ? currentSession.breakDurationSeconds ?? breakSeconds * 60
+      ? currentSession.breakDurationSeconds ?? breakSeconds
       : currentSession.mode === 'stopwatch'
         ? Math.max(1, secondsRemaining)
         : currentSession.plannedSeconds ?? 0,

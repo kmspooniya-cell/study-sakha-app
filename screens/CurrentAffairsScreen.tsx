@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Button, Card, Chip, EmptyState, Field, Tag, Txt } from '../components/ui';
@@ -21,15 +21,20 @@ export default function CurrentAffairsScreen() {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+  }, []);
 
   const categories = useMemo(() => Array.from(new Set(currentAffairs.map((c) => c.category))), [currentAffairs]);
 
   const data = useMemo(() => {
     let list = currentAffairs;
     if (category !== 'all') list = list.filter((c) => c.category === category);
-    if (exam !== 'all') list = list.filter((c) => c.exams.includes(exam));
+    if (exam !== 'all') list = list.filter((c) => (c.exams ?? []).includes(exam));
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((c) => `${c.title} ${c.summary} ${c.points.join(' ')}`.toLowerCase().includes(q));
+    if (q) list = list.filter((c) => `${c.title} ${c.summary} ${(c.points ?? []).join(' ')}`.toLowerCase().includes(q));
     return list;
   }, [currentAffairs, category, exam, query]);
 
@@ -88,7 +93,8 @@ export default function CurrentAffairsScreen() {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              setTimeout(() => {
+              if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+              refreshTimerRef.current = setTimeout(() => {
                 setRefreshing(false);
                 dispatch({ type: 'study', minutes: 3 });
               }, 650);
@@ -108,7 +114,7 @@ export default function CurrentAffairsScreen() {
                     {item.date} · {item.readMinutes} min read
                   </Txt>
                   <View style={{ flexDirection: 'row', gap: 5, marginLeft: 'auto' }}>
-                    {item.exams.map((e) => (
+                    {(item.exams ?? []).map((e) => (
                       <Tag key={e} label={EXAMS.find((x) => x.id === e)?.short ?? e} color={EXAMS.find((x) => x.id === e)?.color} />
                     ))}
                   </View>
@@ -122,7 +128,7 @@ export default function CurrentAffairsScreen() {
 
                 {expanded ? (
                   <View style={{ gap: 10, marginTop: 4, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderSubtle }}>
-                    {item.points.map((p, i) => (
+                    {(item.points ?? []).map((p, i) => (
                       <View key={i} style={{ flexDirection: 'row', gap: 9 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.teal, marginTop: 7 }} />
                         <Txt size={13} color={colors.textMuted} style={{ flex: 1 }}>
@@ -139,7 +145,19 @@ export default function CurrentAffairsScreen() {
                         onPress={() => nav.navigate('SakhaAI', { prompt: `Explain the exam relevance of: ${item.title}` })}
                       />
                       <Button label="Save as note" icon="bookmark-outline" size="sm" variant="outline" onPress={() => nav.navigate('NoteEditor', {})} />
-                      {item.sourceUrl ? <Button label="Open source" icon="open-outline" size="sm" variant="outline" onPress={() => Linking.openURL(item.sourceUrl!)} /> : null}
+                      {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) ? (
+                        <Button
+                          label="Open source"
+                          icon="open-outline"
+                          size="sm"
+                          variant="outline"
+                          onPress={() => {
+                            if (item.sourceUrl) {
+                              void Linking.openURL(item.sourceUrl).catch(() => {});
+                            }
+                          }}
+                        />
+                      ) : null}
                     </View>
                   </View>
                 ) : (

@@ -14,6 +14,7 @@ import java.util.Date
 class FocusLockBlockingActivity : Activity() {
   override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); render() }
   override fun onNewIntent(intent: Intent?) { super.onNewIntent(intent); render() }
+  override fun onResume() { super.onResume(); render() }
 
   @Deprecated("Use OnBackInvokedDispatcher on API 33+; this fallback covers older devices.")
   override fun onBackPressed() { render() }
@@ -44,7 +45,9 @@ class FocusLockBlockingActivity : Activity() {
   }
 
   private fun openStudySakha() {
-    startActivity(packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+    packageManager.getLaunchIntentForPackage(packageName)
+      ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      ?.let { startActivity(it) }
     finish()
   }
 }

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import { Platform, useColorScheme } from 'react-native';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -257,6 +257,10 @@ export function ThemeProvider({
 }) {
   const system = useColorScheme();
   const scheme = resolveThemeScheme(mode, system);
+  const f = useCallback(
+    (s: number) => Math.round(s * textScale * (displayScaling / 100)),
+    [displayScaling, textScale],
+  );
   const value = useMemo<Ctx>(() => {
       const base = scheme === 'dark' ? darkPalette : lightPalette;
       const accent = /^#[0-9a-f]{6}$/i.test(customAccentHex ?? '')
@@ -287,12 +291,12 @@ export function ThemeProvider({
       scheme,
       colors,
       textScale,
-      f: (s: number) => Math.round(s * textScale * (displayScaling / 100)),
+      f,
       reduceMotion,
       animationIntensity,
       layoutDensity,
     };
-    }, [accentColor, animationIntensity, backgroundId, backgroundOpacity, customAccentHex, displayScaling, highContrast, layoutDensity, mode, overlayIntensity, reduceMotion, scheme, textScale]);
+    }, [accentColor, animationIntensity, backgroundId, backgroundOpacity, customAccentHex, f, highContrast, layoutDensity, mode, overlayIntensity, reduceMotion, scheme, textScale]);
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 }
 

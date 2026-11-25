@@ -43,7 +43,7 @@ export function useProceduralPicture(
       mounted = false;
       cancelAnimationFrame(frame);
     };
-  }, [active, height, isStatic, motion, renderer, width]);
+  }, [active, height, isStatic, motion, renderer, themeId, width]);
 
   return picture;
 }

@@ -9,7 +9,6 @@ import {
   Pressable,
   TextInput,
   Modal,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Animated,
@@ -18,6 +17,7 @@ import {
   Platform,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { AppNavigation } from '../lib/navigation';
 import { Shell } from '../components/Shell';
 import {

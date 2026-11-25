@@ -83,8 +83,12 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   @ReactMethod
   fun getBlockingStatus(promise: Promise) {
     try {
-      val active = readSession()?.takeUnless { it.getString("status") != "active" || it.getDouble("endsAt") <= System.currentTimeMillis() }
-      if (active == null && readSession() != null) clearSession()
+      val active = synchronized(sessionLock) {
+        val current = readSession()
+        val valid = current?.takeUnless { it.getString("status") != "active" || it.getDouble("endsAt") <= System.currentTimeMillis() }
+        if (valid == null && current != null) clearSession()
+        valid
+      }
       promise.resolve(Arguments.createMap().apply {
         putBoolean("available", true)
         putBoolean("accessibilityEnabled", isAccessibilityEnabled())
@@ -101,7 +105,10 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   @ReactMethod fun openAccessibilitySettings(promise: Promise) = openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, promise)
   @ReactMethod fun requestAccessibilityPermission(promise: Promise) = openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS, promise)
   @ReactMethod fun openUsageAccessSettings(promise: Promise) = openSettings(Settings.ACTION_USAGE_ACCESS_SETTINGS, promise)
-  @ReactMethod fun isAccessibilityEnabled(promise: Promise) { promise.resolve(isAccessibilityEnabled()) }
+  @ReactMethod fun isAccessibilityEnabled(promise: Promise) {
+    try { promise.resolve(isAccessibilityEnabled()) }
+    catch (error: Exception) { promise.reject("E_PERMISSION_CHECK", "Accessibility state could not be read.", error) }
+  }
 
   @ReactMethod
   fun startBlockingSession(config: ReadableMap, promise: Promise) {
@@ -117,16 +124,25 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
       require(packages.isNotEmpty()) { "Select at least one supported application" }
       require(endsAt > startedAt && endsAt - startedAt <= MAX_SESSION_MS) { "Invalid session duration" }
       require(isAccessibilityEnabled()) { "Accessibility service is disabled" }
-      require(readSession()?.getString("status") != "active") { "A blocking session is already active" }
-      val session = Arguments.createMap().apply {
-        putString("id", sessionId); putString("userId", userId)
-        putDouble("startedAt", startedAt.toDouble()); putDouble("endsAt", endsAt.toDouble())
-        putString("status", "active")
-        putArray("packageIds", Arguments.createArray().also { array -> packages.forEach(array::pushString) })
+      val session = synchronized(sessionLock) {
+        val existing = readSession()
+        if (existing?.getString("status") == "active") {
+          if (existing.getDouble("endsAt") > System.currentTimeMillis()) {
+            throw IllegalArgumentException("A blocking session is already active")
+          }
+          clearSession()
+        }
+        Arguments.createMap().apply {
+          putString("id", sessionId); putString("userId", userId)
+          putDouble("startedAt", startedAt.toDouble()); putDouble("endsAt", endsAt.toDouble())
+          putString("status", "active")
+          putArray("packageIds", Arguments.createArray().also { array -> packages.forEach(array::pushString) })
+        }.also { created ->
+          saveSession(created)
+          FocusLockAlarm.schedule(reactContext, sessionId, endsAt)
+        }
       }
-      saveSession(session)
-      FocusLockAlarm.schedule(reactContext, endsAt)
-      emit("onBlockingStarted", session)
+      emit("onBlockingStarted", copyMap(session))
       promise.resolve(session)
     } catch (error: Exception) {
       promise.reject("E_START_FAILED", error.message ?: "Blocking session could not start.", error)
@@ -136,22 +152,62 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   @ReactMethod
   fun stopBlockingSession(sessionId: String, emergencyExit: Boolean, promise: Promise) {
     try {
-      val session = readSession()
-      if (session == null || session.getString("id") != sessionId) { promise.resolve(null); return }
-      session.putString("status", "stopped")
-      session.putDouble("stoppedAt", System.currentTimeMillis().toDouble())
-      session.putBoolean("emergencyExit", emergencyExit)
-      saveSession(session); FocusLockAlarm.cancel(reactContext); emit("onBlockingStopped", session)
+      val session = synchronized(sessionLock) {
+        val current = readSession()
+        if (current == null || current.getString("id") != sessionId) null
+        else {
+          current.putString("status", "stopped")
+          current.putDouble("stoppedAt", System.currentTimeMillis().toDouble())
+          current.putBoolean("emergencyExit", emergencyExit)
+          saveSession(current)
+          FocusLockAlarm.cancel(reactContext)
+          current
+        }
+      }
+      if (session == null) { promise.resolve(null); return }
+      emit("onBlockingStopped", copyMap(session))
       promise.resolve(session)
     } catch (error: Exception) { promise.reject("E_STOP_FAILED", "Blocking session could not stop.", error) }
   }
 
-  @ReactMethod fun getActiveSession(promise: Promise) { promise.resolve(readSession()?.takeIf { it.getString("status") == "active" }) }
-  @ReactMethod fun getRemainingTime(promise: Promise) { promise.resolve((readSession()?.getDouble("endsAt")?.toLong()?.minus(System.currentTimeMillis()) ?: 0L).coerceAtLeast(0L)) }
-  @ReactMethod fun getBlockedPackages(promise: Promise) {
-    val array = Arguments.createArray(); readSession()?.getArray("packageIds")?.toArrayList()?.forEach { array.pushString(it.toString()) }; promise.resolve(array)
+  @ReactMethod fun getActiveSession(promise: Promise) {
+    try {
+      val active = synchronized(sessionLock) {
+        val current = readSession()
+        val valid = current?.takeIf { it.getString("status") == "active" && it.getDouble("endsAt") > System.currentTimeMillis() }
+        if (valid == null && current != null && current.getString("status") == "active") clearSession()
+        valid
+      }
+      promise.resolve(active)
+    } catch (error: Exception) { promise.reject("E_SESSION_READ", "Active session could not be read.", error) }
   }
-  @ReactMethod fun getBlockedAttemptCount(promise: Promise) { promise.resolve(blockedAttemptsToday()) }
+
+  @ReactMethod fun getRemainingTime(promise: Promise) {
+    try {
+      val remaining = synchronized(sessionLock) {
+        val current = readSession()?.takeIf { it.getString("status") == "active" }
+        (current?.getDouble("endsAt")?.toLong()?.minus(System.currentTimeMillis()) ?: 0L).coerceAtLeast(0L)
+      }
+      promise.resolve(remaining.toDouble())
+    } catch (error: Exception) { promise.reject("E_REMAINING_FAILED", "Remaining time could not be read.", error) }
+  }
+
+  @ReactMethod fun getBlockedPackages(promise: Promise) {
+    try {
+      val array = Arguments.createArray()
+      synchronized(sessionLock) {
+        readSession()
+          ?.takeIf { it.getString("status") == "active" && it.getDouble("endsAt") > System.currentTimeMillis() }
+          ?.getArray("packageIds")?.toArrayList()?.forEach { array.pushString(it.toString()) }
+      }
+      promise.resolve(array)
+    } catch (error: Exception) { promise.reject("E_PACKAGES_FAILED", "Blocked packages could not be read.", error) }
+  }
+
+  @ReactMethod fun getBlockedAttemptCount(promise: Promise) {
+    try { promise.resolve(blockedAttemptsToday()) }
+    catch (error: Exception) { promise.reject("E_ATTEMPTS_FAILED", "Blocked attempt count could not be read.", error) }
+  }
   @ReactMethod fun addBlockedPackage(packageId: String, promise: Promise) = updatePackages(packageId, true, promise)
   @ReactMethod fun removeBlockedPackage(packageId: String, promise: Promise) = updatePackages(packageId, false, promise)
   @ReactMethod fun addListener(@Suppress("UNUSED_PARAMETER") eventName: String) { }
@@ -160,11 +216,18 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   private fun updatePackages(packageId: String, add: Boolean, promise: Promise) {
     try {
       require(packageId.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) && !isCriticalPackage(packageId))
-      val session = readSession() ?: throw IllegalStateException("No active session")
-      val packages = session.getArray("packageIds")?.toArrayList()?.map { it.toString() }?.toMutableSet() ?: mutableSetOf()
-      if (add) packages.add(packageId) else packages.remove(packageId)
-      session.putArray("packageIds", Arguments.createArray().also { array -> packages.forEach(array::pushString) })
-      saveSession(session); promise.resolve(session.getArray("packageIds"))
+      val updatedList = synchronized(sessionLock) {
+        val session = readSession()
+          ?.takeIf { it.getString("status") == "active" && it.getDouble("endsAt") > System.currentTimeMillis() }
+          ?: throw IllegalStateException("No active session")
+        val packages = session.getArray("packageIds")?.toArrayList()?.map { it.toString() }?.toMutableSet() ?: mutableSetOf()
+        if (add) packages.add(packageId) else packages.remove(packageId)
+        val sorted = packages.toList()
+        session.putArray("packageIds", Arguments.createArray().also { array -> sorted.forEach(array::pushString) })
+        saveSession(session)
+        sorted
+      }
+      promise.resolve(Arguments.createArray().also { array -> updatedList.forEach(array::pushString) })
     } catch (error: Exception) { promise.reject("E_PACKAGE_FAILED", error.message ?: "Package update failed.", error) }
   }
 
@@ -184,50 +247,88 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
 
   private fun isCriticalPackage(packageId: String) = packageId == "com.android.systemui" || packageId == "com.android.settings" || packageId == "com.android.phone" || packageId == "com.google.android.dialer" || packageId.startsWith("com.android.launcher") || packageId.startsWith("com.google.android.apps.nexuslauncher")
 
-  private fun iconAsBase64(info: ApplicationInfo): String? = try {
-    val drawable = packageManager.getApplicationIcon(info)
-    val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap); drawable.setBounds(0, 0, 96, 96); drawable.draw(canvas)
-    val output = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.PNG, 90, output)
-    Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-  } catch (_: Exception) { null }
-
-  private fun readSession(): WritableMap? = prefs.getString(SESSION_KEY, null)?.let { json ->
-    val objectJson = org.json.JSONObject(json)
-    val result = Arguments.createMap()
-    objectJson.keys().forEach { key ->
-      when (val value = objectJson.get(key)) {
-        is String -> result.putString(key, value)
-        is Number -> result.putDouble(key, value.toDouble())
-        is Boolean -> result.putBoolean(key, value)
-        is org.json.JSONArray -> result.putArray(key, Arguments.createArray().also { array -> for (i in 0 until value.length()) array.pushString(value.getString(i)) })
-      }
+  private fun iconAsBase64(info: ApplicationInfo): String? {
+    var bitmap: Bitmap? = null
+    return try {
+      val drawable = packageManager.getApplicationIcon(info)
+      val created = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+      bitmap = created
+      val canvas = Canvas(created); drawable.setBounds(0, 0, 96, 96); drawable.draw(canvas)
+      val output = ByteArrayOutputStream(); created.compress(Bitmap.CompressFormat.PNG, 90, output)
+      Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    } catch (_: Exception) {
+      null
+    } finally {
+      bitmap?.recycle()
     }
-    result
+  }
+
+  private fun readSession(): WritableMap? {
+    val json = prefs.getString(SESSION_KEY, null) ?: return null
+    return try {
+      val objectJson = org.json.JSONObject(json)
+      val result = Arguments.createMap()
+      objectJson.keys().forEach { key ->
+        when (val value = objectJson.get(key)) {
+          is String -> result.putString(key, value)
+          is Number -> result.putDouble(key, value.toDouble())
+          is Boolean -> result.putBoolean(key, value)
+          is org.json.JSONArray -> result.putArray(key, Arguments.createArray().also { array ->
+            for (i in 0 until value.length()) {
+              val item = value.optString(i, "")
+              if (item.isNotEmpty()) array.pushString(item)
+            }
+          })
+        }
+      }
+      result
+    } catch (_: Exception) {
+      clearSession()
+      null
+    }
   }
 
   private fun saveSession(session: ReadableMap) { prefs.edit().putString(SESSION_KEY, org.json.JSONObject(session.toHashMap()).toString()).apply() }
   private fun clearSession() { prefs.edit().remove(SESSION_KEY).apply() }
-  private fun blockedAttemptsToday(): Int {
+  private fun blockedAttemptsToday(): Int = synchronized(sessionLock) {
     val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-    if (prefs.getString(BLOCKED_DATE_KEY, null) != today) return 0
-    return prefs.getInt(BLOCKED_COUNT_KEY, 0)
+    if (prefs.getString(BLOCKED_DATE_KEY, null) != today) return@synchronized 0
+    prefs.getInt(BLOCKED_COUNT_KEY, 0)
   }
 
   private fun recordBlockedAttemptInternal(packageId: String) {
-    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-    val editor = prefs.edit()
-    if (prefs.getString(BLOCKED_DATE_KEY, null) != today) editor.putString(BLOCKED_DATE_KEY, today).putInt(BLOCKED_COUNT_KEY, 0)
-    editor.putInt(BLOCKED_COUNT_KEY, blockedAttemptsToday() + 1).apply()
+    val nextCount = synchronized(sessionLock) {
+      val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+      val sameDay = prefs.getString(BLOCKED_DATE_KEY, null) == today
+      val updated = (if (sameDay) prefs.getInt(BLOCKED_COUNT_KEY, 0) else 0) + 1
+      prefs.edit()
+        .putString(BLOCKED_DATE_KEY, today)
+        .putInt(BLOCKED_COUNT_KEY, updated)
+        .apply()
+      updated
+    }
     emit("onBlockedAppDetected", Arguments.createMap().apply {
-      putString("packageId", packageId); putDouble("detectedAt", System.currentTimeMillis().toDouble()); putInt("blockedAttemptsToday", blockedAttemptsToday())
+      putString("packageId", packageId); putDouble("detectedAt", System.currentTimeMillis().toDouble()); putInt("blockedAttemptsToday", nextCount)
     })
   }
 
-  private fun emit(name: String, payload: WritableMap) { reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit(name, payload) }
+  override fun invalidate() {
+    if (instance === this) instance = null
+    super.invalidate()
+  }
+
+  private fun copyMap(source: WritableMap): WritableMap = Arguments.createMap().apply { merge(source) }
+
+  private fun emit(name: String, payload: WritableMap) {
+    if (!reactContext.hasActiveReactInstance()) return
+    try {
+      reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit(name, payload)
+    } catch (_: Exception) { }
+  }
 
   companion object {
     @Volatile private var instance: FocusLockModule? = null
+    val sessionLock = Any()
     const val PREFS = "study_sakha_focus_lock"
     const val SESSION_KEY = "active_session"
     const val BLOCKED_DATE_KEY = "blocked_attempts_date"

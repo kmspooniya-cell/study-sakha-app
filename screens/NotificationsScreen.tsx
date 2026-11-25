@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
 import { Button, Card, Chip, EmptyState, SectionHeader, Tag, Txt } from '../components/ui';
@@ -31,6 +31,11 @@ export default function NotificationsScreen() {
   const { isMobile } = useLayout();
   const [filter, setFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+  }, []);
 
   const list = state.notifications
     .filter((n) => filter === 'all' || n.kind === filter)
@@ -57,7 +62,8 @@ export default function NotificationsScreen() {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              setTimeout(() => setRefreshing(false), 600);
+              if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+              refreshTimerRef.current = setTimeout(() => setRefreshing(false), 600);
             }}
             tintColor={colors.blue}
             colors={[colors.blue]}
@@ -99,7 +105,7 @@ export default function NotificationsScreen() {
           </View>
         }
         renderItem={({ item }) => {
-          const meta = KIND_META[item.kind];
+          const meta = KIND_META[item.kind] ?? KIND_META.announcement;
           const color = tone(item.kind);
           return (
             <Pressable

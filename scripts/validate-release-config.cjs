@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const profile = process.argv.slice(2).find((argument) => argument !== '--') || 'production';
-const allowedProfiles = new Set(['preview', 'production', 'arm64-apk']);
+const allowedProfiles = new Set(['preview', 'production', 'production-apk', 'arm64-apk']);
 
 if (!allowedProfiles.has(profile)) {
   console.error(`Unknown release profile: ${profile}`);
