@@ -13,6 +13,7 @@ export type AppStackParamList = {
   DashboardRoot: OptionalScreenParams;
   Library: LibraryParams | undefined;
   Groups: (HeaderParams & {
+    inviteGroupId?: string;
     openGroupRoom?: {
       groupId: string;
       roomId: GroupRoomId;

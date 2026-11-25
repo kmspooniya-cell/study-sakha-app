@@ -7,325 +7,6 @@ const APP_INFO = {
   version: '1.0.0',
 };
 
-const APP_SCREENS = [
-  {
-    name: 'DashboardRoot',
-    title: 'Dashboard (Home)',
-    path: '',
-    description: 'Main home screen showing streak count, daily goal ring, quick study tools (PYQ Bank, Mock Test, Daily Revision, Current Affairs), and progress overview.',
-    features: ['Daily Streak Tracker', 'Today Target Minutes', 'Quick Launch Cards', 'Subject Performance Cards', 'Top Navigation Bar with Theme & Notifications'],
-  },
-  {
-    name: 'Library',
-    title: 'Library',
-    path: 'library',
-    description: 'Central learning resource hub organized into 5 specialized sub-sections: Notes, Books, PYQ Sets, Starred, and Downloads.',
-    subSections: ['LibraryNotes', 'LibraryBooks', 'LibraryPYQSets', 'LibraryStarred', 'LibraryDownloads'],
-  },
-  {
-    name: 'LibraryBooks',
-    title: 'Books Shelf',
-    path: 'library/books',
-    description: 'Collection of long-form digital books with chapters and readers.',
-  },
-  {
-    name: 'LibraryNotes',
-    title: 'Notes Shelf',
-    path: 'library/notes',
-    description: 'Curated subject notes and cheat sheets.',
-  },
-  {
-    name: 'LibraryPYQSets',
-    title: 'PYQ Sets',
-    path: 'library/pyq-sets',
-    description: 'Curated compilations of decadal previous year questions.',
-  },
-  {
-    name: 'LibraryStarred',
-    title: 'Starred Resources',
-    path: 'library/starred',
-    description: 'Bookmarked and starred study materials for quick access.',
-  },
-  {
-    name: 'LibraryDownloads',
-    title: 'Offline Downloads',
-    path: 'library/downloads',
-    description: 'Locally cached materials accessible without internet connection.',
-  },
-  {
-    name: 'BookReader',
-    title: 'Book Reader',
-    path: 'books',
-    description: 'Reader screen for books with table of contents navigation, reading progress, and text controls.',
-  },
-  {
-    name: 'NoteEditor',
-    title: 'Note Editor & Creator',
-    path: 'notes',
-    description: 'Create and edit personal revision notes with Markdown formatting, tag categorization, and auto-generated flashcards.',
-  },
-  {
-    name: 'PYQ',
-    title: 'PYQ Bank',
-    path: 'pyq-bank',
-    description: 'Comprehensive previous year questions bank with filters for Exam, Subject, Year, and Difficulty (Easy, Moderate, Hard), including full explanations.',
-  },
-  {
-    name: 'Tests',
-    title: 'Test Series & Mocks',
-    path: 'tests',
-    description: 'All mock tests and quizzes: Live Tests (timed exam slots), Full Mocks, Sectional Tests, and Daily Quizzes.',
-  },
-  {
-    name: 'TestPlayer',
-    title: 'Test Player (Simulator)',
-    path: 'tests/attempt',
-    description: 'Full-screen exam simulator with countdown timer, question palette, negative marking rules, and instant question status.',
-  },
-  {
-    name: 'TestResult',
-    title: 'Test Result & Analysis',
-    path: 'tests/result',
-    description: 'Post-test analytics showing total score, accuracy %, percentile, rank, time taken, and subject-wise accuracy breakdown.',
-  },
-  {
-    name: 'StudyPlanner',
-    title: 'Study Planner',
-    path: 'study-planner',
-    description: 'Interactive study schedule supporting Daily, Weekly, and Monthly planning, custom task creation, priority levels (High/Medium/Low), task types (Study, Revision, PYQ, Test, Current Affairs), and progress tracking.',
-  },
-  {
-    name: 'Statistics',
-    title: 'Statistics & Analytics',
-    path: 'statistics',
-    description: 'Visual study analytics, 30-day study log bar charts, subject performance breakdown, and test percentile trends.',
-  },
-  {
-    name: 'TaskPerformance',
-    title: 'Task Performance',
-    path: 'statistics/tasks',
-    description: 'Detailed metrics on planned task completion rate and actual study duration.',
-  },
-  {
-    name: 'CurrentAffairs',
-    title: 'Current Affairs',
-    path: 'current-affairs',
-    description: 'Daily and monthly current affairs with prelims-oriented bullet points, categorized by Economy, Environment, Polity, Science & Tech, and Governance.',
-  },
-  {
-    name: 'SakhaAI',
-    title: 'Sakha AI (Mentor & Chat)',
-    path: 'sakha-ai',
-    description: 'AI study mentor powered by Gemini for concepts, doubt solving, syllabus guidance, mock analysis, and app navigation.',
-  },
-  {
-    name: 'Profile',
-    title: 'Profile',
-    path: 'profile',
-    description: 'User details, exam selection (UPSC, SSC, Banking, NEET, JEE, etc.), daily target hours setting, achievement badges, and account management.',
-  },
-  {
-    name: 'Settings',
-    title: 'Settings',
-    path: 'settings',
-    description: 'Theme customization (Light, Dark, System default), text scaling factor for accessibility, notification preferences, and privacy policy.',
-  },
-  {
-    name: 'Search',
-    title: 'Global Search',
-    path: 'search',
-    description: 'Unified search across all books, notes, PYQs, current affairs, and mock tests.',
-  },
-  {
-    name: 'Notifications',
-    title: 'Notifications',
-    path: 'notifications',
-    description: 'Updates on test deadlines, daily goal completion alerts, study streak updates, and announcements.',
-  },
-  {
-    name: 'AppGuide',
-    title: 'How to use the app',
-    path: 'app-guide',
-    description: 'Complete user manual and onboarding guide for Study Sakha.',
-  },
-  {
-    name: 'StudentTestimonials',
-    title: 'Student Testimonials',
-    path: 'student-testimonials',
-    description: 'Community reviews and ratings from fellow exam aspirants.',
-  },
-];
-
-const AVAILABLE_BOOKS = [
-  {
-    id: 'r5',
-    title: 'Modern Indian History — Spectrum Companion',
-    author: 'Sakha Press',
-    subject: 'History',
-    exam: 'upsc',
-    pages: 412,
-    chapters: ['Advent of the Europeans', 'Expansion of British Power', 'Revolt of 1857', 'Socio-Religious Reform Movements', 'Rise of Indian Nationalism', 'Moderates and Extremists', 'Gandhian Era 1919–1939', 'Quit India to Independence', 'Integration of Princely States'],
-  },
-  {
-    id: 'r6',
-    title: 'NCERT Distilled — Class 11 & 12 Biology',
-    author: 'Sakha Press',
-    subject: 'Biology',
-    exam: 'neet',
-    pages: 368,
-    chapters: ['The Living World', 'Cell: Unit of Life', 'Plant Physiology', 'Human Physiology', 'Genetics and Evolution', 'Biology in Human Welfare', 'Biotechnology', 'Ecology'],
-  },
-  {
-    id: 'r7',
-    title: 'Reasoning Mastery — Puzzles & Seating',
-    author: 'Ankit Sharma',
-    subject: 'Reasoning',
-    exam: 'banking',
-    pages: 286,
-    chapters: ['Linear Arrangement', 'Circular Arrangement', 'Floor Puzzles', 'Box Puzzles', 'Scheduling', 'Blood Relations', 'Syllogism', 'Data Sufficiency'],
-  },
-  {
-    id: 'r12',
-    title: 'English Grammar & Comprehension Blueprint',
-    author: 'Sakha Press',
-    subject: 'English',
-    exam: 'ssc',
-    pages: 240,
-    chapters: ['Parts of Speech', 'Subject–Verb Agreement', 'Tenses', 'Error Spotting Rules', 'Idioms & Phrases', 'Cloze Test', 'Reading Comprehension', 'One Word Substitution'],
-  },
-];
-
-const AVAILABLE_NOTES = [
-  {
-    id: 'r1',
-    title: 'Fundamental Rights — Articles 12 to 35',
-    author: 'Sakha Faculty',
-    subject: 'Polity',
-    exam: 'upsc',
-    pages: 18,
-    summary: 'Part III of the Constitution: Articles 12-35, landmark cases (Kesavananda, Maneka Gandhi, Puttaswamy), writs (Article 32 & 226), exceptions and tables.',
-  },
-  {
-    id: 'r2',
-    title: 'Indian Monsoon — Mechanism & Variability',
-    author: 'Dr. Meera Iyer',
-    subject: 'Geography',
-    exam: 'upsc',
-    pages: 14,
-    summary: 'Differential heating, ITCZ migration, Tibetan plateau heat source, Tropical Easterly Jet, Somali jet, ENSO, IOD, and break-monsoon phenomena.',
-  },
-  {
-    id: 'r3',
-    title: 'Monetary Policy & Inflation Targeting',
-    author: 'Sakha Faculty',
-    subject: 'Economy',
-    exam: 'banking',
-    pages: 12,
-    summary: 'Flexible Inflation Targeting (4% ±2%), Monetary Policy Committee structure, quantitative tools (Repo, SDF, MSF, CRR, SLR), qualitative tools.',
-  },
-  {
-    id: 'r4',
-    title: 'Time, Speed & Distance — 30 Shortcut Patterns',
-    author: 'Rahul Verma',
-    subject: 'Quantitative Aptitude',
-    exam: 'ssc',
-    pages: 9,
-    summary: 'Inverse speed-time ratios, average speed harmonic formula, trains crossing platforms/poles, boats & streams, and race problems.',
-  },
-  {
-    id: 'r8',
-    title: 'Environment: Conventions, Protocols & Reports',
-    author: 'Sakha Faculty',
-    subject: 'Environment',
-    exam: 'upsc',
-    pages: 11,
-    summary: 'UNFCCC, Kyoto, Paris Agreement, Montreal Protocol & Kigali Amendment, Ramsar Convention, CITES, CMS, Basel, Rotterdam, Stockholm, and Minamata.',
-  },
-  {
-    id: 'r9',
-    title: 'Rotational Motion — Formula Sheet & Traps',
-    author: 'Prof. S. Nair',
-    subject: 'Physics',
-    exam: 'jee',
-    pages: 8,
-    summary: 'Moments of inertia of standard geometric shapes, parallel and perpendicular axis theorems, rolling without slipping kinetic energy ratios.',
-  },
-  {
-    id: 'r11',
-    title: 'Chemical Bonding — VSEPR, Hybridisation & MOT',
-    author: 'Dr. K. Rao',
-    subject: 'Chemistry',
-    exam: 'neet',
-    pages: 10,
-    summary: 'VSEPR geometries, hybridisation shortcut formulas, Molecular Orbital Theory bond order, paramagnetic nature of oxygen, dipole moment comparisons.',
-  },
-];
-
-const AVAILABLE_PYQ_SETS = [
-  {
-    id: 'r10',
-    title: 'UPSC Prelims GS Paper-I — Decadal PYQ Set',
-    author: 'Sakha Research',
-    subject: 'Polity',
-    exam: 'upsc',
-    pages: 64,
-    summary: '10 years of solved prelims questions with micro-topic trend frequency heat scores.',
-  },
-];
-
-const AVAILABLE_TESTS = [
-  {
-    id: 't1',
-    title: 'UPSC Prelims Full Mock #14',
-    exam: 'upsc',
-    kind: 'Live Test',
-    durationMin: 20,
-    marksPerQ: 2,
-    negative: 0.67,
-    sections: ['Polity', 'History', 'Geography', 'Economy'],
-  },
-  {
-    id: 't2',
-    title: 'SSC CGL Tier-I Speed Mock #27',
-    exam: 'ssc',
-    kind: 'Full Mock',
-    durationMin: 15,
-    marksPerQ: 2,
-    negative: 0.5,
-    sections: ['Quantitative Aptitude', 'Reasoning', 'English'],
-  },
-  {
-    id: 't3',
-    title: 'Banking Awareness & Economy Sectional',
-    exam: 'banking',
-    kind: 'Sectional',
-    durationMin: 10,
-    marksPerQ: 1,
-    negative: 0.25,
-    sections: ['Economy', 'Reasoning'],
-  },
-  {
-    id: 't4',
-    title: 'Daily Current Affairs Quiz — 26 Oct',
-    exam: 'upsc',
-    kind: 'Daily Quiz',
-    durationMin: 8,
-    marksPerQ: 2,
-    negative: 0.67,
-    sections: ['Polity', 'Geography'],
-  },
-  {
-    id: 't5',
-    title: 'NEET Rapid Revision Quiz',
-    exam: 'neet',
-    kind: 'Daily Quiz',
-    durationMin: 10,
-    marksPerQ: 4,
-    negative: 1,
-    sections: ['Biology', 'Chemistry'],
-  },
-];
-
 const EXAMS_SUPPORTED = [
   { id: 'upsc', name: 'UPSC Civil Services' },
   { id: 'ssc', name: 'SSC CGL & CHSL' },
@@ -336,6 +17,78 @@ const EXAMS_SUPPORTED = [
   { id: 'rssb', name: 'RSSB (Rajasthan Staff Selection Board)' },
   { id: 'state_pcs', name: 'State PCS / Civil Services' },
 ];
+
+// Compact product documentation used for query-time retrieval. Statuses describe
+// repository behavior, not marketing availability.
+const FEATURE_REGISTRY = [
+  { id: 'dashboard', name: 'Dashboard', route: 'DashboardRoot', path: 'Main navigation → Dashboard', keywords: ['dashboard', 'home screen', 'home', 'डैशबोर्ड'], description: 'Review study summary and launch Study Planner, Focus Center, library and other registered tools.', settings: [], actions: ['Open Study Planner', 'Open Focus Center', 'Open Library'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'implemented', limitations: 'Quick actions depend on the current dashboard layout.' },
+  { id: 'planner', name: 'Study Planner', route: 'StudyPlanner', path: 'More navigation group → Study Planner', keywords: ['planner', 'schedule', 'tasks', 'study plan', 'timetable', 'प्लानर', 'समय सारणी'], description: 'Create and edit schedule entries and study tasks, set dates, recurrence, priorities, and mark work complete.', settings: ['Default task duration', 'Recurring tasks', 'Automatic carry-forward', 'AI suggestions'], actions: ['Add or edit schedule entry', 'Mark task complete', 'Review daily and calendar views'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'implemented', limitations: 'No external calendar sync is documented.' },
+  { id: 'focus', name: 'Focus sessions', route: 'FocusCenter', path: 'Dashboard → Start focus session (or Study Planner → Focus)', keywords: ['focus', 'timer', 'pomodoro', 'meditation', 'break', 'फोकस', 'ध्यान'], description: 'Start timer, stopwatch, Pomodoro, meditation, and break sessions; completion and study time are recorded.', settings: ['Focus duration', 'Session mode', 'Music selection'], actions: ['Start or complete a session', 'Pause or resume', 'Open completion summary'], platforms: ['Android', 'iOS', 'Web'], permissions: ['Android audio playback uses audio settings; no microphone permission is requested'], status: 'implemented', limitations: 'Session options depend on the selected mode.' },
+  { id: 'focus-lock', name: 'Focus Lock', route: 'FocusLock', path: 'Dashboard → Focus Lock card', keywords: ['focus lock', 'block apps', 'accessibility', 'lock', 'ऐप ब्लॉक'], description: 'Configure a focus lock session and manage app blocking through Android accessibility integration.', settings: ['Blocked applications', 'Lock session controls'], actions: ['Open Focus Lock', 'Configure or start a lock session'], platforms: ['Android only for app blocking'], permissions: ['User must enable the Focus Lock accessibility service in Android Settings'], status: 'partially implemented', limitations: 'Android requires the user to enable the accessibility service; iOS and web cannot block other apps.' },
+  { id: 'groups', name: 'Study Groups and Study Hall', route: 'Groups', path: 'Study navigation group → Groups → select a group → Study Hall', keywords: ['group', 'study hall', 'join group', 'study room', 'groups', 'ग्रुप', 'स्टडी हॉल'], description: 'Browse and join study groups, open a group room, participate in supported room activities, and return to Focus Center.', settings: ['Room-specific controls where shown'], actions: ['Browse or join a group', 'Enter Study Hall', 'Return to Focus Center'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'partially implemented', limitations: 'Room features include local/demo flows; the Plus badge is not evidence of paid entitlement, billing, live video, or real-time collaboration.' },
+  { id: 'library', name: 'Library, Books, Notes and PYQs', route: 'Library', path: 'Study navigation group → Library → Books / Notes / PYQ Sets / Starred / Downloads', keywords: ['library', 'books', 'notes', 'pyq', 'previous year', 'पुस्तक', 'नोट्स', 'प्रश्न'], description: 'Browse the in-app catalog, open book readers and notes, solve PYQs, and view starred resources.', settings: [], actions: ['Browse books and notes', 'Open PYQ bank', 'Star resources', 'Open available downloads'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'implemented', limitations: 'Only resources shown in the current catalog are available; do not claim arbitrary external PDFs or a complete exam archive.' },
+  { id: 'tests', name: 'Tests and quizzes', route: 'Tests', path: 'Study navigation group → Test Series', keywords: ['test', 'quiz', 'mock', 'results', 'टेस्ट', 'क्विज'], description: 'Choose an available mock or quiz, take it in the test player, and review saved results.', settings: [], actions: ['Choose an available test', 'Submit answers', 'Review saved result'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'implemented', limitations: 'Only listed in-app tests can be launched.' },
+  { id: 'current-affairs', name: 'Current Affairs', route: 'CurrentAffairs', path: 'Study navigation group → Current Affairs', keywords: ['current affairs', 'news', 'करंट अफेयर्स'], description: 'Open the app’s current-affairs screen and browse its available study material.', status: 'partially implemented', limitations: 'Do not claim live news freshness unless the screen confirms updated content.' },
+  { id: 'analytics', name: 'Focus Analytics and Statistics', route: 'Statistics', path: 'Study navigation group → Statistics', keywords: ['analytics', 'statistics', 'study hours', 'progress', 'focus analytics', 'आंकड़े'], description: 'Review recorded study time, activity trends, subject progress, and available test performance.', status: 'implemented', limitations: 'Charts reflect data recorded in the app and are not external rankings.' },
+  { id: 'ai', name: 'Sakha AI', route: 'SakhaAI', path: 'Intelligence navigation group or mobile bottom tab → Sakha AI', keywords: ['sakha ai', 'ai', 'assistant', 'gemini', 'सखा एआई'], description: 'Ask study questions, request explanations, and get help navigating documented app features.', status: 'implemented', limitations: 'Requires an authenticated account and a reachable configured backend; answers may be unavailable during service outages.' },
+  { id: 'profile-settings', name: 'Profile and Settings', route: 'Profile', path: 'Account navigation group → Profile / Settings', keywords: ['profile', 'settings', 'theme', 'notifications', 'permissions', 'प्रोफाइल', 'सेटिंग'], description: 'Edit profile details and review app preferences such as theme, language, and notification controls.', status: 'implemented', limitations: 'Android notifications require notification permission; Focus Lock additionally requires its accessibility service to be enabled in Android Settings.' },
+  { id: 'admin', name: 'Admin tools', route: 'Admin', path: 'Account navigation group → Admin Portal (authorized accounts)', keywords: ['admin', 'manage content', 'administrator'], description: 'Authorized admin accounts can manage supported app content.', status: 'partially implemented', limitations: 'Visible only to accounts with the admin role; do not tell ordinary users they can access it.' },
+  { id: 'notifications', name: 'Notifications', route: 'Notifications', path: 'Intelligence navigation group → Notifications', keywords: ['notifications', 'alerts', 'bell', 'सूचनाएं'], description: 'Review in-app notifications and available study alerts.', settings: ['Notification preferences in Settings'], actions: ['Open notification list'], platforms: ['Android', 'iOS', 'Web'], permissions: ['Android notification permission is required for system notifications'], status: 'implemented', limitations: 'System notification delivery depends on OS permission and app notification settings.' },
+  { id: 'search', name: 'Search', route: 'Search', path: 'Intelligence navigation group → Search', keywords: ['search', 'find resource', 'खोज'], description: 'Search available in-app study resources.', settings: [], actions: ['Search catalog content'], platforms: ['Android', 'iOS', 'Web'], permissions: [], status: 'implemented', limitations: 'Search results are limited to content present in the app.' },
+];
+
+function retrieveAppKnowledge(query, limit = 4) {
+  const normalized = String(query || '').toLowerCase();
+  const terms = (normalized.match(/[a-z0-9]+|[\u0900-\u097f]+/g) || []).filter((term) => !['book', 'books', 'note', 'notes', 'test', 'tests', 'pyq', 'resource', 'set', 'the', 'and', 'for', 'is', 'are', 'available', 'where', 'how', 'does', 'do'].includes(term));
+  const ranked = FEATURE_REGISTRY.map((feature) => {
+    const corpus = [feature.name, feature.description, feature.path, ...feature.keywords].join(' ').toLowerCase();
+    const score = feature.keywords.reduce((total, keyword) => {
+      const lowered = keyword.toLowerCase();
+      const matches = /^[a-z0-9]+$/.test(lowered)
+        ? new RegExp(`\\b${lowered}\\b`).test(normalized)
+        : normalized.includes(lowered);
+      return total + (matches ? 3 : 0);
+    }, 0)
+      + terms.reduce((total, term) => total + (term.length > 2 && corpus.includes(term) ? 1 : 0), 0);
+    return { feature, score };
+  }).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+  return ranked.map(({ feature }) => ({
+    name: feature.name,
+    path: feature.path,
+    route: feature.route,
+    description: feature.description,
+    status: feature.status,
+    limitations: feature.limitations,
+    settings: feature.settings || [],
+    actions: feature.actions || [],
+    platforms: feature.platforms || ['Android', 'iOS', 'Web'],
+    permissions: feature.permissions || [],
+  }));
+}
+
+function retrieveStudyResources(query, limit = 3) {
+  const normalized = String(query || '').toLowerCase();
+  const terms = (normalized.match(/[a-z0-9]+|[\u0900-\u097f]+/g) || []).filter((term) => !['book', 'books', 'note', 'notes', 'test', 'tests', 'pyq', 'resource', 'set', 'the', 'and', 'for', 'is', 'are', 'available', 'where', 'how', 'does', 'do'].includes(term));
+  return Object.values(RESOURCE_REGISTRY)
+    .map((resource) => {
+      const corpus = `${resource.id} ${resource.title} ${resource.type} ${resource.subject || ''} ${resource.exam || ''} ${resource.section || ''}`.toLowerCase();
+      const score = terms.reduce((total, term) => total + (term.length > 2 && corpus.includes(term) ? 1 : 0), 0);
+      return { resource, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ resource }) => ({
+      id: resource.id,
+      title: resource.title,
+      type: resource.type,
+      subject: resource.subject,
+      exam: resource.exam,
+      section: resource.section,
+      route: resource.route,
+      params: resource.params,
+    }));
+}
 
 const RESOURCE_REGISTRY = {
   r1: { id: 'r1', title: 'Fundamental Rights — Articles 12 to 35', type: 'Note', subject: 'Polity', exam: 'upsc', pages: 18, section: 'Articles 12–35', route: 'NoteEditor', params: { resourceId: 'r1' } },
@@ -359,11 +112,9 @@ const RESOURCE_REGISTRY = {
 
 module.exports = {
   APP_INFO,
-  APP_SCREENS,
-  AVAILABLE_BOOKS,
-  AVAILABLE_NOTES,
-  AVAILABLE_PYQ_SETS,
-  AVAILABLE_TESTS,
   EXAMS_SUPPORTED,
   RESOURCE_REGISTRY,
+  FEATURE_REGISTRY,
+  retrieveAppKnowledge,
+  retrieveStudyResources,
 };

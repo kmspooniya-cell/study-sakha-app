@@ -3,7 +3,8 @@ import * as Notifications from 'expo-notifications';
 import type { PlannerScheduleItem } from './store';
 
 export const STUDY_REMINDER_CHANNEL_ID = 'study-reminders';
-const UPCOMING_REMINDER_ID = 'study-sakha-upcoming-planner-reminder';
+const PLANNER_REMINDER_PREFIX = 'study-sakha-planner-';
+const LEGACY_UPCOMING_REMINDER_ID = 'study-sakha-upcoming-planner-reminder';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -48,12 +49,46 @@ function parseScheduleDate(item: PlannerScheduleItem): Date | null {
   return date;
 }
 
+async function syncLegacyPlannerReminder(enabled: boolean, items: PlannerScheduleItem[]) {
+  await Notifications.cancelScheduledNotificationAsync(LEGACY_UPCOMING_REMINDER_ID);
+  if (!enabled || !(await requestNotificationPermission())) return;
+  const now = Date.now();
+  const upcoming = items
+    .map((item) => ({ item, date: parseScheduleDate(item) }))
+    .filter((entry): entry is { item: PlannerScheduleItem; date: Date } => entry.date !== null && entry.date.getTime() > now + 5_000 && entry.item.completed !== true)
+    .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+  if (!upcoming) return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: LEGACY_UPCOMING_REMINDER_ID,
+    content: { title: 'Study Sakha reminder', body: upcoming.item.title, data: { route: 'Notifications', plannerItemId: upcoming.item.id }, ...(Platform.OS === 'android' ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}) },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: upcoming.date },
+  });
+}
+
 export async function syncUpcomingPlannerReminder(
   enabled: boolean,
   items: PlannerScheduleItem[],
 ): Promise<void> {
   if (Platform.OS === 'web') return;
-  await Notifications.cancelScheduledNotificationAsync(UPCOMING_REMINDER_ID);
+  const getScheduled = Notifications.getAllScheduledNotificationsAsync;
+  // Keep compatibility with older Expo test clients/builds that do not expose
+  // the scheduled-list API. Production SDK 57 uses the per-task identifiers.
+  if (typeof getScheduled !== 'function') {
+    await syncLegacyPlannerReminder(enabled, items);
+    return;
+  }
+  let scheduled: Notifications.NotificationRequest[];
+  try {
+    scheduled = await getScheduled();
+  } catch {
+    await syncLegacyPlannerReminder(enabled, items);
+    return;
+  }
+  await Promise.all(
+    scheduled
+      .filter(({ identifier }) => identifier.startsWith(PLANNER_REMINDER_PREFIX))
+      .map(({ identifier }) => Notifications.cancelScheduledNotificationAsync(identifier)),
+  );
   if (!enabled) return;
   if (!(await requestNotificationPermission())) return;
 
@@ -63,20 +98,19 @@ export async function syncUpcomingPlannerReminder(
     .filter((entry): entry is { item: PlannerScheduleItem; date: Date } =>
       entry.date !== null && entry.date.getTime() > now + 5_000 && entry.item.completed !== true
     )
-    .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
-  if (!upcoming) return;
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  await Notifications.scheduleNotificationAsync({
-    identifier: UPCOMING_REMINDER_ID,
+  await Promise.all(upcoming.map(({ item, date }) => Notifications.scheduleNotificationAsync({
+    identifier: `${PLANNER_REMINDER_PREFIX}${item.id}`,
     content: {
       title: 'Study Sakha reminder',
-      body: upcoming.item.title,
-      data: { route: 'Notifications', plannerItemId: upcoming.item.id },
+      body: item.title,
+      data: { route: 'Notifications', plannerItemId: item.id, kind: 'planner' },
       ...(Platform.OS === 'android' ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}),
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: upcoming.date,
+      date,
     },
-  });
+  })));
 }

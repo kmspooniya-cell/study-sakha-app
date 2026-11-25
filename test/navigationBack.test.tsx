@@ -34,6 +34,13 @@ describe('Android back targets', () => {
     expect(getAndroidBackTarget('DashboardRoot', ['DashboardRoot'])).toBeNull();
   });
 
+  it('keeps Settings and App Guide return navigation stable across repeated opens', () => {
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      expect(getAndroidBackTarget('Settings', ['DashboardRoot'])).toBe('DashboardRoot');
+      expect(getAndroidBackTarget('AppGuide', ['DashboardRoot'])).toBe('DashboardRoot');
+    }
+  });
+
   it('recognizes notification taps that target the in-app notification inbox', () => {
     expect(getNotificationNavigationRoute({
       notification: { request: { content: { data: { route: 'Notifications' } } } },

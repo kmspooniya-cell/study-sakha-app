@@ -140,6 +140,7 @@ jest.mock('../lib/groupRooms', () => {
   return {
     ...actual,
     createRoomSession: jest.fn(async () => 'room-session-1'),
+    getActiveStudyGroups: jest.fn(async () => [{ id: 'grp-ras-mains', name: 'RAS Mains 2026 — Rajasthan Special' }]),
     getActiveStudyGroupIds: jest.fn(async () => ['grp-ras-mains']),
     submitStudyMemberActivityToGroups: jest.fn(async (groupIds: string[], activity: Record<string, unknown>) => {
       await Promise.all(groupIds.map((groupId) => mockSubmitStudyMemberActivity({ groupId, ...activity } as Parameters<typeof mockSubmitStudyMemberActivity>[0])));
@@ -235,6 +236,7 @@ describe('shared focus session setup', () => {
   it('opens the shared setup and starts Focus Center with the room session linked', async () => {
     jest.useFakeTimers();
     const view = render(<GroupsScreen />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' })).toBeTruthy());
     fireEvent.press(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' }));
     await act(async () => {
       fireEvent.press(view.getAllByText('Join room')[0]);
@@ -284,6 +286,7 @@ describe('shared focus session setup', () => {
   it('leaves Silent Focus Hall only after confirmation and returns to the Groups screen', async () => {
     jest.useFakeTimers();
     const view = render(<GroupsScreen />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' })).toBeTruthy());
     fireEvent.press(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' }));
     await act(async () => {
       fireEvent.press(view.getAllByText('Join room')[0]);
@@ -523,11 +526,12 @@ describe('shared focus session setup', () => {
     ));
 
     expect(mockAppendFocusHistory).toHaveBeenCalledTimes(1);
-    expect(mockStore.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledTimes(2);
     expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       type: 'recordFocusStudy',
       seconds: 155,
     }));
+    expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'upsertFocusHistory' }));
     jest.clearAllTimers();
     jest.useRealTimers();
   });
@@ -573,11 +577,12 @@ describe('shared focus session setup', () => {
       }),
     ));
     expect(mockAppendFocusHistory).toHaveBeenCalledTimes(1);
-    expect(mockStore.dispatch).toHaveBeenCalledTimes(1);
+    expect(mockStore.dispatch).toHaveBeenCalledTimes(2);
     expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       type: 'recordFocusStudy',
       seconds: 60,
     }));
+    expect(mockStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'upsertFocusHistory' }));
     jest.clearAllTimers();
     jest.useRealTimers();
   });

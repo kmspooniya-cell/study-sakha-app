@@ -878,13 +878,6 @@ export const PENDING_CONTENT: PendingContent[] = [
   { id: 'c5', title: 'Coordinate Geometry Problem Bank', type: 'Note', author: 'Prof. S. Nair', exam: 'jee', submitted: '2026-10-20', status: 'pending' },
 ];
 
-export const SEED_NOTIFICATIONS: AppNotification[] = [
-  { id: 'n1', title: 'Live mock starts in 2 hours', body: 'UPSC Prelims Full Mock #14 goes live at 7:00 PM. 18,420 aspirants have enrolled.', at: Date.now() - 1000 * 60 * 42, kind: 'test', read: false },
-  { id: 'n2', title: 'New in your library', body: 'Environment: Conventions, Protocols & Reports was updated with 2026 data.', at: Date.now() - 1000 * 60 * 60 * 5, kind: 'content', read: false },
-  { id: 'n3', title: 'Streak milestone unlocked', body: 'You crossed a 7-day streak. Keep going to unlock the Consistency badge.', at: Date.now() - 1000 * 60 * 60 * 26, kind: 'streak', read: true },
-  { id: 'n4', title: 'Sakha AI got smarter', body: 'Ask for a recovery plan after any mock and Sakha now builds a 7-day fix list.', at: Date.now() - 1000 * 60 * 60 * 50, kind: 'announcement', read: true },
-];
-
 export const BADGES = [
   { id: 'b1', name: 'Early Riser', icon: 'sunny-outline', desc: 'Studied before 7 AM for 5 days', earned: true },
   { id: 'b2', name: 'Mock Warrior', icon: 'ribbon-outline', desc: 'Completed 10 full mocks', earned: true },

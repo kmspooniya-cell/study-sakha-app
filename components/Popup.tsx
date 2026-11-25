@@ -11,7 +11,9 @@ import {
   Text,
   View,
   ViewStyle,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radii, shadow, spacing, useTheme } from '../lib/theme';
 
 export type PopupPresentation = 'sheet' | 'center';
@@ -40,9 +42,13 @@ export function Popup({
   scrollable = true,
 }: PopupProps) {
   const { colors } = useTheme();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isSheet = presentation === 'sheet';
+  const usableHeight = Math.max(240, height - insets.top - insets.bottom);
   const content = scrollable ? (
     <ScrollView
+      style={styles.bodyScroll}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.scrollContent}
@@ -60,8 +66,8 @@ export function Popup({
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        style={[styles.root, isSheet ? styles.sheetRoot : styles.centerRoot]}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.root, isSheet ? styles.sheetRoot : styles.centerRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Pressable
           accessibilityRole="button"
@@ -72,6 +78,7 @@ export function Popup({
         <View
           style={[
             isSheet ? styles.sheetCard : styles.centerCard,
+            { maxHeight: usableHeight * (isSheet ? 0.96 : 0.9) },
             { backgroundColor: colors.surfaceRaised, borderColor: colors.borderSubtle },
             shadow(colors, isSheet ? 3 : 2),
             style,
@@ -177,6 +184,7 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 4, lineHeight: 18 },
   closeButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  bodyScroll: { flexShrink: 1 },
   actions: { padding: spacing.lg, borderTopWidth: 1 },
   actionRow: { flexDirection: 'row', gap: spacing.sm },
   secondaryAction: { flex: 1, minHeight: 48, borderRadius: radii.control, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },

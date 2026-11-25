@@ -454,6 +454,12 @@ function deepMerge(target: any, source: any): any {
 export function SettingsScreen() {
   const navigation = useNavigation<AppNavigation>();
   const { state, dispatch, saveProfile, signOut, streak, todayMinutes } = useStore();
+  const accountStorageKey = useMemo(
+    () => state.user?.id
+      ? `${STORAGE_KEY}:user:${encodeURIComponent(state.user.id)}`
+      : STORAGE_KEY,
+    [state.user?.id],
+  );
   const { width } = useWindowDimensions();
   const systemColorScheme = useColorScheme();
   const isTablet = width >= 768;
@@ -511,7 +517,7 @@ export function SettingsScreen() {
     let mounted = true;
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        const stored = await AsyncStorage.getItem(accountStorageKey);
         if (stored && mounted) {
           const merged = deepMerge(getDefaultSettings(state.user), JSON.parse(stored));
           setSettings(merged);
@@ -526,7 +532,7 @@ export function SettingsScreen() {
     return () => {
       mounted = false;
     };
-  }, [state.user]);
+  }, [accountStorageKey, state.user]);
 
   useEffect(() => {
     const exam = EXAMS.find((item) => item.id === state.user?.exam);
@@ -663,11 +669,11 @@ export function SettingsScreen() {
 
   const persistSettings = useCallback(async (next: SettingsState) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(accountStorageKey, JSON.stringify(next));
     } catch (e) {
       console.warn('Could not persist settings to AsyncStorage:', e);
     }
-  }, []);
+  }, [accountStorageKey]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ msg, type });

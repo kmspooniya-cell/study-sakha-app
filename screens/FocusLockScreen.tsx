@@ -2615,7 +2615,7 @@ export default function FocusLockScreen() {
     if (!sessionId || seconds <= 0) return;
     creditedSessionId.current = sessionId;
     dispatch({ type: 'recordFocusStudy', id: sessionId, date: dayKey(sessionStartTime), taskId: null, seconds, category: 'Focus Lock' });
-    void appendFocusHistory(historyKey, {
+    const record: FocusHistoryRecord = {
       id: sessionId,
       subject: 'Focus Lock',
       topic: selectedAppIds.join(', '),
@@ -2625,7 +2625,9 @@ export default function FocusLockScreen() {
       endedAt: new Date(endedAt).toISOString(),
       actualSeconds: seconds,
       plannedMinutes: Math.round(totalSessionSecs / 60),
-    }).then((records) => setHistoryRecords(records)).catch(() => undefined);
+    };
+    dispatch({ type: 'upsertFocusHistory', record });
+    void appendFocusHistory(historyKey, record).then((records) => setHistoryRecords(records)).catch(() => undefined);
   }, [dispatch, historyKey, selectedAppIds, sessionId, sessionStartTime, totalSessionSecs]);
 
   useEffect(() => {

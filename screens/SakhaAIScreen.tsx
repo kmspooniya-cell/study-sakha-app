@@ -235,7 +235,6 @@ export default function SakhaAIScreen() {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      activeRequest.current?.controller.abort();
     };
   }, []);
 

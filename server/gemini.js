@@ -2,17 +2,14 @@ const { GoogleGenAI } = require('@google/genai');
 const GEMINI_MODELS = require('../lib/geminiModels.json');
 const { getTimeoutMs, withAbortTimeout } = require('./requestTimeout');
 const {
-  APP_INFO,
-  APP_SCREENS,
-  AVAILABLE_BOOKS,
-  AVAILABLE_NOTES,
-  AVAILABLE_PYQ_SETS,
-  AVAILABLE_TESTS,
   EXAMS_SUPPORTED,
   RESOURCE_REGISTRY,
+  retrieveAppKnowledge,
+  retrieveStudyResources,
 } = require('./appKnowledge');
 
-const GEMINI_REQUEST_TIMEOUT_MS = getTimeoutMs(process.env.GEMINI_REQUEST_TIMEOUT_MS, 30_000);
+// Vercel caps this function at 60 seconds; leave room for auth and request handling.
+const GEMINI_REQUEST_TIMEOUT_MS = Math.min(getTimeoutMs(process.env.GEMINI_REQUEST_TIMEOUT_MS, 40_000), 45_000);
 const GEMINI_TIMEOUT_CODE = 'GEMINI_REQUEST_TIMEOUT';
 
 function getGeminiClient() {
@@ -30,7 +27,7 @@ function getGeminiClient() {
   });
 }
 
-function buildSystemInstruction(userContext) {
+function buildSystemInstruction(userContext, userQuery = '') {
   const {
     name,
     exam,
@@ -95,67 +92,20 @@ function buildSystemInstruction(userContext) {
     : 'Teacher Mode';
   personalizedStudyContext += `\n- Response preferences: answer in ${language}; use ${responseLength} length; ${detailLevel} detail; teaching mode: ${learningMode}.`;
 
-  return `You are Sakha, the intelligent, syllabus-aware personal AI study partner and tutor for the Study Sakha platform.
+  const retrievedFeatures = retrieveAppKnowledge(userQuery);
+  const retrievedResources = retrieveStudyResources(userQuery);
+  const appKnowledge = retrievedFeatures.length || retrievedResources.length
+    ? JSON.stringify({ features: retrievedFeatures, matchingResources: retrievedResources })
+    : 'No matching documented app feature or catalog resource was found. Do not invent one. If a named resource was requested, say it is not listed as currently available and offer to explain the topic directly.';
 
-==============================================
-1. STUDY SAKHA APP AWARENESS & CAPABILITIES
-==============================================
-You have complete knowledge of the Study Sakha application structure, features, screens, and actual content library:
+  return `You are Sakha, the syllabus-aware personal AI study partner for Study Sakha.
 
-A. SCREENS & NAVIGATION:
-- Dashboard (route: "DashboardRoot"): The home screen with daily streak tracker, today's target study minutes ring, quick launch cards for Study Planner, Focus Lock, and focus sessions, and subject progress.
-- Library (route: "Library"): Master hub containing 5 sub-sections:
-  * Books (route: "LibraryBooks"): Long-form reference books with dedicated chapter reader.
-  * Notes (route: "LibraryNotes"): Revision notes and concise topic cheat sheets.
-  * PYQ Sets (route: "LibraryPYQSets"): Decadal previous year question compilations.
-  * Starred (route: "LibraryStarred"): Bookmarked study materials saved by the user.
-  * Downloads (route: "LibraryDownloads"): Offline accessible resources.
-- Book Reader (route: "BookReader", params: { resourceId }): Reading interface with Table of Contents and progress tracking.
-- Note Editor (route: "NoteEditor", params: { resourceId } or { noteId }): View/edit notes with markdown, tag management, and flashcards.
-- PYQ Bank (route: "PYQ", params: { subject }): Previous year questions filterable by exam, subject, year, and difficulty (Easy/Moderate/Hard) with complete explanations.
-- Test Series (route: "Tests"): Mock test catalog containing Live Tests (time-bound), Full Mocks, Sectional Tests, and Daily Quizzes.
-- Test Player (route: "TestPlayer", params: { testId }): Real exam simulator with timer countdown, negative marking rules, and question palette.
-- Test Results (route: "TestResult", params: { resultId }): Detailed post-test analysis with score, accuracy %, percentile rank, and subject breakdown.
-- Study Planner (route: "StudyPlanner"): Daily, weekly, and monthly timetable. Users can check off tasks, add custom tasks, set priorities (High/Medium/Low), and track planned vs actual hours.
-- Focus sessions: Start Timer, Stopwatch, or Pomodoro sessions from the Homepage.
-- Current Affairs (route: "CurrentAffairs"): Daily news digest with prelims-oriented key points and exam categorization.
-- Statistics (route: "Statistics"): Comprehensive charts of 30-day study hours, subject strengths, and test percentile progress.
-- Task Performance (route: "TaskPerformance"): Detailed completion metrics for planner tasks.
-- Profile (route: "Profile"): User details, target exam selection, daily goal settings, and earned badges.
-- Settings (route: "Settings"): Theme toggle (Light, Dark, System mode), accessibility font scaling, notification toggles, and privacy policy.
-- Global Search (route: "Search"): Unified search across notes, books, tests, and PYQs.
-- App Guide (route: "AppGuide"): Step-by-step user guide explaining how to navigate and use Study Sakha.
-- Student Testimonials (route: "StudentTestimonials"): Real aspirant testimonials and feedback.
+APP KNOWLEDGE RETRIEVED FOR THIS QUESTION (repository-backed; only this context supports product claims):
+${appKnowledge}
+State the navigation path exactly as documented. Respect implementation status and limitations. If the requested feature is absent or its status is partial, say so clearly. Never invent features, permissions, integrations, or availability.
+For a named book, note, PYQ set, or test, use only matchingResources; if the requested title is not listed there, say that it is not currently available in the app catalog.
 
-B. ACTUAL LIBRARY CONTENT (SOURCE OF TRUTH — DO NOT INVENT):
-- Books available in the app:
-  * ID "r5": "Modern Indian History — Spectrum Companion" by Sakha Press (Subject: History, Exam: UPSC, 412 pages)
-  * ID "r6": "NCERT Distilled — Class 11 & 12 Biology" by Sakha Press (Subject: Biology, Exam: NEET, 368 pages)
-  * ID "r7": "Reasoning Mastery — Puzzles & Seating" by Ankit Sharma (Subject: Reasoning, Exam: Banking, 286 pages)
-  * ID "r12": "English Grammar & Comprehension Blueprint" by Sakha Press (Subject: English, Exam: SSC, 240 pages)
-- Curated Notes available in the app:
-  * ID "r1": "Fundamental Rights — Articles 12 to 35" (Subject: Polity, Exam: UPSC, 18 pages)
-  * ID "r2": "Indian Monsoon — Mechanism & Variability" (Subject: Geography, Exam: UPSC, 14 pages)
-  * ID "r3": "Monetary Policy & Inflation Targeting" (Subject: Economy, Exam: Banking, 12 pages)
-  * ID "r4": "Time, Speed & Distance — 30 Shortcut Patterns" (Subject: Quantitative Aptitude, Exam: SSC, 9 pages)
-  * ID "r8": "Environment: Conventions, Protocols & Reports" (Subject: Environment, Exam: UPSC, 11 pages)
-  * ID "r9": "Rotational Motion — Formula Sheet & Traps" (Subject: Physics, Exam: JEE, 8 pages)
-  * ID "r11": "Chemical Bonding — VSEPR, Hybridisation & MOT" (Subject: Chemistry, Exam: NEET, 10 pages)
-- PYQ Sets available:
-  * ID "r10": "UPSC Prelims GS Paper-I — Decadal PYQ Set" (Subject: Polity, Exam: UPSC, 64 pages)
-- Mock Tests available:
-  * ID "t1": "UPSC Prelims Full Mock #14" (Live Test, 20 mins, Polity/History/Geography/Economy)
-  * ID "t2": "SSC CGL Tier-I Speed Mock #27" (Full Mock, 15 mins, Quant/Reasoning/English)
-  * ID "t3": "Banking Awareness & Economy Sectional" (Sectional, 10 mins, Economy/Reasoning)
-  * ID "t4": "Daily Current Affairs Quiz — 26 Oct" (Daily Quiz, 8 mins, Polity/Geography)
-  * ID "t5": "NEET Rapid Revision Quiz" (Daily Quiz, 10 mins, Biology/Chemistry)
-
-CRITICAL RULE ON MISSING CONTENT:
-If a user requests or asks for a book, note, or test that does NOT exist in the above list (e.g. Laxmikanth PDF, RS Aggarwal, NCERT Physics book, Rajasthan Geography book), you MUST clearly and politely state that it is not currently available in Study Sakha's library. You can offer to explain the concept directly or recommend the closest available resource. Never claim a resource exists if it is not in the catalog.
-
-==============================================
-2. USER CONTEXT & PERSONALIZED STUDY HELP
-==============================================
+USER CONTEXT & PERSONALIZED STUDY HELP
 - ${nameInstruction}
 - ${examInstruction}
 - Active Study Context: Streak: ${streak || 0} days, Today's study time: ${todayMinutes || 0} minutes (Goal: ${goalMinutes || 180} min).${personalizedStudyContext}
@@ -369,7 +319,6 @@ const ACTION_ROUTE_PARAMS = {
   Profile: { optional: ['headerBrand'] },
   Settings: { optional: ['headerBrand'] },
   AppGuide: { optional: ['headerBrand'] },
-  StudentTestimonials: { optional: ['headerBrand'] },
   Admin: { optional: ['headerBrand'] },
 };
 
@@ -796,7 +745,7 @@ async function handleChat(req, res) {
       });
     }
 
-    const systemInstruction = buildSystemInstruction(safeExamContext);
+    const systemInstruction = buildSystemInstruction(safeExamContext, message);
     const contents = buildGeminiContents(history, message);
 
     const rawResult = await callModelWithFallback(ai, contents, model, systemInstruction, message, safeExamContext);

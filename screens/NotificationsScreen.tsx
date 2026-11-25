@@ -32,7 +32,9 @@ export default function NotificationsScreen() {
   const [filter, setFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  const list = state.notifications.filter((n) => filter === 'all' || n.kind === filter);
+  const list = state.notifications
+    .filter((n) => filter === 'all' || n.kind === filter)
+    .sort((a, b) => b.at - a.at);
 
   const tone = (kind: string) =>
     kind === 'test' ? colors.violet : kind === 'content' ? colors.blue : kind === 'streak' ? colors.warning : colors.teal;
@@ -141,9 +143,7 @@ export default function NotificationsScreen() {
           <EmptyState
             icon="notifications-off-outline"
             title="Nothing here yet"
-            body="Test reminders, library updates and streak milestones will land in this inbox."
-            action="Browse tests"
-            onAction={() => nav.navigate('Tests')}
+            body="Study reminders, focus updates, group activity and verified announcements will appear here."
           />
         }
         ListFooterComponent={

@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -28,6 +29,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   children,
 }) => {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const usableHeight = Math.max(240, height - insets.top - insets.bottom);
   const [rendered, setRendered] = useState(isOpen);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(600)).current;
@@ -112,7 +115,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     >
       <KeyboardAvoidingView
         style={styles.sheetRoot}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Dimmed Backdrop */}
         <Animated.View
@@ -134,6 +137,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
             {
               backgroundColor: isDark ? '#121824' : '#FFFFFF',
               borderColor: isDark ? '#1E293B' : 'rgba(226, 232, 240, 0.8)',
+              maxHeight: usableHeight * 0.94,
               transform: [{ translateY }],
             },
           ]}

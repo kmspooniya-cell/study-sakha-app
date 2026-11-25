@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Txt } from './ui';
 import type { PlannerScheduleItem, PlannerTask, State } from '../lib/store';
 import { useStore } from '../lib/store';
@@ -139,6 +140,8 @@ type Props = {
 
 export function FocusSessionSetupModal({ visible, value, onChange, onClose, onContinue }: Props) {
   const { colors, scheme } = useTheme();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { state } = useStore();
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const [scheduleTaskModalVisible, setScheduleTaskModalVisible] = useState(false);
@@ -159,8 +162,9 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
   return (
     <>
       <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={[styles.bottomSheetCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardRoot}>
+        <View style={[styles.bottomSheetBackdrop, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={[styles.bottomSheetCard, { maxHeight: (height - insets.top - insets.bottom) * 0.92, backgroundColor: surfaceBg, borderColor: colors.border }]}>
             <View style={styles.sheetHandleBar} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Txt color={colors.text} size={18} weight="800">Focus Session Setup</Txt>
@@ -246,11 +250,13 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
             <Button label="Continue to Full Focus" icon="arrow-forward-outline" full size="lg" onPress={() => onContinue(value)} />
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={scheduleTaskModalVisible} transparent animationType="slide" onRequestClose={() => setScheduleTaskModalVisible(false)}>
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={[styles.scheduleSheet, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardRoot}>
+        <View style={[styles.bottomSheetBackdrop, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={[styles.scheduleSheet, { maxHeight: (height - insets.top - insets.bottom) * 0.92, backgroundColor: surfaceBg, borderColor: colors.border }]}>
             <View style={styles.sheetHandleBar} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <Txt color={colors.text} size={18} weight="800">Add from Schedule</Txt>
@@ -309,17 +315,19 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
             )}
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={tagModalVisible} transparent animationType="fade" onRequestClose={() => setTagModalVisible(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: surfaceBg, borderColor: colors.border }]}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxHeight: (height - insets.top - insets.bottom) * 0.9, backgroundColor: surfaceBg, borderColor: colors.border }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <Txt color={colors.text} size={18} weight="800">Select Subject Tag</Txt>
               <Pressable onPress={() => setTagModalVisible(false)} accessibilityRole="button" accessibilityLabel="Close subject tags">
                 <Ionicons name="close" size={20} color={colors.textMuted} />
               </Pressable>
             </View>
+            <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
               <Pressable key={tag} onPress={() => {
                 update({ tag, selection: 'manual' });
@@ -350,8 +358,9 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                 <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
               </Pressable>
             </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -359,9 +368,10 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
 
 const styles = StyleSheet.create({
   bottomSheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  bottomSheetCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0 },
+  keyboardRoot: { flex: 1 },
+  bottomSheetCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, flexShrink: 1, overflow: 'hidden' },
   sheetHandleBar: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 14 },
-  scheduleSheet: { width: '100%', maxHeight: '82%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, borderWidth: 1, borderBottomWidth: 0 },
+  scheduleSheet: { width: '100%', maxHeight: '82%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, borderWidth: 1, borderBottomWidth: 0, flexShrink: 1, overflow: 'hidden' },
   scheduleTabs: { flexDirection: 'row', borderRadius: 12, padding: 4, marginBottom: 10 },
   scheduleTab: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
   scheduleEmptyState: { minHeight: 160, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20 },
@@ -371,7 +381,7 @@ const styles = StyleSheet.create({
   selectedScheduleCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
   durationPill: { flex: 1, height: 38, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  modalCard: { width: '100%', maxWidth: 380, borderRadius: 20, padding: 22, borderWidth: 1 },
+  modalCard: { width: '100%', maxWidth: 420, borderRadius: 20, padding: 22, borderWidth: 1, flexShrink: 1, overflow: 'hidden' },
   modalTagItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, marginBottom: 8 },
   modalInput: { flex: 1, height: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5 },
   addTagBtn: { paddingHorizontal: 16, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

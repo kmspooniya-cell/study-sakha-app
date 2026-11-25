@@ -4250,6 +4250,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   card: {
+    minWidth: 0,
     borderRadius: 16,
     borderWidth: 1,
     shadowOffset: { width: 0, height: 2 },
@@ -4359,6 +4360,7 @@ const styles = StyleSheet.create({
   bentoRow: {
     flexDirection: 'row',
     gap: 16,
+    minWidth: 0,
   },
   miniSegControl: {
     flexDirection: 'row',

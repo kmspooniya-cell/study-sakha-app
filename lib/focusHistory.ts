@@ -3,6 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type FocusHistoryRecord = {
   id: string;
   completedAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  sessionId?: string;
+  minutes?: number;
+  actualSeconds?: number;
+  plannedMinutes?: number;
   subject?: string;
   topic?: string;
   focusQuality?: 'distracted' | 'steady' | 'flow';

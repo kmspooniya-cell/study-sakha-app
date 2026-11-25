@@ -23,6 +23,7 @@ import { File, Paths } from 'expo-file-system';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
 import { Shell, useLayout } from '../components/Shell';
+import { getProfileContentMaxWidth } from '../lib/profileLayout';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
@@ -284,6 +285,8 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
   children,
 }) => {
   const { height: screenHeight } = useWindowDimensions();
+  const screenHeightRef = useRef(screenHeight);
+  screenHeightRef.current = screenHeight;
   const [mounted, setMounted] = useState(visible);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(screenHeight)).current;
@@ -313,7 +316,7 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
-          toValue: screenHeight,
+          toValue: screenHeightRef.current,
           duration: 260,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
@@ -322,7 +325,7 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
         setMounted(false);
       });
     }
-  }, [visible, mounted, backdropOpacity, screenHeight, translateY]);
+  }, [visible, mounted, backdropOpacity, translateY]);
 
   if (!mounted) return null;
 
@@ -381,6 +384,8 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
 
 export default function StudySakhaProfileScreen() {
   const nav = useNavigation<AppNavigation>();
+  const { width: profileViewportWidth } = useWindowDimensions();
+  const profileContentMaxWidth = getProfileContentMaxWidth(profileViewportWidth);
   const { isMobile } = useLayout();
   const { state, badges, todayMinutes, streak, dispatch, saveProfile, signOut } = useStore();
   const { scheme } = useTheme();
@@ -859,7 +864,7 @@ export default function StudySakhaProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* 1. SMART HERO PROFILE CARD */}
-          <View style={styles.heroCard}>
+          <View style={[styles.heroCard, { width: '100%', maxWidth: profileContentMaxWidth, alignSelf: 'center' }]}>
             {/* Hero Mesh Gradient Background (Exact match to CSS .hero-mesh) */}
             <Svg
               width="100%"
@@ -1052,6 +1057,7 @@ export default function StudySakhaProfileScreen() {
             <View
               style={[
                 styles.nudgeCard,
+              { width: '100%', maxWidth: profileContentMaxWidth, alignSelf: 'center' },
                 {
                   backgroundColor: theme.cardBg,
                   borderColor: theme.cardBorderStrong,
@@ -1128,6 +1134,7 @@ export default function StudySakhaProfileScreen() {
           <View
             style={[
               styles.segmentedBar,
+              { width: '100%', maxWidth: profileContentMaxWidth, alignSelf: 'center' },
               { backgroundColor: theme.segmentedBg },
             ]}
           >
@@ -1173,6 +1180,9 @@ export default function StudySakhaProfileScreen() {
             style={{
               opacity: tabFadeAnim,
               transform: [{ translateY: tabSlideAnim }],
+              width: '100%',
+              maxWidth: profileContentMaxWidth,
+              alignSelf: 'center',
             }}
           >
             {/* ==================== TAB 1: OVERVIEW ==================== */}
@@ -2884,7 +2894,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 16,
-    gap: 16,
+    gap: 12,
   },
 
   // Hero Card
@@ -2897,7 +2907,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.2,
     shadowRadius: 20,
-    elevation: 8,
+    elevation: 4,
   },
   heroRingOuter: {
     position: 'absolute',

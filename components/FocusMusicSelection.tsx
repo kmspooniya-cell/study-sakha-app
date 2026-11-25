@@ -7,6 +7,7 @@ import { useTheme } from '../lib/theme';
 import { Button, Txt } from './ui';
 import { Popup } from './Popup';
 import { MEDITATION_SOUND_LIST } from './MeditationPresets';
+import { AudioPlayerLifecycle } from '../lib/audioPlayerLifecycle';
 
 type Props = {
   visible: boolean;
@@ -38,11 +39,23 @@ export function FocusMusicSelection({ visible, selectedId, volume, sessionRunnin
       : selectedTrack.source,
     [selectedDownload.localUri, selectedDownload.status, selectedTrack],
   );
-  const audioPlayer = useAudioPlayer(audioSource);
+  // Keep one hook-owned native player for this component's full lifetime.
+  // Changing the hook source recreates/releases its shared object.
+  const audioPlayer = useAudioPlayer(null);
   const handlePlaybackError = useCallback((error: unknown) => {
     setAudioError(error instanceof Error ? error.message : 'Music playback failed.');
     setMusicEnabled(false);
   }, []);
+  const playerLifecycle = useMemo(
+    () => new AudioPlayerLifecycle(audioPlayer, handlePlaybackError),
+    [audioPlayer, handlePlaybackError],
+  );
+
+  useEffect(() => {
+    playerLifecycle.run((player) => player.replace(audioSource));
+  }, [audioSource, playerLifecycle]);
+
+  useEffect(() => () => playerLifecycle.close(), [playerLifecycle]);
 
   useEffect(() => {
     let active = true;
@@ -68,26 +81,14 @@ export function FocusMusicSelection({ visible, selectedId, volume, sessionRunnin
   }, []);
 
   useEffect(() => {
-    // Expo Audio exposes looping as a mutable player control.
-    // eslint-disable-next-line react-hooks/immutability
-    audioPlayer.loop = true;
-    audioPlayer.volume = Math.max(0, Math.min(1, volume));
-    try {
-      if (sessionRunning && musicEnabled) audioPlayer.play();
-      else audioPlayer.pause();
-    } catch (error) {
-      // Surface a failed native playback command in the music selector.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      handlePlaybackError(error);
-    }
-  }, [audioPlayer, handlePlaybackError, musicEnabled, sessionRunning, volume]);
-
-  useEffect(() => () => {
-    audioPlayer.pause();
-    audioPlayer.seekTo(0).catch((error: unknown) => {
-      console.warn('Focus music could not be reset:', error);
+    playerLifecycle.run((player) => {
+      // Expo Audio exposes looping and volume as mutable player controls.
+      player.loop = true;
+      player.volume = Math.max(0, Math.min(1, volume));
+      if (sessionRunning && musicEnabled) player.play();
+      else player.pause();
     });
-  }, [audioPlayer]);
+  }, [musicEnabled, playerLifecycle, sessionRunning, volume]);
 
   const download = async (id: string) => {
     const track = MEDITATION_SOUND_LIST.find((item) => item.id === id);

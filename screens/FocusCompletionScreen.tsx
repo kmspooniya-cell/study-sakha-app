@@ -534,11 +534,12 @@ function FocusCompletionContent() {
         session.id,
         patch,
       );
+      dispatch({ type: 'updateFocusHistory', id: session.id, patch });
     } catch (error) {
       console.error('Focus session reflection could not be saved:', error);
       showToast('Unable to save your focus reflection');
     }
-  }, [session.id, showToast, userId]);
+  }, [dispatch, session.id, showToast, userId]);
 
   const handleSelectSubject = useCallback((subject: string) => {
     setSelectedSubject(subject);

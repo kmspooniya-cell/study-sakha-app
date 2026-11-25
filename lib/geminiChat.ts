@@ -64,7 +64,23 @@ export type ApiHealthStatus = {
   timestamp: number;
 };
 
+export type GeminiErrorCategory = 'network' | 'authentication' | 'rate-limit' | 'server' | 'model' | 'request';
+
+export function classifyGeminiError(error: unknown): GeminiErrorCategory {
+  const value = error as { status?: number; message?: string } | null;
+  const status = value?.status;
+  const message = (value?.message ?? '').toLowerCase();
+  if (status === 401 || status === 403 || message.includes('session expired') || message.includes('sign in is required')) return 'authentication';
+  if (status === 429 || message.includes('quota exceeded') || message.includes('rate limit')) return 'rate-limit';
+  if (status === 504 || message.includes('gemini') || message.includes('model') || message.includes('took too long')) return 'model';
+  if (typeof status === 'number' && status >= 500) return 'server';
+  if (message.includes('could not be reached') || message.includes('timed out') || error instanceof TypeError) return 'network';
+  return 'request';
+}
+
 const API_REQUEST_TIMEOUT_MS = 15_000;
+const CHAT_REQUEST_TIMEOUT_MS = 55_000;
+const SESSION_LOOKUP_TIMEOUT_MS = 10_000;
 
 /**
  * Resolves the backend base URL for API requests.
@@ -152,7 +168,19 @@ export async function askGemini(params: {
 }): Promise<GeminiChatResponse> {
   const { message, history, model, signal, examContext } = params;
   if (!supabaseConfigured) throw new Error('Sign in is required to use Sakha AI.');
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+  let sessionResult: Awaited<ReturnType<typeof supabase.auth.getSession>>;
+  try {
+    sessionResult = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<never>((_, reject) => {
+        sessionTimer = setTimeout(() => reject(new Error('Your sign-in session check timed out. Try again.')), SESSION_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (sessionTimer) clearTimeout(sessionTimer);
+  }
+  const { data: sessionData, error: sessionError } = sessionResult;
   if (sessionError) throw sessionError;
   if (!sessionData.session) throw new Error('Your session expired. Sign in again to continue chatting.');
 
@@ -169,7 +197,7 @@ export async function askGemini(params: {
       text: m.text,
     }));
 
-  const res = await fetchWithTimeout(endpoint, {
+  const requestInit: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -183,15 +211,29 @@ export async function askGemini(params: {
       model,
       examContext,
     }),
-  });
+  };
+  let res: Response | null = null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      res = await fetchWithTimeout(endpoint, requestInit, CHAT_REQUEST_TIMEOUT_MS);
+      if (![429, 502, 503, 504].includes(res.status) || attempt === 1) break;
+    } catch (error) {
+      lastError = error;
+      if (signal?.aborted || attempt === 1) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  }
+  if (!res) throw lastError instanceof Error ? lastError : new Error('The Study Sakha API could not be reached.');
 
   const data = await res.json().catch(() => null);
 
   if (!res.ok || !data || data.error) {
     const errorText = data?.error || `Server responded with status ${res.status}`;
-    const err = new Error(errorText) as Error & { needsKey?: boolean; status?: number };
+    const err = new Error(errorText) as Error & { needsKey?: boolean; status?: number; category?: GeminiErrorCategory };
     err.needsKey = data?.needsKey;
     err.status = res.status;
+    err.category = classifyGeminiError(err);
     throw err;
   }
 

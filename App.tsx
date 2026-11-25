@@ -12,7 +12,7 @@ import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, Platform, Share, View, Text, Pressable } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image, InteractionManager, Platform, Share, View, Text, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Logo } from './components/Logo';
@@ -64,6 +64,7 @@ import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
 import * as Notifications from 'expo-notifications';
 import { syncUpcomingPlannerReminder } from './lib/notifications';
+import { getAppShareUrl, getDistributionLinkMessage } from './lib/shareLinks';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -95,7 +96,7 @@ const linking: AppLinkingOptions = {
             screens: {
               DashboardRoot: '',
               Library: 'library',
-              Groups: 'groups',
+              Groups: 'groups/invite/:inviteGroupId',
               More: 'more',
               LibraryNotes: 'library/notes',
               LibraryBooks: 'library/books',
@@ -181,9 +182,14 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
   const first = getDisplayName(state.user).split(/\s+/)[0];
   const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
   const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
-  const navigateToMainStack = (target: AppStackNavigationTarget) => {
-    props.navigation.navigate('MainStack', target);
-  };
+  const navigateToMainStack = useCallback((target: AppStackNavigationTarget) => {
+    // Wait for the drawer's close transition to finish. Navigating during the
+    // Android drawer animation can leave the native gesture surface mounted,
+    // which is why Settings/Guide eventually appeared to stop receiving taps.
+    InteractionManager.runAfterInteractions(() => {
+      props.navigation.navigate('MainStack', target);
+    });
+  }, [props.navigation]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -234,8 +240,17 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
       <Pressable
         onPress={async () => {
           try {
+            const url = getAppShareUrl();
+            if (!url) {
+              Alert.alert('Study Sakha is not published yet', 'Set EXPO_PUBLIC_APP_DISTRIBUTION_URL to the official APK or Play Store URL before sharing a production installation link.');
+              return;
+            }
             await Share.share(
-              { message: "I'm using Study Sakha to prepare for competitive exams. Check out the app!" },
+              {
+                title: 'Study Sakha',
+                message: `I'm using Study Sakha to prepare for competitive exams. ${getDistributionLinkMessage()}\n${url}`,
+                url,
+              },
               { dialogTitle: 'Share Study Sakha' }
             );
           } catch (error) {

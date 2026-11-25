@@ -130,9 +130,11 @@ export default function DashboardScreen() {
     'Daily PYQ': { title: 'Daily PYQ', icon: 'albums-outline', color: colors.blue, onPress: () => nav.navigate('PYQ') },
     'Add Task': { title: 'Add Task', icon: 'add-circle-outline', color: colors.teal, onPress: () => nav.navigate('StudyPlanner') },
   };
-  const dashboardActions = (state.settings.dashboardQuickActions ?? ['Focus Timer', 'Sakha AI', 'Daily PYQ', 'Add Task'])
-    .map((action) => quickActionHandlers[action])
-    .filter((action): action is (typeof quickActionHandlers)[string] => Boolean(action));
+  const dashboardActions = [
+    { title: 'Add Task', icon: 'add-circle-outline' as const, color: colors.teal, onPress: () => nav.navigate('StudyPlanner') },
+    { title: 'Focus Lock', icon: 'lock-closed-outline' as const, color: colors.rose, onPress: () => nav.navigate('FocusLock') },
+    quickActionHandlers['Focus Timer'],
+  ];
 
   const radius = 15.9;
   const circumference = 2 * Math.PI * radius;
@@ -173,26 +175,15 @@ export default function DashboardScreen() {
             <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
               <View style={styles.layoutCol}>
 
-                <View style={[styles.focusLockCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                <Pressable onPress={() => nav.navigate('FocusLock')} accessibilityRole="button" accessibilityLabel="Open Focus Lock" style={({ pressed }) => [styles.focusLockCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceAlt : colors.surface }]}>
                   <View style={styles.focusLockCardHeader}>
                     <View style={styles.focusLockCardTitleRow}>
                       <Ionicons name="lock-closed-outline" size={18} color={colors.teal} />
                       <Text style={[styles.focusLockCardTitle, { color: colors.text }]}>{translateLabel('Focus Lock', language)}</Text>
                     </View>
-                    <Text style={[styles.focusLockCardStatus, { color: focusLockActive ? colors.success : colors.textMuted }]}>
-                      {focusLockActive ? 'ACTIVE' : focusLockNativeReady === false ? 'SETUP REQUIRED' : 'READY'}
-                    </Text>
+                    <Ionicons name="arrow-forward" size={17} color={colors.blue} />
                   </View>
-                  <View style={styles.focusLockCardMetrics}>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockActive ? focusLockClock : `${Math.round((state.studyLog[dayKey(new Date())] ?? 0))}m`}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel(focusLockActive ? 'remaining' : 'studied today', language)}</Text></View>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.selectedAppIds?.length ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel('blocked apps', language)}</Text></View>
-                    <View><Text style={[styles.focusLockMetricValue, { color: colors.text }]}>{focusLockSnapshot?.blockedAttemptsToday ?? 0}</Text><Text style={[styles.focusLockMetricLabel, { color: colors.textMuted }]}>{translateLabel('blocked today', language)}</Text></View>
-                  </View>
-                  <Pressable onPress={() => nav.navigate('FocusLock')} style={[styles.focusLockCardButton, { backgroundColor: colors.tint }]}>
-                    <Text style={[styles.focusLockCardButtonText, { color: colors.blue }]}>{translateLabel(focusLockActive ? 'Resume Focus Lock' : 'Open Focus Lock', language)}</Text>
-                    <Ionicons name="arrow-forward" size={15} color={colors.blue} />
-                  </Pressable>
-                </View>
+                </Pressable>
                 
                 <View style={styles.plannerWrap}>
                   <CustomStudyPlan 
@@ -254,7 +245,7 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
   };
   return StyleSheet.create({
     mainContainer: { flex: 1, backgroundColor: palette.bg },
-    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 84 },
     contentWidth: { width: '100%', maxWidth: 1180, alignSelf: 'center' },
     mobileContentWidth: { maxWidth: 448 },
     card: { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1, borderRadius: 20, ...shadow(colors, 1) },

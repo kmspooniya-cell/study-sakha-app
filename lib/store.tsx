@@ -2,12 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { BADGES, LEARNERS, PENDING_CONTENT, SEED_NOTIFICATIONS } from './data';
+import { BADGES, LEARNERS, PENDING_CONTENT } from './data';
 import { STUDENT_CONTENT_BUCKET, supabase, supabaseConfigured } from './supabase';
+import { AccountSyncEngine } from './sync/syncEngine';
+import type { AccountSyncDocument, SyncStatus } from './sync/syncTypes';
+import type { FocusHistoryRecord } from './focusHistory';
 import { ThemeMode } from './theme';
 import { AppNotification, ChatMsg, ExamId, Learner, ManagedContent, ManagedContentType, PendingContent, TestQuestion, TestResult, UserNote } from './types';
 
 const KEY = 'sakha-store-v1';
+const PLANNER_DATA_VERSION = 2;
+const PLANNER_QUARANTINE_KEY = 'sakha-planner-quarantine-v2';
 const LEGACY_IMPORT_KEY = 'study-sakha-legacy-import-v1';
 export const getUserScopedStorageKey = (key: string, userId: string | null | undefined) =>
   userId ? `${key}:user:${encodeURIComponent(userId)}` : key;
@@ -127,6 +132,7 @@ export type PlannerScheduleItem = {
 };
 
 export type State = {
+  plannerDataVersion?: number;
   hydrated: boolean;
   storageReady: boolean;
   authReady: boolean;
@@ -191,6 +197,7 @@ export type State = {
   plannerMinutesCredited: Record<string, string[]>;
   plannerTaskStudySeconds: Record<string, number>;
   recordedFocusSessionIds: string[];
+  focusHistory: FocusHistoryRecord[];
   studyLog: Record<string, number>;
   results: TestResult[];
   chat: ChatMsg[];
@@ -256,65 +263,93 @@ function isPlannerScheduleCategory(value: unknown): value is PlannerScheduleCate
 }
 
 function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null {
-  if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim() ||
-    !isPlannerScheduleCategory(value.category) || typeof value.title !== 'string') return null;
+  if (!isRecord(value)) return null;
+  const normalized = { ...value };
+  for (const field of ['date', 'endDate', 'fromDate', 'untilDate', 'rangeFrom', 'rangeUntil', 'repeatUntil']) {
+    const candidate = normalized[field];
+    if (typeof candidate === 'string') {
+      const isoDate = candidate.match(/^(\d{4}-\d{2}-\d{2})(?:T.*)?$/)?.[1];
+      if (isoDate && isPlannerDate(isoDate)) normalized[field] = isoDate;
+    }
+  }
+  for (const field of ['time', 'startTime', 'endTime']) {
+    const candidate = normalized[field];
+    if (typeof candidate === 'string') {
+      const twelveHour = candidate.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (twelveHour) {
+        const hour = Number(twelveHour[1]);
+        const minute = Number(twelveHour[2]);
+        if (hour >= 1 && hour <= 12 && minute <= 59) {
+          const normalizedHour = (hour % 12) + (twelveHour[3].toUpperCase() === 'PM' ? 12 : 0);
+          normalized[field] = `${String(normalizedHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        }
+      }
+    }
+  }
+  if (typeof normalized.id !== 'string' || !normalized.id.trim() ||
+    (!isPlannerScheduleCategory(normalized.category) && !['Task', 'Class', 'Exam', 'Vacation', 'Activity'].includes(String(normalized.category))) || typeof normalized.title !== 'string') return null;
+  const category = isPlannerScheduleCategory(normalized.category) ? normalized.category : ({ Task: 'Tasks', Class: 'Classes', Exam: 'Exams', Vacation: 'Vacations', Activity: 'Activities' } as const)[normalized.category as 'Task' | 'Class' | 'Exam' | 'Vacation' | 'Activity'];
 
   const optionalStrings = [
-    value.subject,
-    value.type,
-    value.teacher,
-    value.date,
-    value.time,
-    value.endDate,
-    value.startTime,
-    value.endTime,
-    value.fromDate,
-    value.untilDate,
-    value.room,
-    value.building,
-    value.seat,
-    value.notes,
-    value.taskType,
-    value.instructor,
-    value.seatNumber,
-    value.onlineLink,
-    value.location,
-    value.examType,
-    value.durationLabel,
-    value.vacationPreset,
-    value.coverPhotoName,
-    value.termName,
-    value.rangeFrom,
-    value.rangeUntil,
-    value.activityType,
-    value.repeatUntil,
+    normalized.subject,
+    normalized.type,
+    normalized.teacher,
+    normalized.date,
+    normalized.time,
+    normalized.endDate,
+    normalized.startTime,
+    normalized.endTime,
+    normalized.fromDate,
+    normalized.untilDate,
+    normalized.room,
+    normalized.building,
+    normalized.seat,
+    normalized.notes,
+    normalized.taskType,
+    normalized.instructor,
+    normalized.seatNumber,
+    normalized.onlineLink,
+    normalized.location,
+    normalized.examType,
+    normalized.durationLabel,
+    normalized.vacationPreset,
+    normalized.coverPhotoName,
+    normalized.termName,
+    normalized.rangeFrom,
+    normalized.rangeUntil,
+    normalized.activityType,
+    normalized.repeatUntil,
   ];
   if (optionalStrings.some((field) => field !== undefined && typeof field !== 'string')) return null;
   if (
-    (value.date !== undefined && !isPlannerDate(value.date)) ||
-    (value.endDate !== undefined && !isPlannerDate(value.endDate)) ||
-    (value.fromDate !== undefined && !isPlannerDate(value.fromDate)) ||
-    (value.untilDate !== undefined && !isPlannerDate(value.untilDate)) ||
-    (value.duration !== undefined &&
-      (typeof value.duration !== 'number' || !Number.isFinite(value.duration) || value.duration <= 0)) ||
-    (value.daysCount !== undefined &&
-      (typeof value.daysCount !== 'number' || !Number.isInteger(value.daysCount) || value.daysCount < 1)) ||
-    (value.occurs !== undefined && value.occurs !== 'Once' && value.occurs !== 'Repeating') ||
-    (value.dateRange !== undefined && value.dateRange !== 'None' && value.dateRange !== 'Term' && value.dateRange !== 'Manual') ||
-    (value.whereType !== undefined && value.whereType !== 'In Person' && value.whereType !== 'Online') ||
-    (value.hasCoverPhoto !== undefined && typeof value.hasCoverPhoto !== 'boolean') ||
-    (value.completed !== undefined && typeof value.completed !== 'boolean') ||
-    (value.durationMinutes !== undefined &&
-      (typeof value.durationMinutes !== 'number' || !Number.isFinite(value.durationMinutes) || value.durationMinutes < 0)) ||
-    (value.whereMode !== undefined && value.whereMode !== 'in_person' && value.whereMode !== 'online') ||
-    (value.dateRangeMode !== undefined && value.dateRangeMode !== 'none' && value.dateRangeMode !== 'term' && value.dateRangeMode !== 'manual') ||
-    (value.recurrence !== undefined && !['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(String(value.recurrence))) ||
-    (value.repeatDays !== undefined && (!Array.isArray(value.repeatDays) || !value.repeatDays.every((day) => typeof day === 'number' && day >= 0 && day <= 6))) ||
-    (value.days !== undefined &&
-      (!Array.isArray(value.days) || !value.days.every((day) => typeof day === 'string'))) ||
-    (value.timeSlots !== undefined &&
-      (!Array.isArray(value.timeSlots) ||
-        !value.timeSlots.every((slot) =>
+    (normalized.date !== undefined && !isPlannerDate(normalized.date)) ||
+    (normalized.endDate !== undefined && !isPlannerDate(normalized.endDate)) ||
+    (normalized.fromDate !== undefined && !isPlannerDate(normalized.fromDate)) ||
+    (normalized.untilDate !== undefined && !isPlannerDate(normalized.untilDate)) ||
+    (normalized.rangeFrom !== undefined && !isPlannerDate(normalized.rangeFrom)) ||
+    (normalized.rangeUntil !== undefined && !isPlannerDate(normalized.rangeUntil)) ||
+    (normalized.repeatUntil !== undefined && !isPlannerDate(normalized.repeatUntil)) ||
+    ([normalized.time, normalized.startTime, normalized.endTime].some((time) => time !== undefined && (typeof time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)))) ||
+    (normalized.duration !== undefined &&
+      (typeof normalized.duration !== 'number' || !Number.isFinite(normalized.duration) || normalized.duration <= 0)) ||
+    (normalized.daysCount !== undefined &&
+      (typeof normalized.daysCount !== 'number' || !Number.isInteger(normalized.daysCount) || normalized.daysCount < 1)) ||
+    (normalized.occurs !== undefined && normalized.occurs !== 'Once' && normalized.occurs !== 'Repeating') ||
+    (normalized.dateRange !== undefined && normalized.dateRange !== 'None' && normalized.dateRange !== 'Term' && normalized.dateRange !== 'Manual') ||
+    (normalized.whereType !== undefined && normalized.whereType !== 'In Person' && normalized.whereType !== 'Online') ||
+    (normalized.hasCoverPhoto !== undefined && typeof normalized.hasCoverPhoto !== 'boolean') ||
+    (normalized.completed !== undefined && typeof normalized.completed !== 'boolean') ||
+    (normalized.durationMinutes !== undefined &&
+      (typeof normalized.durationMinutes !== 'number' || !Number.isFinite(normalized.durationMinutes) || normalized.durationMinutes < 0)) ||
+    (normalized.whereMode !== undefined && normalized.whereMode !== 'in_person' && normalized.whereMode !== 'online') ||
+    (normalized.dateRangeMode !== undefined && normalized.dateRangeMode !== 'none' && normalized.dateRangeMode !== 'term' && normalized.dateRangeMode !== 'manual') ||
+    (normalized.recurrence !== undefined && !['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(String(normalized.recurrence))) ||
+    (normalized.repeatDays !== undefined && (!Array.isArray(normalized.repeatDays) || !normalized.repeatDays.every((day) => typeof day === 'number' && day >= 0 && day <= 6))) ||
+    (normalized.days !== undefined &&
+      (!Array.isArray(normalized.days) || !normalized.days.every((day) => typeof day === 'string'))) ||
+    (normalized.timeSlots !== undefined &&
+      (!Array.isArray(normalized.timeSlots) ||
+        !normalized.timeSlots.every((slot) =>
           isRecord(slot) &&
           typeof slot.id === 'string' &&
           Array.isArray(slot.days) &&
@@ -325,23 +360,23 @@ function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null 
   ) return null;
 
   return {
-    id: value.id,
-    category: value.category,
-    title: value.title,
-    ...(typeof value.subject === 'string' ? { subject: value.subject } : {}),
-    ...(typeof value.type === 'string' ? { type: value.type } : {}),
-    ...(typeof value.teacher === 'string' ? { teacher: value.teacher } : {}),
-    ...(typeof value.date === 'string' ? { date: value.date } : {}),
-    ...(typeof value.time === 'string' ? { time: value.time } : {}),
-    ...(typeof value.endDate === 'string' ? { endDate: value.endDate } : {}),
-    ...(typeof value.startTime === 'string' ? { startTime: value.startTime } : {}),
-    ...(typeof value.endTime === 'string' ? { endTime: value.endTime } : {}),
-    ...(typeof value.duration === 'number' ? { duration: value.duration } : {}),
-    ...(value.occurs === 'Once' || value.occurs === 'Repeating' ? { occurs: value.occurs } : {}),
-    ...(Array.isArray(value.days) ? { days: value.days } : {}),
-    ...(Array.isArray(value.timeSlots)
+    id: normalized.id,
+    category,
+    title: normalized.title,
+    ...(typeof normalized.subject === 'string' ? { subject: normalized.subject } : {}),
+    ...(typeof normalized.type === 'string' ? { type: normalized.type } : {}),
+    ...(typeof normalized.teacher === 'string' ? { teacher: normalized.teacher } : {}),
+    ...(typeof normalized.date === 'string' ? { date: normalized.date } : {}),
+    ...(typeof normalized.time === 'string' ? { time: normalized.time } : {}),
+    ...(typeof normalized.endDate === 'string' ? { endDate: normalized.endDate } : {}),
+    ...(typeof normalized.startTime === 'string' ? { startTime: normalized.startTime } : {}),
+    ...(typeof normalized.endTime === 'string' ? { endTime: normalized.endTime } : {}),
+    ...(typeof normalized.duration === 'number' ? { duration: normalized.duration } : {}),
+    ...(normalized.occurs === 'Once' || normalized.occurs === 'Repeating' ? { occurs: normalized.occurs } : {}),
+    ...(Array.isArray(normalized.days) ? { days: normalized.days } : {}),
+    ...(Array.isArray(normalized.timeSlots)
       ? {
-          timeSlots: value.timeSlots.map((slot) => ({
+          timeSlots: normalized.timeSlots.map((slot) => ({
             id: slot.id,
             days: slot.days,
             startTime: slot.startTime,
@@ -349,52 +384,62 @@ function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null 
           })),
         }
       : {}),
-    ...(value.dateRange === 'None' || value.dateRange === 'Term' || value.dateRange === 'Manual'
-      ? { dateRange: value.dateRange }
+    ...(normalized.dateRange === 'None' || normalized.dateRange === 'Term' || normalized.dateRange === 'Manual'
+      ? { dateRange: normalized.dateRange }
       : {}),
-    ...(typeof value.fromDate === 'string' ? { fromDate: value.fromDate } : {}),
-    ...(typeof value.untilDate === 'string' ? { untilDate: value.untilDate } : {}),
-    ...(value.whereType === 'In Person' || value.whereType === 'Online' ? { whereType: value.whereType } : {}),
-    ...(typeof value.room === 'string' ? { room: value.room } : {}),
-    ...(typeof value.building === 'string' ? { building: value.building } : {}),
-    ...(typeof value.seat === 'string' ? { seat: value.seat } : {}),
-    ...(typeof value.notes === 'string' ? { notes: value.notes } : {}),
-    ...(typeof value.daysCount === 'number' ? { daysCount: value.daysCount } : {}),
-    ...(typeof value.hasCoverPhoto === 'boolean' ? { hasCoverPhoto: value.hasCoverPhoto } : {}),
-    ...(typeof value.completed === 'boolean' ? { completed: value.completed } : {}),
-    ...(typeof value.taskType === 'string' ? { taskType: value.taskType } : {}),
-    ...(typeof value.instructor === 'string' ? { instructor: value.instructor } : {}),
-    ...(value.whereMode === 'in_person' || value.whereMode === 'online' ? { whereMode: value.whereMode } : {}),
-    ...(typeof value.seatNumber === 'string' ? { seatNumber: value.seatNumber } : {}),
-    ...(typeof value.onlineLink === 'string' ? { onlineLink: value.onlineLink } : {}),
-    ...(typeof value.location === 'string' ? { location: value.location } : {}),
-    ...(typeof value.examType === 'string' ? { examType: value.examType } : {}),
-    ...(typeof value.durationMinutes === 'number' ? { durationMinutes: value.durationMinutes } : {}),
-    ...(typeof value.durationLabel === 'string' ? { durationLabel: value.durationLabel } : {}),
-    ...(typeof value.vacationPreset === 'string' ? { vacationPreset: value.vacationPreset } : {}),
-    ...(typeof value.coverPhotoName === 'string' ? { coverPhotoName: value.coverPhotoName } : {}),
-    ...(value.dateRangeMode === 'none' || value.dateRangeMode === 'term' || value.dateRangeMode === 'manual' ? { dateRangeMode: value.dateRangeMode } : {}),
-    ...(typeof value.termName === 'string' ? { termName: value.termName } : {}),
-    ...(typeof value.rangeFrom === 'string' ? { rangeFrom: value.rangeFrom } : {}),
-    ...(typeof value.rangeUntil === 'string' ? { rangeUntil: value.rangeUntil } : {}),
-    ...(typeof value.activityType === 'string' ? { activityType: value.activityType } : {}),
-    ...(typeof value.recurrence === 'string' && ['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(value.recurrence)
-      ? { recurrence: value.recurrence as PlannerScheduleItem['recurrence'] }
+    ...(typeof normalized.fromDate === 'string' ? { fromDate: normalized.fromDate } : {}),
+    ...(typeof normalized.untilDate === 'string' ? { untilDate: normalized.untilDate } : {}),
+    ...(normalized.whereType === 'In Person' || normalized.whereType === 'Online' ? { whereType: normalized.whereType } : {}),
+    ...(typeof normalized.room === 'string' ? { room: normalized.room } : {}),
+    ...(typeof normalized.building === 'string' ? { building: normalized.building } : {}),
+    ...(typeof normalized.seat === 'string' ? { seat: normalized.seat } : {}),
+    ...(typeof normalized.notes === 'string' ? { notes: normalized.notes } : {}),
+    ...(typeof normalized.daysCount === 'number' ? { daysCount: normalized.daysCount } : {}),
+    ...(typeof normalized.hasCoverPhoto === 'boolean' ? { hasCoverPhoto: normalized.hasCoverPhoto } : {}),
+    ...(typeof normalized.completed === 'boolean' ? { completed: normalized.completed } : {}),
+    ...(typeof normalized.taskType === 'string' ? { taskType: normalized.taskType } : {}),
+    ...(typeof normalized.instructor === 'string' ? { instructor: normalized.instructor } : {}),
+    ...(normalized.whereMode === 'in_person' || normalized.whereMode === 'online' ? { whereMode: normalized.whereMode } : {}),
+    ...(typeof normalized.seatNumber === 'string' ? { seatNumber: normalized.seatNumber } : {}),
+    ...(typeof normalized.onlineLink === 'string' ? { onlineLink: normalized.onlineLink } : {}),
+    ...(typeof normalized.location === 'string' ? { location: normalized.location } : {}),
+    ...(typeof normalized.examType === 'string' ? { examType: normalized.examType } : {}),
+    ...(typeof normalized.durationMinutes === 'number' ? { durationMinutes: normalized.durationMinutes } : {}),
+    ...(typeof normalized.durationLabel === 'string' ? { durationLabel: normalized.durationLabel } : {}),
+    ...(typeof normalized.vacationPreset === 'string' ? { vacationPreset: normalized.vacationPreset } : {}),
+    ...(typeof normalized.coverPhotoName === 'string' ? { coverPhotoName: normalized.coverPhotoName } : {}),
+    ...(normalized.dateRangeMode === 'none' || normalized.dateRangeMode === 'term' || normalized.dateRangeMode === 'manual' ? { dateRangeMode: normalized.dateRangeMode } : {}),
+    ...(typeof normalized.termName === 'string' ? { termName: normalized.termName } : {}),
+    ...(typeof normalized.rangeFrom === 'string' ? { rangeFrom: normalized.rangeFrom } : {}),
+    ...(typeof normalized.rangeUntil === 'string' ? { rangeUntil: normalized.rangeUntil } : {}),
+    ...(typeof normalized.activityType === 'string' ? { activityType: normalized.activityType } : {}),
+    ...(typeof normalized.recurrence === 'string' && ['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(normalized.recurrence)
+      ? { recurrence: normalized.recurrence as PlannerScheduleItem['recurrence'] }
       : {}),
-    ...(Array.isArray(value.repeatDays) ? { repeatDays: value.repeatDays } : {}),
-    ...(typeof value.repeatUntil === 'string' ? { repeatUntil: value.repeatUntil } : {}),
+    ...(Array.isArray(normalized.repeatDays) ? { repeatDays: normalized.repeatDays } : {}),
+    ...(typeof normalized.repeatUntil === 'string' ? { repeatUntil: normalized.repeatUntil } : {}),
   };
 }
 
-function normalizePlannerScheduleItems(value: unknown): PlannerScheduleItem[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error('Saved planner schedule items have an invalid format.');
-  const items = value.map(migratePlannerScheduleItem);
-  if (items.some((item) => item === null)) {
-    throw new Error('A saved planner schedule item has an invalid format.');
+function plannerScheduleIssue(value: unknown): string {
+  if (!isRecord(value)) return 'record must be an object';
+  if (typeof value.id !== 'string' || !value.id.trim()) return 'id is missing or invalid';
+  if (!isPlannerScheduleCategory(value.category) && !['Task', 'Class', 'Exam', 'Vacation', 'Activity'].includes(String(value.category))) return 'category is unsupported or invalid';
+  if (typeof value.title !== 'string') return 'title is missing or invalid';
+  const optionalStrings = ['subject', 'type', 'teacher', 'date', 'time', 'endDate', 'startTime', 'endTime', 'fromDate', 'untilDate', 'room', 'building', 'seat', 'notes', 'taskType', 'instructor', 'seatNumber', 'onlineLink', 'location', 'examType', 'durationLabel', 'vacationPreset', 'coverPhotoName', 'termName', 'rangeFrom', 'rangeUntil', 'activityType', 'repeatUntil'];
+  for (const field of optionalStrings) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') return `${field} must be text`;
+    if (['date', 'endDate', 'fromDate', 'untilDate', 'repeatUntil', 'rangeFrom', 'rangeUntil'].includes(field) && typeof value[field] === 'string' && !isPlannerDate(value[field])) return `${field} is not a valid YYYY-MM-DD date`;
+    if (['time', 'startTime', 'endTime'].includes(field) && typeof value[field] === 'string' && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value[field] as string)) return `${field} is not a valid 24-hour time`;
   }
-  const validItems = items.filter((item): item is PlannerScheduleItem => item !== null);
-  return Array.from(new Map(validItems.map((item) => [item.id, item])).values());
+  if (value.timeSlots !== undefined && (!Array.isArray(value.timeSlots) || value.timeSlots.some((slot) => !isRecord(slot) || typeof slot.id !== 'string' || !Array.isArray(slot.days) || typeof slot.startTime !== 'string' || typeof slot.endTime !== 'string'))) return 'timeSlots contains an invalid entry';
+  for (const field of ['duration', 'daysCount', 'occurs', 'dateRange', 'whereType', 'hasCoverPhoto', 'completed', 'durationMinutes', 'whereMode', 'dateRangeMode', 'recurrence', 'repeatDays', 'days']) {
+    if (value[field] === undefined) continue;
+    const candidate = { ...value };
+    delete candidate[field];
+    if (!migratePlannerScheduleItem(candidate)) return `${field} has an invalid value`;
+  }
+  return 'schedule record has an invalid value';
 }
 
 function migratePlannerTask(value: unknown): PlannerTask | null {
@@ -649,23 +694,16 @@ const initialState: State = {
   plannerMinutesCredited: {},
   plannerTaskStudySeconds: {},
   recordedFocusSessionIds: [],
+  focusHistory: [],
   studyLog: {},
   results: [],
   chat: [],
-  notifications: SEED_NOTIFICATIONS,
+  notifications: [],
   learners: LEARNERS,
   queue: PENDING_CONTENT,
   managedContent: [],
   managedContentError: null,
-  announcements: [
-    {
-      id: 'a1',
-      title: 'Prelims Countdown Series begins Monday',
-      body: 'A 60-day guided revision plan with daily tests opens for all Pro and Elite learners.',
-      audience: 'All learners',
-      at: Date.now() - 1000 * 60 * 60 * 72,
-    },
-  ],
+  announcements: [],
 };
 
 export type Action =
@@ -721,6 +759,8 @@ export type Action =
       schedulePlannedSeconds?: number;
       status?: 'completed' | 'interrupted' | 'abandoned';
     }
+  | { type: 'upsertFocusHistory'; record: FocusHistoryRecord }
+  | { type: 'updateFocusHistory'; id: string; patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'focusQuality'>> }
   | { type: 'plannerCompletion'; date: string; completion: PlannerCompletion; completed: boolean }
   | { type: 'study'; minutes: number }
   | { type: 'result'; result: TestResult }
@@ -756,6 +796,8 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'setPlannerScheduleCompletion',
   'creditPlanMinutes',
   'recordFocusStudy',
+  'upsertFocusHistory',
+  'updateFocusHistory',
   'plannerCompletion',
   'study',
   'result',
@@ -768,6 +810,12 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'reviewContent',
   'announce',
 ]);
+
+const THEME_MODE_STORAGE_KEY = 'sakha-theme-mode-v1';
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
 
 function isPersistedAction(action: Action) {
   return PERSISTED_ACTION_TYPES.has(action.type);
@@ -930,6 +978,7 @@ export function reducer(state: State, action: Action): State {
         plannerMinutesCredited: {},
         plannerTaskStudySeconds: {},
         recordedFocusSessionIds: [],
+        focusHistory: [],
         studyLog: {},
         results: [],
         chat: [],
@@ -1164,6 +1213,20 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
+    case 'upsertFocusHistory': {
+      const exists = state.focusHistory.some((record) => record.id === action.record.id);
+      return {
+        ...state,
+        focusHistory: exists
+          ? state.focusHistory.map((record) => record.id === action.record.id ? { ...record, ...action.record } : record)
+          : [action.record, ...state.focusHistory],
+      };
+    }
+    case 'updateFocusHistory':
+      return {
+        ...state,
+        focusHistory: state.focusHistory.map((record) => record.id === action.id ? { ...record, ...action.patch } : record),
+      };
     case 'plannerCompletion': {
       const completions = state.plannerCompletions[action.date] ?? [];
       const next = action.completed
@@ -1235,8 +1298,12 @@ export function reducer(state: State, action: Action): State {
 
 type Ctx = {
   state: State;
+  syncStatus: SyncStatus;
   hydrationError: string | null;
   retryHydration: () => void;
+  plannerRecoveryCount: number;
+  plannerRecoveryIssues: string[];
+  retryPlannerRecovery: () => void;
   legacyMigrationAvailable: boolean;
   legacyMigrationError: string | null;
   importingLegacyData: boolean;
@@ -1360,10 +1427,13 @@ type RecoverySnapshot = {
   payload: Partial<State>;
   tasks: PlannerTask[];
   profile?: Partial<User>;
+  plannerRecoveryCount: number;
+  plannerRecoveryIssues: string[];
 };
 
 async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnapshot> {
   const raw = await AsyncStorage.getItem(getUserScopedStorageKey(KEY, userId));
+  const savedThemeMode = await AsyncStorage.getItem(getUserScopedStorageKey(THEME_MODE_STORAGE_KEY, userId));
   let saved: Partial<State> & { offlineResources?: string[] } = {};
   if (raw) {
     const parsed: unknown = JSON.parse(raw);
@@ -1431,18 +1501,58 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
         Array.isArray(ids) ? ids : [],
       ])
     );
-  const plannerScheduleItems = normalizePlannerScheduleItems(saved.plannerScheduleItems);
+  const rawSchedule = saved.plannerScheduleItems;
+  const archiveKey = getUserScopedStorageKey(PLANNER_QUARANTINE_KEY, userId);
+  const previousRaw = await AsyncStorage.getItem(archiveKey);
+  const previousParsed: unknown = previousRaw ? JSON.parse(previousRaw) : [];
+  const previousArchive = Array.isArray(previousParsed) ? previousParsed.filter(isRecord) : [];
+  const rawRecords = Array.isArray(rawSchedule) ? rawSchedule : rawSchedule === undefined ? [] : [rawSchedule];
+  const retryRecords = previousArchive.map((entry) => entry.record);
+  const candidates = [...rawRecords, ...retryRecords];
+  const validCandidates: PlannerScheduleItem[] = [];
+  const acceptedById = new Map<string, string>();
+  const conflictingDuplicateIndexes = new Set<number>();
+  candidates.forEach((record, index) => {
+    const migrated = migratePlannerScheduleItem(record);
+    if (!migrated) return;
+    const normalizedFingerprint = JSON.stringify(migrated);
+    const existing = acceptedById.get(migrated.id);
+    if (existing !== undefined) {
+      if (existing !== normalizedFingerprint) conflictingDuplicateIndexes.add(index);
+      return;
+    }
+    acceptedById.set(migrated.id, normalizedFingerprint);
+    validCandidates.push(migrated);
+  });
+  const plannerScheduleItems = validCandidates;
+  const validFingerprints = new Set(validCandidates.map((item) => JSON.stringify(item)));
+  const invalidCandidates = candidates.flatMap((record, index) => {
+    const migrated = migratePlannerScheduleItem(record);
+    if (migrated && validFingerprints.has(JSON.stringify(migrated)) && !conflictingDuplicateIndexes.has(index)) return [];
+    const reason = conflictingDuplicateIndexes.has(index) ? 'id conflicts with another valid schedule item' : plannerScheduleIssue(record);
+    return [{ index, reason, record, fingerprint: JSON.stringify(record), archivedAt: Date.now() }];
+  });
+  const uniqueQuarantine = Array.from(new Map(invalidCandidates.map((entry) => [entry.fingerprint, entry])).values());
+  if (uniqueQuarantine.length || previousArchive.length) {
+    await AsyncStorage.setItem(archiveKey, JSON.stringify(uniqueQuarantine));
+  }
 
   return {
     tasks,
     profile,
+    plannerRecoveryCount: uniqueQuarantine.length,
+    plannerRecoveryIssues: uniqueQuarantine.map((entry) => `Saved item ${entry.index + 1}: ${entry.reason}`),
     payload: {
       ...saved,
+      plannerDataVersion: PLANNER_DATA_VERSION,
       user: null,
       authReady: false,
       managedContent: [],
       managedContentError: null,
-      settings: normalizeSettings(saved.settings),
+      settings: normalizeSettings({
+        ...saved.settings,
+        ...(isThemeMode(savedThemeMode) ? { themeMode: savedThemeMode } : {}),
+      }),
       plannerSelectedDate: todayKey(),
       plannerTasks: tasks,
       plannerTasksLoaded: false,
@@ -1469,6 +1579,7 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
       recordedFocusSessionIds: Array.isArray(saved.recordedFocusSessionIds)
         ? Array.from(new Set(saved.recordedFocusSessionIds.filter((id): id is string => typeof id === 'string')))
         : [],
+      focusHistory: Array.isArray(saved.focusHistory) ? saved.focusHistory : [],
       storageReady: false,
     },
   };
@@ -1690,7 +1801,46 @@ function serializePersistentState(state: State) {
   delete persistentState.plannerTaskLoadError;
   delete persistentState.plannerPersistenceError;
   delete persistentState.storageReady;
-  return JSON.stringify(persistentState);
+  return JSON.stringify({ ...persistentState, plannerDataVersion: PLANNER_DATA_VERSION });
+}
+
+export function accountSyncDocumentFromState(state: State): AccountSyncDocument {
+  const persistent = JSON.parse(serializePersistentState(state)) as Record<string, unknown>;
+  delete persistent.user;
+  delete persistent.learners;
+  delete persistent.queue;
+  delete persistent.announcements;
+  return {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    deviceId: 'pending',
+    tombstones: {},
+    ...persistent,
+    profile: state.user
+      ? {
+          name: state.user.name,
+          exam: state.user.exam,
+          birthday: state.user.birthday,
+          phoneNumber: state.user.phoneNumber,
+          currentCity: state.user.currentCity,
+          examFocus: state.user.examFocus,
+        }
+      : undefined,
+  };
+}
+
+export function accountSyncStateFromDocument(document: AccountSyncDocument): Partial<State> {
+  const state: Partial<State> = {};
+  const accountKeys: Array<keyof State> = [
+    'settings', 'notes', 'starred', 'bookmarks', 'progress', 'planDone', 'plannerTasks',
+    'plannerDefaultOverrides', 'plannerDeletedDefaults', 'plannerSettings', 'plannerScheduleItems',
+    'plannerScheduleCompletions', 'plannerCompletions', 'plannerMinutesCredited', 'plannerTaskStudySeconds',
+    'recordedFocusSessionIds', 'focusHistory', 'studyLog', 'results', 'chat', 'notifications',
+  ];
+  for (const key of accountKeys) {
+    if (document[key] !== undefined) (state as Record<string, unknown>)[key] = document[key];
+  }
+  return state;
 }
 
 async function findLegacyScopedStorageKeys() {
@@ -1736,10 +1886,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [hydrationStatus, setHydrationStatus] = useState<'loading' | 'ready' | 'failed' | 'recovering'>('loading');
   const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [plannerRecoveryCount, setPlannerRecoveryCount] = useState(0);
+  const [plannerRecoveryIssues, setPlannerRecoveryIssues] = useState<string[]>([]);
   const [legacyMigrationUserId, setLegacyMigrationUserId] = useState<string | null>(null);
   const [legacyMigrationError, setLegacyMigrationError] = useState<string | null>(null);
   const [importingLegacyData, setImportingLegacyData] = useState(false);
   const [legacyScanRetry, setLegacyScanRetry] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const hydrationStatusRef = React.useRef(hydrationStatus);
   const hydrationAttempted = React.useRef(false);
   const recoveryInFlight = React.useRef(false);
@@ -1749,7 +1902,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const pendingPlannerTasks = React.useRef(new Map<string, PlannerTask[]>());
   const writeQueue = React.useRef<Promise<void>>(Promise.resolve());
   const lastEnqueuedSnapshot = React.useRef<string | null>(null);
+  const themeWriteQueue = React.useRef<Promise<void>>(Promise.resolve());
   const stateRef = React.useRef(state);
+  const syncEngineRef = React.useRef<AccountSyncEngine | null>(null);
+  const syncUserRef = React.useRef<string | null>(null);
   stateRef.current = state;
   const dispatchAction = useCallback((action: Action) => {
     if (hydrationStatusRef.current !== 'ready' && isPersistedAction(action)) {
@@ -1806,8 +1962,81 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       actions.push(replayAction);
     }
+    if (action.type === 'settings' && isThemeMode(action.patch.themeMode)) {
+      const storageKey = getUserScopedStorageKey(THEME_MODE_STORAGE_KEY, stateRef.current.user?.id ?? null);
+      themeWriteQueue.current = themeWriteQueue.current
+        .catch(() => undefined)
+        .then(() => AsyncStorage.setItem(storageKey, action.patch.themeMode!))
+        .catch((error: unknown) => {
+          console.error('Theme preference could not be saved:', error);
+        });
+    }
     dispatch(action);
   }, []);
+
+  useEffect(() => {
+    const userId = state.user?.id;
+    if (!userId || !state.authReady || !state.hydrated || !state.storageReady || !supabaseConfigured) {
+      if (syncEngineRef.current) {
+        void syncEngineRef.current.stop();
+        syncEngineRef.current = null;
+      }
+      syncUserRef.current = null;
+      setSyncStatus(supabaseConfigured ? 'idle' : 'offline');
+      return;
+    }
+    if (syncUserRef.current === userId) return;
+
+    const engine = new AccountSyncEngine();
+    syncEngineRef.current = engine;
+    syncUserRef.current = userId;
+    let active = true;
+    const applyRemoteDocument = (document: AccountSyncDocument) => {
+      if (!active || syncUserRef.current !== userId) return;
+      dispatch({ type: 'hydrate', payload: accountSyncStateFromDocument(document) });
+      if (Array.isArray(document.focusHistory)) {
+        void AsyncStorage.setItem(
+          getUserScopedStorageKey('study-sakha-focus-history-v1', userId),
+          JSON.stringify(document.focusHistory),
+        ).catch(() => undefined);
+      }
+      const profile = document.profile;
+      if (profile && typeof profile === 'object') {
+        const profileRecord = profile as Record<string, unknown>;
+        dispatch({
+          type: 'updateProfile',
+          patch: {
+            ...(typeof profileRecord.name === 'string' ? { name: profileRecord.name } : {}),
+            ...(isExamId(profileRecord.exam) ? { exam: profileRecord.exam } : {}),
+            ...(typeof profileRecord.birthday === 'string' ? { birthday: profileRecord.birthday } : {}),
+            ...(typeof profileRecord.phoneNumber === 'string' ? { phoneNumber: profileRecord.phoneNumber } : {}),
+            ...(typeof profileRecord.currentCity === 'string' ? { currentCity: profileRecord.currentCity } : {}),
+            ...(typeof profileRecord.examFocus === 'string' ? { examFocus: profileRecord.examFocus } : {}),
+          },
+        });
+      }
+    };
+
+    void engine.start(
+      userId,
+      accountSyncDocumentFromState(state),
+      applyRemoteDocument,
+      (status) => { if (active) setSyncStatus(status); },
+    );
+    return () => {
+      active = false;
+      if (syncEngineRef.current === engine) syncEngineRef.current = null;
+      if (syncUserRef.current === userId) syncUserRef.current = null;
+      void engine.stop();
+    };
+  }, [state.authReady, state.hydrated, state.storageReady, state.user?.id]);
+
+  useEffect(() => {
+    const userId = state.user?.id;
+    const engine = syncEngineRef.current;
+    if (!userId || syncUserRef.current !== userId || !engine || !state.hydrated || !state.storageReady) return;
+    void engine.submit(accountSyncDocumentFromState(state));
+  }, [state]);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -1898,6 +2127,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const generation = ++recoveryGeneration.current;
     recoveryInFlight.current = true;
     activeRecoveryScope.current = scope;
+    setPlannerRecoveryCount(0);
+    setPlannerRecoveryIssues([]);
     hydrationStatusRef.current = hydrationAttempted.current ? 'recovering' : 'loading';
     setHydrationStatus(hydrationStatusRef.current);
     try {
@@ -1915,12 +2146,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       pendingActions.current.delete(scope);
       pendingPlannerTasks.current.delete(scope);
       setHydrationError(null);
+      setPlannerRecoveryCount(snapshot.plannerRecoveryCount);
+      setPlannerRecoveryIssues(snapshot.plannerRecoveryIssues);
       setHydrationStatus('ready');
     } catch (error) {
       if (generation !== recoveryGeneration.current) return;
       console.error('Study Sakha data could not be loaded; persistence is disabled to protect saved data:', error);
       dispatch({ type: 'hydrate', payload: {} });
       setHydrationError(errorMessage(error, 'Saved data could not be loaded. Your changes are being held until recovery succeeds.'));
+      setPlannerRecoveryCount(0);
+      setPlannerRecoveryIssues([]);
       hydrationStatusRef.current = 'failed';
       setHydrationStatus('failed');
     } finally {
@@ -1933,6 +2168,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const retryHydration = useCallback(() => {
+    void recoverSnapshot(state.user?.id ?? null);
+  }, [recoverSnapshot, state.user?.id]);
+  const retryPlannerRecovery = useCallback(() => {
     void recoverSnapshot(state.user?.id ?? null);
   }, [recoverSnapshot, state.user?.id]);
 
@@ -2388,8 +2626,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<Ctx>(
     () => ({
       state,
+      syncStatus,
       hydrationError,
       retryHydration,
+      plannerRecoveryCount,
+      plannerRecoveryIssues,
+      retryPlannerRecovery,
       legacyMigrationAvailable,
       legacyMigrationError,
       importingLegacyData,
@@ -2411,8 +2653,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       state,
+      syncStatus,
       hydrationError,
       retryHydration,
+      plannerRecoveryCount,
+      plannerRecoveryIssues,
+      retryPlannerRecovery,
       legacyMigrationAvailable,
       legacyMigrationError,
       importingLegacyData,

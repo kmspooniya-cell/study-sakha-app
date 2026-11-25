@@ -128,7 +128,7 @@ const nav = useNavigation<AppNavigation>();
 const route = useRoute<AppHeaderRoute>();
 const insets = useSafeAreaInsets();
 const { mode, scheme, colors } = useTheme();
-const { unread, dispatch } = useStore();
+const { unread, dispatch, syncStatus } = useStore();
 
 // Help Modal Multi-Step States
 const [helpModalVisible, setHelpModalVisible] = useState(false);
@@ -210,6 +210,17 @@ style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
 </View>
 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
 {appHeaderActions}
+<View
+accessible
+accessibilityLabel={syncStatus === 'synced' ? 'Account synced' : syncStatus === 'syncing' ? 'Syncing account data' : syncStatus === 'offline' ? 'Account sync offline' : syncStatus === 'pending' ? 'Account changes pending' : 'Account sync status unavailable'}
+style={{ width: 30, height: 36, alignItems: 'center', justifyContent: 'center' }}
+>
+<Ionicons
+name={syncStatus === 'synced' ? 'cloud-done-outline' : syncStatus === 'syncing' ? 'sync-outline' : syncStatus === 'offline' ? 'cloud-offline-outline' : 'cloud-upload-outline'}
+size={16}
+color={syncStatus === 'offline' || syncStatus === 'error' ? colors.danger : secondaryText}
+/>
+</View>
 <Pressable onPress={cycleTheme} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Toggle theme">
 <Ionicons name={scheme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={18} color={secondaryText} />
 </Pressable>
@@ -513,7 +524,6 @@ fitContentToBottomNav?: boolean;
 const { colors, layoutDensity } = useTheme();
 const nav = useNavigation<AppNavigation>();
 const { isMobile, isTablet, isDesktop } = useLayout();
-const insets = useSafeAreaInsets();
 const { state, unread } = useStore();
 const language = state.settings.language;
 const [collapsed, setCollapsed] = useState(false);
@@ -753,7 +763,7 @@ return (
 {children}
 </ScrollView>
 ) : (
-<View style={{ flex: 1, paddingBottom: fitContentToBottomNav ? 52 + insets.bottom : 112 }}>
+<View style={{ flex: 1, paddingBottom: 0 }}>
 {hasPageHeading ? (
 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
 <Txt size={21} weight="800" display>

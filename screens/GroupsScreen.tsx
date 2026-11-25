@@ -13,6 +13,8 @@ import {
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
+  Alert,
+  Share,
   useWindowDimensions,
 } from 'react-native';
 import Svg, { Ellipse, Rect, Circle } from 'react-native-svg';
@@ -75,7 +77,9 @@ import { SmartStudyRoomScreen } from '../screens/SmartStudyRoomScreen';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { useTheme } from '../lib/theme';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { AudioPlayerLifecycle } from '../lib/audioPlayerLifecycle';
 import { useStore } from '../lib/store';
+import { getGroupInviteUrl } from '../lib/shareLinks';
 import {
   AmbientAudio,
   createRoomSession,
@@ -176,12 +180,12 @@ interface GroupItem {
   passwordHint?: string;
   screeningQuestion?: string;
   language: string;
-  membersCount: number;
-  memberLimit: number;
-  liveStudying: number;
-  dailyTargetHours: number;
-  groupProgressPct: number;
-  userHoursToday: number;
+  membersCount?: number;
+  memberLimit?: number;
+  liveStudying?: number;
+  dailyTargetHours?: number;
+  groupProgressPct?: number;
+  userHoursToday?: number;
   joined: boolean;
   unreadCount: number;
   activeRoomLabel: string;
@@ -189,6 +193,7 @@ interface GroupItem {
   treeLevel: number;
   treeXp: number;
   matchReason: string;
+  dataSource?: 'backend' | 'fixture';
 }
 
 interface StudyRoom {
@@ -263,6 +268,39 @@ interface DoubtItem {
   answersCount: number;
 }
 
+type GroupResource = {
+  id: string;
+  title: string;
+  type: string;
+  subject: string;
+  size: string;
+  uploader: string;
+  bookmarked: boolean;
+};
+
+type GroupMemberRecord = {
+  id: string;
+  name: string;
+  initials: string;
+  role: string;
+  status: 'studying' | 'online' | 'offline';
+  exam: string;
+  slot: string;
+  streak: number;
+  goalPct: number;
+  pyqAcc: number;
+  helpfulVotes: number;
+};
+
+type GroupNotification = {
+  id: string;
+  type: string;
+  title: string;
+  time: string;
+  read: boolean;
+  actionable: boolean;
+};
+
 interface ConfirmModalConfig {
   title: string;
   body: string;
@@ -276,7 +314,7 @@ interface ConfirmModalConfig {
 // 2. REALISTIC SAMPLE DATA (INDIAN COMPETITIVE EXAM ECOSYSTEM)
 // ----------------------------------------------------------------------------
 
-const INITIAL_GROUPS: GroupItem[] = [
+/* const INITIAL_GROUPS: GroupItem[] = [
   {
     id: 'grp-ras-mains',
     name: 'RAS Mains 2026 — Rajasthan Special',
@@ -410,7 +448,7 @@ const INITIAL_GROUPS: GroupItem[] = [
     treeXp: 82,
     matchReason: '96% Exam & Subject Match',
   },
-];
+]; */
 
 const STUDY_ROOMS: StudyRoom[] = [
   {
@@ -455,7 +493,7 @@ const AMBIENT_AUDIO_OPTIONS: { value: AmbientAudio; label: string }[] = [
   { value: 'library-hum', label: 'Library hum' },
 ];
 
-const INITIAL_GOALS: GoalItem[] = [
+/* const INITIAL_GOALS: GoalItem[] = [
   {
     id: 'g1',
     timeframe: 'Daily',
@@ -504,7 +542,7 @@ const INITIAL_GOALS: GoalItem[] = [
     userTarget: 11,
     deadline: 'Nov 26, 2026',
   },
-];
+]; */
 
 const CHAT_CHANNELS = [
   { id: 'general-chat', name: 'general-chat', unread: 0, desc: 'Daily coordination and group discussions', lockedWrite: false },
@@ -512,7 +550,7 @@ const CHAT_CHANNELS = [
   { id: 'motivation', name: 'motivation', unread: 0, desc: 'Milestones, streaks & peer encouragement', lockedWrite: false },
 ];
 
-const INITIAL_MESSAGES: Record<string, ChatMessageItem[]> = {
+/* const INITIAL_MESSAGES: Record<string, ChatMessageItem[]> = {
   'general-chat': [
     {
       id: 'm1',
@@ -610,9 +648,9 @@ const INITIAL_MESSAGES: Record<string, ChatMessageItem[]> = {
       replies: 2,
     },
   ],
-};
+}; */
 
-const INITIAL_EVENTS: EventItem[] = [
+/* const INITIAL_EVENTS: EventItem[] = [
   {
     id: 'ev1',
     title: 'RAS Paper-II Answer Writing Sprint',
@@ -684,9 +722,9 @@ const INITIAL_EVENTS: EventItem[] = [
     reminder: false,
     isPast: true,
   },
-];
+]; */
 
-const INITIAL_DOUBTS: DoubtItem[] = [
+/* const INITIAL_DOUBTS: DoubtItem[] = [
   {
     id: 'd1',
     isDoubtOfDay: true,
@@ -722,7 +760,8 @@ const INITIAL_DOUBTS: DoubtItem[] = [
   },
 ];
 
-const PYQ_LIST = [
+*/
+/* const PYQ_LIST_FIXTURE = [
   {
     id: 'pyq1',
     examYear: 'RAS Prelims 2023',
@@ -747,16 +786,17 @@ const PYQ_LIST = [
       'Article 124(1) empowers Parliament by law to prescribe a larger number of Supreme Court judges. Currently the sanctioned strength is 34 (1 CJI + 33 Judges).',
     memberNotesCount: 22,
   },
-];
+]; */
+const PYQ_LIST: Array<{ id: string; examYear: string; subject: string; question: string; options: string[]; correctIndex: number; explanation: string; memberNotesCount: number }> = [];
 
-const SHARED_RESOURCES = [
+/* const SHARED_RESOURCES = [
   { id: 'r1', title: 'Rajasthan Economic Review 2025–26 Short Notes', type: 'PDF', subject: 'Economy', size: '4.2 MB · 28 pages', uploader: 'Priya Mathur', bookmarked: true },
   { id: 'r2', title: 'Prajamandal Movements Chronology Mindmap', type: 'Note', subject: 'History', size: '1.1 MB · 4 pages', uploader: 'Aarav Singh', bookmarked: false },
   { id: 'r3', title: 'Sujas Monthly Official Bulletin — Oct 2026', type: 'Link', subject: 'Current Affairs', size: 'DIPR Rajasthan Portal', uploader: 'Dr. Rajesh', bookmarked: true },
   { id: 'r4', title: 'Polity Articles 12–51 High-Yield Revision Sheet', type: 'PDF', subject: 'Polity', size: '1.8 MB · 12 pages', uploader: 'Kavita Deora', bookmarked: false },
-];
+]; */
 
-const FLASHCARD_DECK = [
+/* const FLASHCARD_DECK_FIXTURE = [
   {
     id: 'fc1',
     subject: 'Polity',
@@ -775,24 +815,25 @@ const FLASHCARD_DECK = [
     front: 'Repo Rate vs Reverse Repo Rate',
     back: 'Repo Rate: Rate at which RBI lends short-term funds to commercial banks against securities. Reverse Repo: Rate at which RBI absorbs liquidity from banks.',
   },
-];
+]; */
+const FLASHCARD_DECK: Array<{ id: string; subject: string; front: string; back: string }> = [];
 
-const MEMBERS_DATA = [
+/* const MEMBERS_DATA = [
   { id: 'u1', name: 'Aarav Singh', initials: 'AS', role: 'Owner', streak: 19, goalPct: 92, pyqAcc: 86, helpfulVotes: 34, status: 'studying', exam: 'RAS 2026', slot: 'Morning (5–10 AM)' },
   { id: 'u2', name: 'Priya Mathur', initials: 'PM', role: 'Admin', streak: 24, goalPct: 95, pyqAcc: 89, helpfulVotes: 48, status: 'studying', exam: 'RAS 2026', slot: 'Morning (5–10 AM)' },
   { id: 'u3', name: 'Dr. Rajesh Sharma', initials: 'RS', role: 'Mentor', streak: 15, goalPct: 88, pyqAcc: 94, helpfulVotes: 92, status: 'online', exam: 'RAS Rank-42 Mentor', slot: 'Evening (7–10 PM)' },
   { id: 'u4', name: 'Vikram Rathore', initials: 'VR', role: 'Moderator', streak: 12, goalPct: 81, pyqAcc: 82, helpfulVotes: 27, status: 'studying', exam: 'RAS 2026', slot: 'Night (9 PM–1 AM)' },
   { id: 'u5', name: 'Neha Choudhary', initials: 'NC', role: 'Member', streak: 16, goalPct: 89, pyqAcc: 84, helpfulVotes: 19, status: 'offline', exam: 'RAS + RSSB', slot: 'Morning (6–11 AM)' },
   { id: 'u6', name: 'Kavita Deora', initials: 'KD', role: 'Member', streak: 14, goalPct: 86, pyqAcc: 79, helpfulVotes: 22, status: 'online', exam: 'RAS 2026', slot: 'Evening (6–11 PM)' },
-];
+]; */
 
-const INITIAL_NOTIFICATIONS = [
+/* const INITIAL_NOTIFICATIONS = [
   { id: 'n1', type: 'Join Request', title: 'Rohan Bishnoi requested to join RAS Mains 2026', time: '5m ago', read: false, actionable: true },
   { id: 'n2', type: 'Live Session', title: 'Silent Focus Hall is active (11 members studying)', time: '18m ago', read: false, actionable: false },
   { id: 'n3', type: 'Mentor Reply', title: 'Dr. Rajesh Sharma marked Best Answer on your Polity doubt', time: '2h ago', read: false, actionable: false },
   { id: 'n4', type: 'Quiz Challenge', title: 'Jodhpur Achievers challenged your group to a 20-Q History Battle', time: '4h ago', read: true, actionable: false },
   { id: 'n5', type: 'Goal Achievement', title: 'Group Tree reached Level 7 — 100% verified focus hours!', time: 'Yesterday', read: true, actionable: false },
-];
+]; */
 
 // ----------------------------------------------------------------------------
 // 3. HELPERS & REUSABLE NATIVE DESIGN SYSTEM COMPONENTS
@@ -1410,14 +1451,17 @@ export default function StudySakhaGroupsRN() {
   }), [appColors, scheme]);
 
   // Groups Data & Filters
-  const [groups, setGroups] = useState<GroupItem[]>(INITIAL_GROUPS);
+  // Group discovery is backend-owned. Never seed the production list with fixtures.
+  const [groups, setGroups] = useState<GroupItem[]>([]);
   const [groupMembershipsLoaded, setGroupMembershipsLoaded] = useState(false);
+  const [groupMembershipLoadError, setGroupMembershipLoadError] = useState<string | null>(null);
+  const [groupMembershipRetry, setGroupMembershipRetry] = useState(0);
   const [mainCategory, setMainCategory] = useState('my_groups');
   const [recommendedCategory, setRecommendedCategory] = useState('recommended');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Selected Group & Detail Tabs
-  const [selectedGroupId, setSelectedGroupId] = useState('grp-ras-mains');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
   const [detailTab, setDetailTab] = useState('live');
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -1482,23 +1526,19 @@ export default function StudySakhaGroupsRN() {
 
   // Chat State
   const [activeChannel, setActiveChannel] = useState('general-chat');
-  const [messagesByChannel, setMessagesByChannel] = useState(INITIAL_MESSAGES);
+  const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChatMessageItem[]>>({});
   const [chatInput, setChatInput] = useState('');
   const [threadMessage, setThreadMessage] = useState<ChatMessageItem | null>(null);
 
   // Goals State
   const [goalTimeframe, setGoalTimeframe] = useState('Daily');
-  const [goals, setGoals] = useState<GoalItem[]>(INITIAL_GOALS);
-  const [dailyPledge, setDailyPledge] = useState([
-    { id: 'p1', label: 'Complete 6 hrs focused study', done: true },
-    { id: 'p2', label: 'Solve 50 Rajasthan GK PYQs', done: true },
-    { id: 'p3', label: 'Write & upload 2 Mains 100-word answers', done: false },
-  ]);
+  const [goals, setGoals] = useState<GoalItem[]>([]);
+  const [dailyPledge, setDailyPledge] = useState<{ id: string; label: string; done: boolean }[]>([]);
   const [newPledge, setNewPledge] = useState('');
 
   // Learn Together State
   const [learnModule, setLearnModule] = useState('doubts');
-  const [doubts, setDoubts] = useState<DoubtItem[]>(INITIAL_DOUBTS);
+  const [doubts, setDoubts] = useState<DoubtItem[]>([]);
   const [newDoubtTitle, setNewDoubtTitle] = useState('');
   const [doubtSubject, setDoubtSubject] = useState('Polity');
   const [selectedDoubtSubjects, setSelectedDoubtSubjects] = useState<string[]>([]);
@@ -1506,7 +1546,7 @@ export default function StudySakhaGroupsRN() {
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [answeringDoubtId, setAnsweringDoubtId] = useState<string | null>(null);
   const [pyqSelections, setPyqSelections] = useState<Record<string, number>>({});
-  const [resources, setResources] = useState(SHARED_RESOURCES);
+  const [resources, setResources] = useState<GroupResource[]>([]);
   const [quizAnswer, setQuizAnswer] = useState<number | null>(null);
   const [flashcardIdx, setFlashcardIdx] = useState(0);
   const [flashcardFlipped, setFlashcardFlipped] = useState(false);
@@ -1516,7 +1556,7 @@ export default function StudySakhaGroupsRN() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Events State
-  const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
+  const [events, setEvents] = useState<EventItem[]>([]);
   const [eventView, setEventView] = useState<'upcoming' | 'calendar' | 'past'>('upcoming');
 
   // Members & Insights Sub-tabs
@@ -1527,16 +1567,11 @@ export default function StudySakhaGroupsRN() {
   const [insightsSubTab, setInsightsSubTab] = useState('ai');
   const [leaderboardCategory, setLeaderboardCategory] = useState('Most Consistent');
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'Weekly' | 'Monthly'>('Weekly');
-  const [aiMessages, setAiMessages] = useState<{ role: 'ai' | 'user'; text: string; title?: string; actionLabel?: string; actionTab?: string }[]>([
-    {
-      role: 'ai',
-      text: 'Namaste! Based on your group’s authorized weekly logs, morning sessions (6–9 AM) show 89% goal completion. Ask me to generate a weak-topic quiz or summarize PYQ discussions.',
-    },
-  ]);
+  const [aiMessages, setAiMessages] = useState<{ role: 'ai' | 'user'; text: string; title?: string; actionLabel?: string; actionTab?: string }[]>([]);
   const [aiInput, setAiInput] = useState('');
 
   // Notifications & Modals
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<GroupNotification[]>([]);
   const [notifFilter, setNotifFilter] = useState('All');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState(1);
@@ -1598,7 +1633,14 @@ export default function StudySakhaGroupsRN() {
     focusActivity: currentRoomFocusActivity,
   });
   const roomAudioPlayer = useAudioPlayer(null);
+  const roomAudioLifecycle = useMemo(
+    () => new AudioPlayerLifecycle(roomAudioPlayer, (error) => {
+      setRoomAudioActionError(error instanceof Error ? error.message : 'Ambient audio could not play.');
+    }),
+    [roomAudioPlayer],
+  );
   const roomAudioStatus = useAudioPlayerStatus(roomAudioPlayer);
+  useEffect(() => () => roomAudioLifecycle.close(), [roomAudioLifecycle]);
   useEffect(() => {
     if (!activeRoom || activeRoom.id !== 'silent-focus' || !focusBarSession) return;
     const timer = setInterval(() => setRoomClockNow(Date.now()), 1000);
@@ -1644,6 +1686,7 @@ export default function StudySakhaGroupsRN() {
     const requestId = ++groupMembershipRequest.current;
     void getActiveStudyGroups(roomUser.id).then((joinedGroups) => {
       if (active && requestId === groupMembershipRequest.current) {
+        setGroupMembershipLoadError(null);
         const joinedById = new Map(joinedGroups.map((group) => [group.id, group]));
         setGroups((current) => {
           const knownIds = new Set(current.map((group) => group.id));
@@ -1665,12 +1708,6 @@ export default function StudySakhaGroupsRN() {
               privacy: 'Private',
               joinMethod: 'Leader Approval',
               language: 'Bilingual',
-              membersCount: 1,
-              memberLimit: 50,
-              liveStudying: 0,
-              dailyTargetHours: 0,
-              groupProgressPct: 0,
-              userHoursToday: 0,
               joined: true,
               unreadCount: 0,
               activeRoomLabel: 'Silent Focus Hall',
@@ -1678,13 +1715,16 @@ export default function StudySakhaGroupsRN() {
               treeLevel: 1,
               treeXp: 0,
               matchReason: 'Joined group',
+              dataSource: 'backend',
             }));
           return [...dynamicGroups, ...updated];
         });
       }
     }).catch((error: unknown) => {
       if (active && requestId === groupMembershipRequest.current) {
-        showToast(error instanceof Error ? error.message : 'Could not load group memberships.');
+        const message = error instanceof Error ? error.message : 'Could not load group memberships.';
+        setGroupMembershipLoadError(message);
+        showToast(message);
       }
     }).finally(() => {
       if (active && requestId === groupMembershipRequest.current) setGroupMembershipsLoaded(true);
@@ -1692,7 +1732,7 @@ export default function StudySakhaGroupsRN() {
     return () => {
       active = false;
     };
-  }, [roomUser?.id, showToast]);
+  }, [groupMembershipRetry, roomUser?.id, showToast]);
 
   useEffect(() => {
     if (!roomUser?.id) return;
@@ -1727,7 +1767,6 @@ export default function StudySakhaGroupsRN() {
     };
   }, [roomLogRefresh, roomUser?.id, selectedGroupId]);
 
-  useEffect(() => () => roomAudioPlayer.pause(), [roomAudioPlayer]);
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -1746,7 +1785,7 @@ export default function StudySakhaGroupsRN() {
       if (mainCategory === 'recommended') {
         if (recommendedCategory === 'recommended' && (g.joined || !/match/i.test(g.matchReason))) return false;
         if (recommendedCategory === 'discover' && g.joined) return false;
-        if (recommendedCategory === 'live' && g.liveStudying === 0) return false;
+        if (recommendedCategory === 'live' && !(g.liveStudying && g.liveStudying > 0)) return false;
         if (recommendedCategory === 'cam' && g.type !== 'Cam Study') return false;
       }
       if (searchQuery.trim()) {
@@ -1785,7 +1824,7 @@ export default function StudySakhaGroupsRN() {
       groupMembershipRequest.current += 1;
       setGroups((prev) =>
         prev.map((g) =>
-          g.id === group.id ? { ...g, joined: true, membersCount: g.membersCount + 1 } : g
+          g.id === group.id ? { ...g, joined: true } : g
         )
       );
       showToast(`Joined ${group.name}!`);
@@ -1808,12 +1847,8 @@ export default function StudySakhaGroupsRN() {
       privacy: newGroupForm.privacy,
       joinMethod: newGroupForm.joinMethod,
       language: newGroupForm.language,
-      membersCount: 1,
       memberLimit: newGroupForm.memberLimit,
-      liveStudying: 1,
       dailyTargetHours: newGroupForm.dailyTargetHours,
-      groupProgressPct: 10,
-      userHoursToday: 0.5,
       joined: true,
       unreadCount: 0,
       activeRoomLabel: 'Ready to start first session',
@@ -1821,6 +1856,7 @@ export default function StudySakhaGroupsRN() {
       treeLevel: 1,
       treeXp: 15,
       matchReason: 'Created by You',
+      dataSource: 'backend',
     };
     try {
       await createStudyGroup({
@@ -2008,7 +2044,7 @@ export default function StudySakhaGroupsRN() {
       endGroupRoomFocus(roomSessionId);
       clearGroupRoomFocusContext(roomSessionId);
     }
-    roomAudioPlayer.pause();
+    roomAudioLifecycle.run((player) => player.pause());
     focusLaunchRef.current = false;
     setActiveRoom(null);
     setActiveRoomGroupId(null);
@@ -2061,19 +2097,22 @@ export default function StudySakhaGroupsRN() {
     setRoomAmbientAudio(nextAudio);
     try {
       if (nextAudio === 'muted') {
-        roomAudioPlayer.pause();
+        roomAudioLifecycle.run((player) => player.pause());
       } else {
         await setAudioModeAsync({ playsInSilentMode: true });
+        if (!roomAudioLifecycle.isActive) return;
         const source = nextAudio === 'soft-rain'
           ? softRainAudio
           : nextAudio === 'brown-noise'
             ? brownNoiseAudio
             : libraryHumAudio;
-        roomAudioPlayer.replace(source);
-        // Expo Audio exposes looping as a mutable player control.
-        // eslint-disable-next-line react-hooks/immutability
-        roomAudioPlayer.loop = true;
-        roomAudioPlayer.play();
+        roomAudioLifecycle.run((player) => {
+          player.replace(source);
+          // Expo Audio exposes looping as a mutable player control.
+          // eslint-disable-next-line react-hooks/immutability
+          player.loop = true;
+          player.play();
+        });
       }
       if (roomSessionId) persistRoomUpdate(roomSessionId, { ambient_audio: nextAudio });
     } catch (error) {
@@ -2438,7 +2477,7 @@ export default function StudySakhaGroupsRN() {
                   <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.primary }} />
                 )}
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {g.dataSource !== 'backend' && <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                 <View style={[styles.tagChip, { backgroundColor: theme.surfaceElevated }]}>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: theme.textPrimary }}>{g.exam}</Text>
                 </View>
@@ -2451,38 +2490,36 @@ export default function StudySakhaGroupsRN() {
                   <Text style={{ fontSize: 11, color: theme.textSecondary }}>{g.type}</Text>
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSecondary }}>· {g.language}</Text>
-              </View>
+              </View>}
             </View>
           </View>
 
-          <View style={[styles.privacyBadge, { backgroundColor: theme.surfaceElevated }]}>
+          {g.dataSource !== 'backend' && <View style={[styles.privacyBadge, { backgroundColor: theme.surfaceElevated }]}>
             {g.privacy === 'Private' ? (
               <Lock size={11} color={theme.textSecondary} />
             ) : (
               <Globe size={11} color={theme.textSecondary} />
             )}
             <Text style={{ fontSize: 11, fontWeight: '500', color: theme.textSecondary }}>{g.privacy}</Text>
-          </View>
+          </View>}
         </View>
 
         {/* Stats Row */}
-        <View style={styles.spaceBetweenRow}>
+        {g.membersCount !== undefined || g.liveStudying !== undefined || g.dailyTargetHours !== undefined ? <View style={styles.spaceBetweenRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {g.membersCount !== undefined && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Users size={13} color={theme.textSecondary} />
               <Text style={[styles.tabularText, { fontSize: 12, color: theme.textSecondary }]}>
-                {g.membersCount}/{g.memberLimit}
+                {g.membersCount}{g.memberLimit !== undefined ? `/${g.memberLimit}` : ''}
               </Text>
-            </View>
-            <LiveStatusIndicator count={g.liveStudying} theme={theme} />
+            </View>}
+            {g.liveStudying !== undefined && <LiveStatusIndicator count={g.liveStudying} theme={theme} />}
           </View>
-          <Text style={[styles.tabularText, { fontSize: 12, fontWeight: '600', color: theme.textSecondary }]}>
-            Target: {g.dailyTargetHours}h/day
-          </Text>
-        </View>
+          {g.dailyTargetHours !== undefined && <Text style={[styles.tabularText, { fontSize: 12, fontWeight: '600', color: theme.textSecondary }]}>Target: {g.dailyTargetHours}h/day</Text>}
+        </View> : null}
 
         {/* Footer */}
-        <View
+        {g.dataSource !== 'backend' && <View
           style={[
             styles.cardFooter,
             { borderTopColor: theme.borderSubtle, marginTop: 10, paddingTop: 8 },
@@ -2511,7 +2548,7 @@ export default function StudySakhaGroupsRN() {
               </Text>
             </Pressable>
           ) : null}
-        </View>
+        </View>}
       </Pressable>
     );
   };
@@ -2646,7 +2683,25 @@ export default function StudySakhaGroupsRN() {
           </ScrollView>
         )}
 
-        {filteredGroups.length === 0 ? (
+        {!groupMembershipsLoaded ? (
+          <View style={{ padding: 28, alignItems: 'center', gap: 10 }}>
+            <ActivityIndicator color={theme.primary} />
+            <Text style={{ color: theme.textSecondary }}>Loading your groups…</Text>
+          </View>
+        ) : groupMembershipLoadError ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="Groups could not be loaded"
+            description={groupMembershipLoadError}
+            primaryLabel="Retry"
+            onPrimary={() => {
+              setGroupMembershipsLoaded(false);
+              setGroupMembershipLoadError(null);
+              setGroupMembershipRetry((value) => value + 1);
+            }}
+            theme={theme}
+          />
+        ) : filteredGroups.length === 0 ? (
           <EmptyState
             icon={Search}
             title="No matching groups found"
@@ -2733,9 +2788,9 @@ export default function StudySakhaGroupsRN() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                <Text style={{ fontSize: 11, color: theme.textSecondary }}>{selectedGroup.membersCount}/{selectedGroup.memberLimit} members</Text>
+                {selectedGroup.membersCount !== undefined && <Text style={{ fontSize: 11, color: theme.textSecondary }}>{selectedGroup.membersCount}{selectedGroup.memberLimit !== undefined ? `/${selectedGroup.memberLimit}` : ''} members</Text>}
                 <LiveStatusIndicator count={liveMemberCount} label="studying" theme={theme} />
-                <Text style={{ fontSize: 11, color: theme.textMuted }}>{selectedGroup.exam}</Text>
+                {selectedGroup.dataSource !== 'backend' && <Text style={{ fontSize: 11, color: theme.textMuted }}>{selectedGroup.exam}</Text>}
               </View>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -3338,7 +3393,7 @@ export default function StudySakhaGroupsRN() {
               <View style={{ borderTopWidth: 1, borderTopColor: theme.borderSubtle, paddingTop: 9, gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    {MEMBERS_DATA.slice(0, 3).map((member, index) => (
+                    {([] as GroupMemberRecord[]).slice(0, 3).map((member, index) => (
                       <View key={member.id} style={{ marginLeft: index ? -7 : 0, zIndex: 3 - index }}>
                         <MemberAvatar initials={member.initials} size="sm" status="none" theme={theme} />
                       </View>
@@ -3763,8 +3818,15 @@ export default function StudySakhaGroupsRN() {
         </View>
       )}
 
+      {selectedGroup.dataSource === 'backend' && ['quiz', 'flashcards', 'answer'].includes(learnModule) && (
+        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, padding: 18 }]}>
+          <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '700' }}>No verified group content yet</Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>This section will show content only after it is retrieved from the group backend.</Text>
+        </View>
+      )}
+
       {/* D. Group Quiz Battle */}
-      {learnModule === 'quiz' && (
+      {learnModule === 'quiz' && selectedGroup.dataSource !== 'backend' && (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, gap: 12 }]}>
           <View style={styles.spaceBetweenRowTight}>
             <View>
@@ -3811,7 +3873,7 @@ export default function StudySakhaGroupsRN() {
       )}
 
       {/* E. Shared Flashcards */}
-      {learnModule === 'flashcards' && (
+      {learnModule === 'flashcards' && selectedGroup.dataSource !== 'backend' && (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, alignItems: 'center', gap: 12 }]}>
           <View style={[styles.spaceBetweenRowTight, { width: '100%' }]}>
             <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textSecondary }}>
@@ -3861,7 +3923,7 @@ export default function StudySakhaGroupsRN() {
       )}
 
       {/* F. Answer Writing */}
-      {learnModule === 'answer' && (
+      {learnModule === 'answer' && selectedGroup.dataSource !== 'backend' && (
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, gap: 12 }]}>
           <View style={[styles.badgePill, { backgroundColor: theme.primarySoft, alignSelf: 'flex-start' }]}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: theme.primaryText }}>
@@ -4042,7 +4104,7 @@ export default function StudySakhaGroupsRN() {
 
   /** TAB 7: MEMBERS, STUDY BUDDY, MENTORS & PARTNER */
   const renderMembersTab = () => {
-    const visibleMembers = MEMBERS_DATA.filter((member) => {
+    const visibleMembers = ([] as GroupMemberRecord[]).filter((member) => {
       const matchesSearch = `${member.name} ${member.exam}`.toLowerCase().includes(memberSearch.toLowerCase());
       const matchesFilter = memberFilter === 'All'
         || (memberFilter === 'Studying Now' && member.status === 'studying')
@@ -4086,7 +4148,7 @@ export default function StudySakhaGroupsRN() {
         <TextInput
           value={memberSearch}
           onChangeText={setMemberSearch}
-          placeholder={`Search ${selectedGroup.membersCount} members by name or exam...`}
+          placeholder="Search verified members by name or exam..."
           placeholderTextColor={theme.textMuted}
           style={[styles.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary }]}
         />
@@ -4134,7 +4196,7 @@ export default function StudySakhaGroupsRN() {
 
       {membersSubTab === 'buddy' && (
         <View style={{ gap: 10 }}>
-          {MEMBERS_DATA.slice(3).map((m, idx) => (
+          {([] as GroupMemberRecord[]).slice(3).map((m, idx) => (
             <View key={m.id} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, gap: 10 }]}>
               <View style={styles.spaceBetweenRowTight}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -4357,7 +4419,7 @@ export default function StudySakhaGroupsRN() {
               onPress={() => setSelectionSheet('leaderboard-categories')}
               theme={theme}
             />
-            {MEMBERS_DATA.slice(0, 5).map((m, idx) => (
+                        {([] as GroupMemberRecord[]).slice(0, 5).map((m, idx) => (
               <View key={m.id} style={[styles.memberRowCard, { backgroundColor: idx === 0 ? theme.primarySoft : theme.surfaceElevated, borderColor: idx === 0 ? theme.primary + '50' : theme.border }]}>
                 <Text style={[styles.tabularText, { fontWeight: '800', color: theme.textSecondary, width: 22 }]}>#{idx + 1}</Text>
                 <MemberAvatar initials={m.initials} size="sm" status="none" theme={theme} />
@@ -4421,7 +4483,7 @@ export default function StudySakhaGroupsRN() {
         </View>
       )}
 
-      {insightsSubTab === 'universe' && (
+      {insightsSubTab === 'universe' && selectedGroup.dataSource !== 'backend' && (
         <View style={{ gap: 12 }}>
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, alignItems: 'center' }]}>
             <View style={[styles.badgePill, { backgroundColor: theme.tealSoft }]}>
@@ -4485,6 +4547,15 @@ export default function StudySakhaGroupsRN() {
           </View>
         </View>
       )}
+
+      {insightsSubTab === 'universe' && selectedGroup.dataSource === 'backend' && (
+        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, padding: 18 }]}>
+          <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '700' }}>Group growth data unavailable</Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>
+            Verified group insights will appear here when the backend provides them.
+          </Text>
+        </View>
+      )}
       </View>
       </CategoryTransition>
     </View>
@@ -4526,7 +4597,12 @@ export default function StudySakhaGroupsRN() {
       </ScrollView>
 
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, padding: 0, overflow: 'hidden' }]}>
-        {notifications
+        {notifications.length === 0 ? (
+          <View style={{ padding: 18 }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '700' }}>No group notifications</Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>Notifications from your verified group activity will appear here.</Text>
+          </View>
+        ) : notifications
           .filter((n) => (notifFilter === 'All' ? true : notifFilter === 'Unread' ? !n.read : n.type === notifFilter))
           .map((n, i) => (
             <View
@@ -4577,7 +4653,7 @@ export default function StudySakhaGroupsRN() {
     <Shell active="Groups" title="" scroll={false} contentPadding={0}>
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           {activeScreen === 'detail' ? (
@@ -4669,7 +4745,7 @@ export default function StudySakhaGroupsRN() {
           {activeRoom && (
             <View style={{ flex: 1, backgroundColor: theme.canvas, paddingTop: insets.top }}>
               <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={{ flex: 1 }}
               >
               {activeRoom.id !== 'silent-focus' && (
@@ -5065,7 +5141,7 @@ export default function StudySakhaGroupsRN() {
               {showExamReflection && activeRoom.id === 'exam-simulation' && (
                 <View style={[styles.modalBackdrop, { position: 'absolute', backgroundColor: theme.overlay, justifyContent: 'center', padding: 16 }]}>
                   <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                     style={{ width: '100%', alignItems: 'center' }}
                   >
                   <View style={[styles.modalSheet, { width: '100%', maxWidth: 480, backgroundColor: theme.surface, borderColor: theme.border, gap: 14 }]}>
@@ -5161,15 +5237,15 @@ export default function StudySakhaGroupsRN() {
           </View>
         )}
 
-      <Modal visible={showInviteModal} transparent animationType="fade" onRequestClose={() => setShowInviteModal(false)}>
+      {showInviteModal && selectedGroup ? <Modal visible transparent animationType="fade" onRequestClose={() => setShowInviteModal(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay, justifyContent: 'center' }]}>
           <View style={[styles.modalSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <View>
                 <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Invite to your group</Text>
-                <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 3 }}>
+                {selectedGroup.memberLimit !== undefined && selectedGroup.membersCount !== undefined && <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 3 }}>
                   {Math.max(0, selectedGroup.memberLimit - selectedGroup.membersCount)} seats left
-                </Text>
+                </Text>}
               </View>
               <Pressable onPress={() => setShowInviteModal(false)} style={styles.iconBtn} accessibilityLabel="Close invite dialog">
                 <X size={18} color={theme.textSecondary} />
@@ -5178,7 +5254,7 @@ export default function StudySakhaGroupsRN() {
             <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 14, marginBottom: 6 }}>Invite link</Text>
             <View style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
               <Text selectable numberOfLines={1} style={{ fontSize: 12, color: theme.textPrimary }}>
-                {selectedGroup.id === 'grp-ras-mains' ? 'https://studysakha.app/g/ras-mains-2026' : `https://studysakha.app/g/${selectedGroup.id}`}
+                {getGroupInviteUrl(selectedGroup.id) ?? 'Configure a verified invitation host to create a link.'}
               </Text>
             </View>
             <View style={styles.modalFooter}>
@@ -5187,9 +5263,11 @@ export default function StudySakhaGroupsRN() {
               </Pressable>
               <Pressable
                 onPress={() => {
-                  const inviteUrl = selectedGroup.id === 'grp-ras-mains'
-                    ? 'https://studysakha.app/g/ras-mains-2026'
-                    : `https://studysakha.app/g/${selectedGroup.id}`;
+                  const inviteUrl = getGroupInviteUrl(selectedGroup.id);
+                  if (!inviteUrl) {
+                    Alert.alert('Invite link unavailable', 'Set EXPO_PUBLIC_GROUP_INVITE_BASE_URL to the verified web invitation host for standalone builds.');
+                    return;
+                  }
                   void Clipboard.setStringAsync(inviteUrl).then(() => {
                     setShowInviteModal(false);
                     showToast('Invite link copied to clipboard!');
@@ -5200,12 +5278,33 @@ export default function StudySakhaGroupsRN() {
                 }}
                 style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
               >
-                <Text style={styles.primaryBtnText}>Copy</Text>
+                <Text style={styles.primaryBtnText}>Copy link</Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  const inviteUrl = getGroupInviteUrl(selectedGroup.id);
+                  if (!inviteUrl) {
+                    Alert.alert('Invite link unavailable', 'Set EXPO_PUBLIC_GROUP_INVITE_BASE_URL to the verified web invitation host for standalone builds.');
+                    return;
+                  }
+                  try {
+                    await Share.share({
+                      title: `Join ${selectedGroup.name} on Study Sakha`,
+                      message: `Join ${selectedGroup.name} on Study Sakha.\n${inviteUrl}`,
+                      url: inviteUrl,
+                    }, { dialogTitle: 'Share group invitation' });
+                  } catch (error) {
+                    if (!(error instanceof Error && error.name === 'AbortError')) showToast('Could not open the share sheet. Please copy the link instead.');
+                  }
+                }}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+              >
+                <Text style={styles.primaryBtnText}>Share</Text>
               </Pressable>
             </View>
           </View>
         </View>
-      </Modal>
+      </Modal> : null}
 
       {/* CREATE GROUP MULTI-STEP MODAL */}
       <Modal visible={showCreateModal} transparent animationType="slide" onRequestClose={() => setShowCreateModal(false)}>

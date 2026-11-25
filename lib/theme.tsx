@@ -194,6 +194,10 @@ type Ctx = {
   layoutDensity: 'compact' | 'comfortable';
 };
 
+export function resolveThemeScheme(mode: ThemeMode, system: 'light' | 'dark' | 'unspecified' | null | undefined): 'light' | 'dark' {
+  return mode === 'system' ? (system === 'dark' ? 'dark' : 'light') : mode;
+}
+
 const ThemeCtx = createContext<Ctx>({
   mode: 'system',
   scheme: 'light',
@@ -252,7 +256,7 @@ export function ThemeProvider({
   children: React.ReactNode;
 }) {
   const system = useColorScheme();
-  const scheme: 'light' | 'dark' = mode === 'system' ? (system === 'dark' ? 'dark' : 'light') : mode;
+  const scheme = resolveThemeScheme(mode, system);
   const value = useMemo<Ctx>(() => {
       const base = scheme === 'dark' ? darkPalette : lightPalette;
       const accent = /^#[0-9a-f]{6}$/i.test(customAccentHex ?? '')

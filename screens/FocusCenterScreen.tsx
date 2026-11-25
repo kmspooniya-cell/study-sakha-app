@@ -239,7 +239,6 @@ export default function FocusCenterScreen() {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [musicSelectionVisible, setMusicSelectionVisible] = useState(false);
   const selectedMusicId = storeState.settings?.focusMusicId ?? 'pure_cosmic_waves';
-  const [menuModalVisible, setMenuModalVisible] = useState(false);
   const [groupSelectModalVisible, setGroupSelectModalVisible] = useState(false);
   const [joinedGroups, setJoinedGroups] = useState<ActiveStudyGroup[]>([]);
   const [joinedGroupsLoading, setJoinedGroupsLoading] = useState(Boolean(userId));
@@ -480,6 +479,7 @@ export default function FocusCenterScreen() {
         getUserScopedStorageKey(STUDY_HISTORY_KEY, value.userId),
         record,
       );
+      dispatch({ type: 'upsertFocusHistory', record });
 
       dispatch({
         type: 'recordFocusStudy',
@@ -543,7 +543,6 @@ export default function FocusCenterScreen() {
       commitSession(null);
       setEndConfirmationVisible(false);
       setEarlyExitConfirmationVisible(false);
-      setMenuModalVisible(false);
       endRoomFocus();
       navigation.replace('FocusCompletion', {
         session: record,
@@ -811,37 +810,6 @@ export default function FocusCenterScreen() {
     });
   }, [commitSession, persistSession, publishRoomUpdate, storeState.settings?.longBreakMinutes, storeState.settings?.shortBreakMinutes]);
 
-  const selectPreset = useCallback((label: string, minutes: number) => {
-    const current = sessionRef.current;
-    if (!current || current.endRequested || current.pendingRecord) return;
-    const now = Date.now();
-    const focusedMilliseconds = getFocusedMilliseconds({
-      accumulatedMilliseconds: current.focusedMilliseconds,
-      startedAtMilliseconds: current.focusSegmentStartedAt,
-      plannedSeconds: current.plannedSeconds,
-      mode: current.mode,
-      phase: current.phase,
-    }, now);
-    const next: ActiveFocusSession = {
-      ...current,
-      mode: 'timer',
-      plannedSeconds: Math.floor(focusedMilliseconds / 1000) + minutes * 60,
-      focusedMilliseconds,
-      focusSegmentStartedAt: now,
-      phase: 'focus',
-      resumePhase: null,
-      breakElapsedMilliseconds: 0,
-      breakStartedAt: null,
-      sessionLabel: label,
-    };
-    commitSession(next);
-    void persistSession(next).catch((error: unknown) => {
-      console.error('Focus session state could not be persisted:', error);
-      setSaveError(error instanceof Error ? error.message : 'Focus session state could not be persisted.');
-    });
-    publishRoomUpdate(next, 'focusing', 'resume', now);
-  }, [commitSession, persistSession, publishRoomUpdate]);
-
   const resetSession = useCallback(() => {
     const current = sessionRef.current;
     if (!current || finalizing.current) return;
@@ -1065,10 +1033,6 @@ export default function FocusCenterScreen() {
         setMusicSelectionVisible(false);
         return true;
       }
-      if (menuModalVisible) {
-        setMenuModalVisible(false);
-        return true;
-      }
       if (groupSelectModalVisible) {
         setGroupSelectModalVisible(false);
         return true;
@@ -1081,7 +1045,7 @@ export default function FocusCenterScreen() {
       return true;
     });
     return () => subscription.remove();
-  }, [groupSelectModalVisible, menuModalVisible, musicSelectionVisible, navigation, requestEndSession, route.params?.roomFocus, tagModalVisible]));
+  }, [groupSelectModalVisible, musicSelectionVisible, navigation, requestEndSession, route.params?.roomFocus, tagModalVisible]));
 
   const currentSession = session;
   const focusedMilliseconds = currentSession
@@ -1145,6 +1109,9 @@ export default function FocusCenterScreen() {
         : 'focusing'
     : null;
   const reportPresenceError = useCallback((message: string) => {
+    // Supabase reports an intentional channel teardown as WebSocket close 1000.
+    // It is not a failure and must never interrupt the local timer.
+    if (/\b(?:socket|websocket)\s+closed\s*:\s*1000\b/i.test(message) || /\b1000\b/.test(message) && /closed|normal/i.test(message)) return;
     setGroupPresenceError(message);
   }, []);
   const activeSilentRoomGroupId = route.params?.roomFocus?.roomId === 'silent-focus'
@@ -1251,16 +1218,17 @@ export default function FocusCenterScreen() {
         <GeminiFocusTimer
           timer={focusTimerController}
           subject={activeSubject}
-          groupName={route.params?.roomFocus ? selectedGroupName : currentSession.groupId ? selectedGroupName : 'Solo focus'}
+          groupName="Group"
           onPause={togglePause}
           onStop={() => requestEndSession()}
           onBreak={toggleBreak}
-          onSelectPreset={selectPreset}
           onReset={resetSession}
           onSubjectChange={updateSessionSubject}
           onChooseStudyTag={() => setTagModalVisible(true)}
           onGroupPress={() => setGroupSelectModalVisible(true)}
-          onMoreOptions={() => setMenuModalVisible(true)}
+          onMusicPress={() => setMusicSelectionVisible(true)}
+          blockedAppsCount={blockedAppsCount}
+          onManageBlockedApps={() => setBlockedAppsCount((count) => count === 5 ? 8 : 5)}
         />
         <FocusMusicSelection
           visible={musicSelectionVisible}
@@ -1317,56 +1285,6 @@ export default function FocusCenterScreen() {
                   <Txt size={13} weight="700" color="#FFFFFF">Add</Txt>
                 </Pressable>
               </View>
-            </View>
-          </View>
-        </Modal>
-
-        <Modal animationType="fade" transparent visible={menuModalVisible} onRequestClose={() => setMenuModalVisible(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.modalHeader}>
-                <Txt size={18} weight="800">Focus Settings</Txt>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close focus settings" onPress={() => setMenuModalVisible(false)} style={styles.closeButton}>
-                  <Ionicons name="close" size={20} color={colors.textMuted} />
-                </Pressable>
-              </View>
-              <View style={[styles.menuRow, { backgroundColor: colors.surfaceAlt }]}>
-                <View style={styles.menuLabel}>
-                  <Ionicons name="musical-notes-outline" size={18} color={colors.blue} />
-                  <Txt size={13} weight="700" numberOfLines={1}>
-                    {selectedMusicId === 'pure_cosmic_waves' ? 'Pure Cosmic Waves' : 'Deep Positive Energy'}
-                  </Txt>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setMenuModalVisible(false);
-                    setMusicSelectionVisible(true);
-                  }}
-                  style={styles.menuAction}
-                >
-                  <Txt size={12} weight="700" color={colors.blue}>Choose</Txt>
-                </Pressable>
-              </View>
-              <View style={[styles.menuRow, { backgroundColor: colors.surfaceAlt }]}>
-                <View style={styles.menuLabel}>
-                  <Ionicons name="color-palette-outline" size={18} color={colors.violet} />
-                  <Txt size={13} weight="700">Themes ({storeState.settings?.focusThemeId ?? 'obsidian'})</Txt>
-                </View>
-                <Pressable accessibilityRole="button" onPress={() => dispatch({ type: 'settings', patch: { focusThemeId: (storeState.settings?.focusThemeId ?? 'obsidian') === 'obsidian' ? 'misty-mountain' : 'obsidian' } })} style={styles.menuAction}>
-                  <Txt size={12} weight="700" color={colors.violet}>Switch</Txt>
-                </Pressable>
-              </View>
-              <View style={[styles.menuRow, { backgroundColor: colors.surfaceAlt }]}>
-                <View style={styles.menuLabel}>
-                  <Ionicons name="shield-outline" size={18} color={colors.danger} />
-                  <Txt size={13} weight="700">Blocked Apps ({blockedAppsCount})</Txt>
-                </View>
-                <Pressable accessibilityRole="button" onPress={() => setBlockedAppsCount((count) => count === 5 ? 8 : 5)} style={styles.menuAction}>
-                  <Txt size={12} weight="700" color={colors.danger}>Manage</Txt>
-                </Pressable>
-              </View>
-              <Button label="Done" full onPress={() => setMenuModalVisible(false)} />
             </View>
           </View>
         </Modal>

@@ -1370,7 +1370,7 @@ function CoverPhotoModal({ visible, currentName, onSelect, onClose, theme }) {
 /* ========================================================================= */
 
 export default function App() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, plannerRecoveryCount, plannerRecoveryIssues, retryPlannerRecovery } = useStore();
   const navigation = useNavigation<AppNavigation>();
   const { width, height } = useWindowDimensions();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0 };
@@ -3478,6 +3478,16 @@ export default function App() {
   return (
     <Shell active="StudyPlanner" title="" scroll={false} contentPadding={0}>
       <View style={[styles.root, { backgroundColor: theme.bgBody }]}>
+      {plannerRecoveryCount > 0 && (
+        <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: isDark ? '#422006' : '#FEF3C7' }}>
+          <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>Some planner entries need review</Text>
+          <Text style={{ color: theme.textBody, marginTop: 4 }}>{plannerRecoveryCount} invalid saved entr{plannerRecoveryCount === 1 ? 'y was' : 'ies were'} preserved in recovery storage. Valid entries are available below.</Text>
+          {plannerRecoveryIssues.map((issue) => <Text key={issue} style={{ color: theme.textBody, marginTop: 4 }}>{issue}</Text>)}
+          <TouchableOpacity accessibilityRole="button" onPress={retryPlannerRecovery} style={{ alignSelf: 'flex-start', marginTop: 8 }}>
+            <Text style={{ color: theme.blue600, fontWeight: '700' }}>Retry planner data recovery</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {/* =================================================================== */}
       {/* MAIN SCROLLABLE PLANNER CONTENT                                     */}
       {/* =================================================================== */}
@@ -4202,7 +4212,7 @@ export default function App() {
       {/* =================================================================== */}
       <Modal visible={sheetMounted} transparent animationType="none" onRequestClose={closeBottomSheet}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}
         >
           <Animated.View

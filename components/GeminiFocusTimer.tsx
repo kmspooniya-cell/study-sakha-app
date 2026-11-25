@@ -30,12 +30,6 @@ import type { ThemeDefinition, ThemeId } from '../types';
 import { useStore } from '../lib/store';
 
 const SUBJECTS = ['No subject selected', 'Mathematics', 'Physics', 'Computer Science', 'Design & Art', 'Reading'];
-const SESSION_PRESETS = [
-  { label: 'ras • Active session', minutes: 25 },
-  { label: 'Deep Focus', minutes: 50 },
-  { label: 'Quick Sprint', minutes: 15 },
-  { label: 'Evening Study', minutes: 45 },
-];
 
 export type FocusTimerController = {
   totalSeconds: number;
@@ -53,12 +47,13 @@ type Props = {
   onPause: () => void;
   onStop: () => void;
   onBreak: () => void;
-  onSelectPreset: (label: string, minutes: number) => void;
   onReset: () => void;
   onSubjectChange: (subject: string) => void;
   onChooseStudyTag: () => void;
   onGroupPress: () => void;
-  onMoreOptions: () => void;
+  onMusicPress: () => void;
+  blockedAppsCount: number;
+  onManageBlockedApps: () => void;
 };
 
 function formatTime(seconds: number) {
@@ -124,32 +119,6 @@ function WebThemeCanvas({ canvas, width, height }: { canvas: HTMLCanvasElement |
   return <View ref={host} style={{ width, height, overflow: 'hidden' }} />;
 }
 
-function ThemeArtwork({
-  themeId,
-  width,
-  height,
-  active,
-  motion,
-  preview = false,
-}: {
-  themeId: ThemeId;
-  width: number;
-  height: number;
-  active: boolean;
-  motion: boolean;
-  preview?: boolean;
-}) {
-  const picture = useProceduralPicture(themeId, width, height, active, motion, preview);
-  if (typeof document !== 'undefined') {
-    return <WebThemeCanvas canvas={picture as unknown as HTMLCanvasElement | null} width={width} height={height} />;
-  }
-  return (
-    <Canvas style={{ width, height }} pointerEvents="none">
-      {picture ? <Picture picture={picture as never} /> : null}
-    </Canvas>
-  );
-}
-
 const MainArtwork = React.memo(function MainArtwork({ themeId, width, height, motion }: {
   themeId: ThemeId;
   width: number;
@@ -208,48 +177,6 @@ function GlassLayer({ target, tint, intensity = 24 }: { target: React.RefObject<
   );
 }
 
-function ThemeCard({
-  theme,
-  width,
-  active,
-  galleryOpen,
-  motion,
-  onPress,
-}: {
-  theme: ThemeDefinition;
-  width: number;
-  active: boolean;
-  galleryOpen: boolean;
-  motion: boolean;
-  onPress: () => void;
-}) {
-  const artHeight = theme.id === 'obsidian' ? 144 : 176;
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Apply ${theme.name} theme`} onPress={onPress} style={[styles.themeCard, { backgroundColor: theme.cardColor, borderColor: active ? theme.accent : 'rgba(255,255,255,0.15)', width }]}>
-      <View style={{ height: artHeight, overflow: 'hidden', backgroundColor: theme.cardColor }}>
-        <ThemeArtwork themeId={theme.id} width={width} height={artHeight} active={galleryOpen} motion={motion} preview />
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(4,5,12,0.2)' }]} />
-        <View pointerEvents="none" style={[styles.moodTag, { borderColor: `${theme.accent}55` }]}>
-          <Text style={styles.moodText}>{theme.mood}</Text>
-        </View>
-        {active ? (
-          <View pointerEvents="none" style={[styles.activeBadge, { borderColor: `${theme.accent}99`, backgroundColor: `${theme.accent}30` }]}>
-            <View style={[styles.badgeDot, { backgroundColor: theme.accent }]} />
-            <Text style={[styles.badgeText, { color: theme.accent }]}>Active</Text>
-          </View>
-        ) : null}
-      </View>
-      <View style={styles.themeCardBody}>
-        <View style={styles.themeCopy}>
-          <Text style={styles.themeTitle}>{theme.name}</Text>
-          <Text style={styles.themeDescription}>{theme.description}</Text>
-        </View>
-        <Text style={styles.applyText}>{active ? 'Applied' : 'Apply'}</Text>
-      </View>
-    </Pressable>
-  );
-}
-
 export default function GeminiFocusTimer({
   timer,
   subject,
@@ -257,12 +184,13 @@ export default function GeminiFocusTimer({
   onPause,
   onStop,
   onBreak,
-  onSelectPreset,
   onReset,
   onSubjectChange,
   onChooseStudyTag,
   onGroupPress,
-  onMoreOptions,
+  onMusicPress,
+  blockedAppsCount,
+  onManageBlockedApps,
 }: Props) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -271,7 +199,6 @@ export default function GeminiFocusTimer({
   const themeId = Object.prototype.hasOwnProperty.call(themeById, focusSettings.focusThemeId)
     ? focusSettings.focusThemeId as ThemeId
     : 'obsidian';
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const motionEnabled = !focusSettings.reduceFocusMotion && focusSettings.focusAnimationIntensity !== 'minimal';
@@ -292,7 +219,6 @@ export default function GeminiFocusTimer({
   };
 
   const ringSize = Math.min(width * 0.8, 310, Math.max(220, height * 0.46));
-  const galleryWidth = Math.min(width - 28, 520);
   const progress = timer.totalSeconds > 0 ? timer.remainingSeconds / timer.totalSeconds : 0;
 
   useEffect(() => () => {
@@ -311,11 +237,6 @@ export default function GeminiFocusTimer({
     showToast(`Theme changed to ${themeById[nextTheme].name}`);
   };
 
-  const choosePreset = (label: string, minutes: number) => {
-    onSelectPreset(label, minutes);
-    setDropdown(null);
-    showToast(`${label} (${minutes}m)`);
-  };
 
   const resetTimer = () => {
     onReset();
@@ -343,34 +264,13 @@ export default function GeminiFocusTimer({
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <View style={[styles.shell, { maxWidth: 430, paddingTop: Math.max(8, Math.min(insets.top, 20)), paddingBottom: 12 }]}>
             <View style={styles.header}>
-              <Pressable onPress={onGroupPress} accessibilityRole="button" accessibilityLabel={`Select study group, ${groupName}`} style={[styles.groupPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}>
+              <View style={styles.headerSpacer} />
+              <Pressable onPress={onGroupPress} accessibilityRole="button" accessibilityLabel="Select study group" style={[styles.groupPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}> 
                 <GlassLayer target={blurTarget} tint={theme.pill} />
                 <Ionicons name="people-outline" size={15} color="#fff" />
-                <Text numberOfLines={1} style={styles.groupText}>{groupName}</Text>
+                <Text numberOfLines={1} style={styles.groupText}>Group</Text>
               </Pressable>
-              <View style={styles.headerCenter}>
-                <Pressable onPress={() => setDropdown(dropdown === 'session' ? null : 'session')} style={[styles.sessionPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}>
-                  <GlassLayer target={blurTarget} tint={theme.pill} />
-                  <View style={[styles.statusDot, { backgroundColor: theme.accent }]} />
-                  <Text numberOfLines={1} style={styles.sessionText}>{timer.sessionLabel}</Text>
-                  <Ionicons name={dropdown === 'session' ? 'chevron-up' : 'chevron-down'} size={15} color="rgba(255,255,255,0.68)" />
-                </Pressable>
-                {dropdown === 'session' ? (
-                  <View style={styles.sessionDropdown}>
-                    <Text style={styles.dropdownHeading}>SESSION PRESETS</Text>
-                    {SESSION_PRESETS.map((preset) => (
-                      <Pressable key={preset.label} onPress={() => choosePreset(preset.label, preset.minutes)} style={styles.dropdownRow}>
-                        <Text style={styles.dropdownText}>{preset.label}</Text>
-                        <Text style={styles.dropdownHint}>{preset.minutes}m</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-              <View style={[styles.paletteFrame, { borderColor: theme.pillBorder }]}>
-                <IconButton icon="color-palette-outline" label="Open Theme Gallery" onPress={() => setGalleryOpen(true)} accent="#fff" border="transparent" blurTarget={blurTarget} surface={theme.pill} />
-                <View style={[styles.paletteDot, { backgroundColor: theme.accent }]} />
-              </View>
+              <View style={styles.headerSpacer} />
             </View>
 
             <View style={styles.centerSection}>
@@ -405,13 +305,6 @@ export default function GeminiFocusTimer({
                 </View>
               </View>
 
-              <Pressable onPress={() => setGalleryOpen(true)} style={[styles.themePill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}>
-                <GlassLayer target={blurTarget} tint={theme.pill} />
-                <View style={[styles.statusDot, { backgroundColor: theme.accent }]} />
-                <Text style={[styles.themeLabel, { color: theme.secondary }]}>Theme:</Text>
-                <Text style={styles.themeName}>{theme.name}</Text>
-                <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.7)" />
-              </Pressable>
             </View>
 
             <View style={styles.footer}>
@@ -435,55 +328,10 @@ export default function GeminiFocusTimer({
         </View>
       ) : null}
 
-      <Modal visible={galleryOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setGalleryOpen(false)}>
-        <View style={styles.modalRoot}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setGalleryOpen(false)} />
-          <View style={[styles.gallerySheet, { width: galleryWidth, maxHeight: height * 0.88, paddingBottom: Math.max(insets.bottom, 12) }]}>
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.sheetHeaderRow}>
-                <View>
-                  <View style={styles.galleryTitleRow}>
-                    <Text style={styles.sheetTitle}>Theme Gallery</Text>
-                    <Text style={styles.themeCount}>7 Themes</Text>
-                  </View>
-                  <Text style={styles.sheetSubtitle}>Real-time & still procedural environments</Text>
-                </View>
-                <Pressable onPress={() => setGalleryOpen(false)} accessibilityLabel="Close Theme Gallery" style={styles.closeButton}>
-                  <Ionicons name="close" size={19} color="rgba(255,255,255,0.85)" />
-                </Pressable>
-              </View>
-            </View>
-            <ScrollView contentContainerStyle={styles.galleryList} showsVerticalScrollIndicator>
-              {Object.values(themeById).map((definition) => (
-                <ThemeCard
-                  key={definition.id}
-                  theme={definition}
-                  width={galleryWidth - 32}
-                  active={themeId === definition.id}
-                  galleryOpen={galleryOpen}
-                  motion={motionEnabled}
-                  onPress={() => applyTheme(definition.id)}
-                />
-              ))}
-            </ScrollView>
-            <View style={styles.galleryFooter}>
-              <Pressable onPress={() => { setGalleryOpen(false); setZenMode(true); }} style={styles.previewButton}>
-                <Ionicons name="sparkles-outline" size={15} color="#fff" />
-                <Text style={styles.previewButtonText}>Preview Full Art</Text>
-              </Pressable>
-              <Pressable onPress={() => setGalleryOpen(false)} style={styles.doneButton}>
-                <Text style={styles.doneText}>Done</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       <Modal visible={settingsOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setSettingsOpen(false)}>
         <View style={styles.modalRoot}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSettingsOpen(false)} />
-          <View style={[styles.settingsSheet, { width: Math.min(width - 32, 380), marginBottom: Math.max(insets.bottom, 10) }]}>
+          <View style={[styles.settingsSheet, { width: Math.min(width - 32, 420), maxHeight: height * 0.82, marginBottom: Math.max(insets.bottom, 10) }]}> 
             <View style={styles.sheetHandle} />
             <View style={styles.settingsHeader}>
               <Text style={styles.settingsTitle}>Focus & Visual Settings</Text>
@@ -491,6 +339,20 @@ export default function GeminiFocusTimer({
                 <Ionicons name="close" size={19} color="rgba(255,255,255,0.85)" />
               </Pressable>
             </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+            <Text style={styles.sectionLabel}>Theme</Text>
+            {Object.values(themeById).map((definition) => (
+              <Pressable key={definition.id} onPress={() => applyTheme(definition.id)} style={styles.menuRow}>
+                <Text style={styles.settingTitle}>{definition.name}</Text>
+                {themeId === definition.id ? <Ionicons name="checkmark-circle" size={19} color={definition.accent} /> : null}
+              </Pressable>
+            ))}
+            <Text style={styles.sectionLabel}>Audio</Text>
+            <Pressable onPress={onMusicPress} style={styles.menuRow}>
+              <Text style={styles.settingTitle}>Music</Text>
+              <Text style={styles.resetText}>Choose</Text>
+            </Pressable>
+            <Text style={styles.sectionLabel}>Visual Settings</Text>
             <View style={styles.settingRow}>
               <View style={styles.settingCopy}>
                 <Text style={styles.settingTitle}>Living Atmosphere</Text>
@@ -507,12 +369,16 @@ export default function GeminiFocusTimer({
                 accessibilityLabel="Living Atmosphere"
               />
             </View>
+            <Text style={styles.sectionLabel}>Timer</Text>
             <Pressable onPress={resetTimer} style={styles.resetButton}>
               <Text style={styles.resetText}>Reset Timer to {focusSettings.focusDurationMinutes}:00</Text>
             </Pressable>
-            <Pressable onPress={() => { setSettingsOpen(false); onMoreOptions(); }} style={styles.moreOptionsButton}>
-              <Text style={styles.moreOptionsText}>More Focus Center Options</Text>
+            <Text style={styles.sectionLabel}>Blocked Apps</Text>
+            <Pressable onPress={onManageBlockedApps} style={styles.menuRow}>
+              <Text style={styles.settingTitle}>Blocked Apps ({blockedAppsCount})</Text>
+              <Text style={styles.resetText}>Manage</Text>
             </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -525,6 +391,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   shell: { flex: 1, width: '100%', alignSelf: 'center', paddingHorizontal: 20, justifyContent: 'space-between' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, zIndex: 5 },
+  headerSpacer: { width: 82, minHeight: 44 },
   headerCenter: { flex: 1, alignItems: 'center', position: 'relative', zIndex: 6 },
   groupPill: { width: 82, minHeight: 44, paddingHorizontal: 8, borderRadius: 24, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, overflow: 'hidden' },
   groupText: { maxWidth: 50, color: '#fff', fontSize: 10, fontFamily: 'Inter_600SemiBold' },
@@ -592,6 +459,8 @@ const styles = StyleSheet.create({
   doneText: { color: '#0d0f15', fontFamily: 'Inter_700Bold', fontSize: 11 },
   settingsSheet: { backgroundColor: 'rgba(18,21,32,0.98)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', borderRadius: 24, padding: 18, marginBottom: 12 },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sectionLabel: { color: 'rgba(255,255,255,0.48)', fontSize: 10, fontFamily: 'Inter_700Bold', letterSpacing: 1, marginTop: 10, marginBottom: 6 },
+  menuRow: { minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   settingsTitle: { color: '#fff', fontSize: 15, fontFamily: 'Inter_700Bold' },
   settingRow: { minHeight: 72, borderRadius: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   settingCopy: { flex: 1 },

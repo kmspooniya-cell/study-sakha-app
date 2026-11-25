@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { State } from '../lib/store';
 
@@ -51,13 +52,15 @@ function setupModal() {
     task: null,
   };
   return render(
-    <FocusSessionSetupModal
-      visible
-      value={value}
-      onChange={jest.fn()}
-      onClose={jest.fn()}
-      onContinue={jest.fn()}
-    />,
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 24, right: 0, bottom: 20, left: 0 } }}>
+      <FocusSessionSetupModal
+        visible
+        value={value}
+        onChange={jest.fn()}
+        onClose={jest.fn()}
+        onContinue={jest.fn()}
+      />
+    </SafeAreaProvider>,
   );
 }
 
