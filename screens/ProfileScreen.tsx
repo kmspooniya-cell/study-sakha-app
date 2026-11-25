@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  Dimensions,
   Easing,
   Image,
   KeyboardAvoidingView,
@@ -16,6 +15,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -111,7 +111,6 @@ interface AnimatedBottomSheetProps {
 // CONSTANTS & THEME TOKENS
 // ============================================================================
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -284,9 +283,10 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
   maxHeightRatio = 0.9,
   children,
 }) => {
+  const { height: screenHeight } = useWindowDimensions();
   const [mounted, setMounted] = useState(visible);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const translateY = useRef(new Animated.Value(screenHeight)).current;
   const theme = isDark ? DARK_THEME : LIGHT_THEME;
 
   useEffect(() => {
@@ -313,7 +313,7 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
-          toValue: SCREEN_HEIGHT,
+          toValue: screenHeight,
           duration: 260,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
@@ -322,7 +322,7 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
         setMounted(false);
       });
     }
-  }, [visible, mounted, backdropOpacity, translateY]);
+  }, [visible, mounted, backdropOpacity, screenHeight, translateY]);
 
   if (!mounted) return null;
 
@@ -355,7 +355,7 @@ const AnimatedBottomSheet: React.FC<AnimatedBottomSheetProps> = ({
               {
                 backgroundColor: theme.sheetBg,
                 borderTopColor: theme.cardBorder,
-                maxHeight: SCREEN_HEIGHT * maxHeightRatio,
+                maxHeight: screenHeight * maxHeightRatio,
                 transform: [{ translateY }],
               },
             ]}
@@ -3729,7 +3729,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   editScroll: {
-    maxHeight: SCREEN_HEIGHT * 0.65,
+    maxHeight: '65%',
   },
   editScrollContent: {
     paddingHorizontal: 20,
@@ -3956,7 +3956,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
     padding: 22,
-    maxHeight: SCREEN_HEIGHT * 0.85,
+    maxHeight: '85%',
     borderWidth: 1,
     borderColor: 'rgba(226, 232, 240, 0.8)',
     shadowColor: '#0F172A',

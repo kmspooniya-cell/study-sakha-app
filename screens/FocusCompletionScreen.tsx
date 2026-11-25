@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Dimensions,
   Easing,
   KeyboardAvoidingView,
   Modal,
@@ -15,6 +14,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Svg, {
@@ -103,7 +103,6 @@ interface ConfettiParticle {
 // CONSTANTS & EXACT DESIGN TOKENS (1:1 MATCH WITH HTML/TAILWIND ORIGINAL)
 // ============================================================================
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SAKHA = {
   50: '#ecfdf5',
@@ -268,6 +267,7 @@ function FocusCompletionContent() {
   const { params } = useRoute<AppRoute<'FocusCompletion'>>();
   const { state, streak, dispatch } = useStore();
   const { mode, scheme } = useTheme();
+  const { width } = useWindowDimensions();
   const { session } = params;
   const userId = state.user?.id;
   const hasReachedPlannedDuration = session.plannedSeconds === null ||
@@ -1034,7 +1034,7 @@ function FocusCompletionContent() {
           <View style={styles.proofHeroRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.proofHeroKicker, { color: subText }]}>FOCUSED TIME</Text>
-              <Text style={[styles.proofBigTime, { color: primaryText }]}>{cfg.time}</Text>
+              <Text style={[styles.proofBigTime, { color: primaryText, fontSize: width < 360 ? 34 : 40 }]}>{cfg.time}</Text>
               <View style={styles.proofChipsWrap}>
                 <View
                   style={[styles.proofChip, { backgroundColor: chipBg, borderColor: chipBorder }]}
@@ -2984,7 +2984,7 @@ const styles = StyleSheet.create({
   },
   proofBigTime: {
     fontFamily: FONT_MONO,
-    fontSize: SCREEN_WIDTH < 360 ? 34 : 40,
+    fontSize: 40,
     lineHeight: 44,
     fontWeight: '700',
     letterSpacing: -1,

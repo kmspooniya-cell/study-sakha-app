@@ -3,7 +3,7 @@
     "name": "Study Sakha",
     "slug": "agon-preview",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/mascot/study-sakha-mascot.png",
     "userInterfaceStyle": "automatic",
     "ios": {
