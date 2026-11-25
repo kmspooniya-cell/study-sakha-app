@@ -134,5 +134,58 @@ Created [stabilityFailureScenarios.test.tsx](file:///workspaces/study-sakha-app/
 3. **Remaining Non-Blocking Risks (P2):**
    - `app.json` still uses placeholder package ID `com.anonymous.agonpreview` (`withFocusLock.js` now supports package rewrites if renamed, though changing package ID affects store listing/credentials).
    - `Groups` deep link (`groups/invite/:inviteGroupId`) and parameterized deep links (`TestPlayer`, `TestResult`, `BookReader`, `FocusCompletion`) remain partial on cold link open.
-   - `FocusCenterScreen` 1s `clockNow` and `DashboardScreen` 16ms `anim` intervals re-render screen trees during active animations/ticks.
-   - `test/studyPlannerFilters.test.tsx` emits a React `act(...)` warning from `Animated.parallel` completion callback in `StudyPlannerScreen.tsx:1600`.
+
+### Release Env & Release Config Findings
+- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are present in `.env` (values intentionally omitted).
+- `EXPO_PUBLIC_API_BASE_URL` is **missing** from `.env`, `.env.local`, and the current shell (`node --env-file=.env scripts/validate-release-config.cjs production-apk` exits `1`: `Missing required production-apk build environment variable(s): EXPO_PUBLIC_API_BASE_URL`).
+
+---
+
+## 7. Android APK Release Gate Verification (Pass 3)
+
+### Final Release Gate Status: **NOT READY**
+
+Study Sakha's JavaScript/TypeScript layer, Express server, and automated Jest regression suite (35/35 suites, 156/156 tests) pass, and Gradle's plugin/autolinking configuration evaluates cleanly. However, the application is **NOT READY** for Android APK distribution until native Android compilation, R8 release packaging, `EXPO_PUBLIC_API_BASE_URL` configuration, and on-device FocusLock verification are executed.
+
+### 7.1 Pre-Build Toolchain & Configuration Inspection
+- **Framework / SDK:** Expo `~57.0.31`, React Native `0.86.3`, React `19.2.3`, TypeScript `~6.0.3`
+- **Gradle Wrapper:** `gradle-9.3.1-bin.zip` (cached locally in `~/.gradle/wrapper/dists/`)
+- **JDK:** OpenJDK `25.0.5.0.2` (LTS)
+- **Resolved Android Toolchain (`[ExpoRootProject]` / `react-native/gradle/libs.versions.toml`):**
+  - Android Gradle Plugin (`agp`): `8.12.0`
+  - Kotlin / KSP: `2.1.20` / `2.1.20-2.0.1`
+  - `compileSdk`: `36`, `targetSdk`: `36`, `minSdk`: `24`, `buildTools`: `36.0.0`, `ndkVersion`: `27.1.12297006`
+- **Package / Namespace:** `com.anonymous.agonpreview` (`app.json`, `android/app/build.gradle`, `FocusLock*.kt`, `AndroidManifest.xml`)
+- **Native Template Sync:** `diff -rq native/focus-lock/android android/app/src/main/` confirms all 6 Kotlin files (`FocusLockModule.kt`, `FocusLockPackage.kt`, `FocusLockAccessibilityService.kt`, `FocusLockBlockingActivity.kt`, `FocusLockAlarm.kt`, `FocusLockBootReceiver.kt`) and `res/xml/focus_lock_service.xml` match tracked templates.
+- **`npx expo-doctor`:** Failed inside sandbox offline environment (`EAI_AGAIN registry.npmjs.org` — `expo-doctor` is not preinstalled locally).
+
+### 7.2 Build Environment & Disk/RAM Capacity
+- **`ANDROID_HOME` / `ANDROID_SDK_ROOT`:** Unset; no Android SDK or `local.properties` exists on disk.
+- **Codespace Resources:** `6.4 GB` free on `/workspaces/study-sakha-app` (`79%` used), `37 GB` free on `/tmp`, `7.8 GiB` total RAM (`2.9 GiB` available, `0 B` swap).
+- **Assessment:** Installing Android SDK `platforms;android-36`, `build-tools;36.0.0`, `platform-tools`, and `ndk;27.1.12297006` locally plus compiling Hermes/Skia/Reanimated C++ (`newArchEnabled=true`) for 4 ABIs risks exhausting workspace disk/RAM. Recommended minimum setup is either **EAS Cloud Builds** (`eas.json`) or a dedicated CI runner (`ubuntu-latest` with Android SDK + NDK 27.1.12297006 + `ANDROID_HOME`). If installing locally, place SDK under `/tmp/android-sdk` with `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"` and build single-ABI `-PreactNativeArchitectures=arm64-v8a`.
+
+### 7.3 Gradle Build Attempt & Result
+- **Command:** `cd android && ./gradlew assembleDebug --no-daemon`
+- **Result:** **FAIL** (`BUILD FAILED in 53s`)
+- **Plugin/Configure Phase:** Succeeded for `:gradle-plugin:*`, `:expo-gradle-plugin:*`, `:expo-module-gradle-plugin`, and `[ExpoRootProject]`.
+- **Exact Blocker:** Failed evaluating `:app` at `android/build.gradle:24`:
+  `SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable or by setting the sdk.dir path in your project's local properties file at '/workspaces/study-sakha-app/android/local.properties'.`
+- **Generated APK Path & Size:** None (compilation halted before native build).
+
+### 7.4 Native FocusLock Lifecycle & Race Verification
+Code-level and concurrency verification completed across all 12 native areas (live Android runtime remains **NOT VERIFIED**):
+- **Registration & Bridge Lifecycle:** `FocusLockPackage` registered in `MainApplication.kt`; `invalidate()` clears `instance`; `emit()` checks `reactContext.hasActiveReactInstance()` and catches exceptions; `copyMap` prevents `ObjectAlreadyConsumedException`; `getRemainingTime` returns `Double`.
+- **Concurrency & Races:** `FocusLockModule.sessionLock` serializes `SESSION_KEY` and blocked-attempt `SharedPreferences` reads/writes across `mqt_native_modules` and Android main thread (`FocusLockAlarm.Receiver`, `FocusLockAccessibilityService`).
+- **Alarm Identity, Duplicates & Expiry:** `EXTRA_SESSION_ID` ties alarms to a specific session ID; `Receiver.onReceive` verifies `status == "active"`, matching `sessionId`, and `endsAt <= now + 5000ms` inside `sessionLock` before removing `SESSION_KEY`; `startBlockingSession`, `getActiveSession`, and `getBlockedPackages` clear expired sessions; `FocusLockBootReceiver` only reschedules active unexpired sessions.
+
+### 7.5 Release Packaging, Assets & Device Test Plan
+- **EAS `production-apk` Profile (`eas.json`):** `buildType: "apk"`, ABIs `armeabi-v7a,arm64-v8a,x86,x86_64`, `credentialsSource: "remote"`, `enableMinifyInReleaseBuilds=true`, `enableShrinkResourcesInReleaseBuilds=true`, `enableBundleCompression=true`.
+- **Signing:** Local `android/app/build.gradle` `release` uses `signingConfigs.debug` (local test builds only); production signing uses EAS remote credentials.
+- **Assets:** `assets/audio_library/` (`deep_positive_energy.mp3` 5.8M, `pure_cosmic_waves.mp3` 9.4M) and `assets/mascot/study-sakha-mascot.png` (2.1M) verified present.
+- **Device / Emulator & Logcat Results:** **NOT VERIFIED** (no device/emulator attached). Run the 14-step device checklist (APK install → cold launch → login/dashboard → FocusLock start → block app → blocked-attempt tracking → backgrounding → process kill → active session recovery → stop/expiry → reboot recovery → offline/reconnect → rapid navigation → `adb logcat *:E AndroidRuntime:E StudySakha:V`) on a real Android 12–15 device prior to distribution.
+
+### 7.6 Production Release Blockers
+1. **Android SDK / Native Compilation (`BLOCKER`):** Execute `./gradlew assembleDebug` (or `npx eas-cli@latest build --platform android --profile production-apk`) to verify Kotlin compilation, C++ NDK linking, and R8 release minification.
+2. **Missing `EXPO_PUBLIC_API_BASE_URL` (`BLOCKER`):** Configure an absolute `https://` backend URL (without embedded credentials) in EAS environment variables and verify `node scripts/validate-release-config.cjs production-apk` exits `0`.
+3. **On-Device FocusLock & Logcat QA (`BLOCKER`):** Execute the 14-step Android device test plan on physical hardware/emulator, including `AccessibilityService`, `FocusLockBlockingActivity`, `AlarmManager`, and `BOOT_COMPLETED` behavior.
+
