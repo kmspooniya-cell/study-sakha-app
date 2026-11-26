@@ -1,0 +1,48 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - settings
+  - regression
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Open menu"
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "ALL SETTINGS CATEGORIES (12)"
+    timeout: 10000
+- tapOn: "Appearance & Personalization"
+- assertVisible: "App Appearance (Primary Owner)"
+- tapOn: "Back to previous Settings screen"
+- assertVisible: "ALL SETTINGS CATEGORIES (12)"
+- tapOn: "Learning & Study Preferences"
+- assertVisible: "Study Profile Presets"
+- tapOn: "Back to previous Settings screen"
+- assertVisible: "ALL SETTINGS CATEGORIES (12)"
+- back
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 10000
+- repeat:
+    times: 10
+    commands:
+      - tapOn: "Open menu"
+      - extendedWaitUntil:
+          visible: "Settings"
+          timeout: 5000
+      - tapOn: "Settings"
+      - extendedWaitUntil:
+          visible: "ALL SETTINGS CATEGORIES (12)"
+          timeout: 10000
+      - back
+      - extendedWaitUntil:
+          visible: "Make today count."
+          timeout: 10000
+- tapOn: "Open menu"
+- assertVisible: "Offline downloads"
+- assertVisible: "Settings"
+- takeScreenshot: settings-10x-drawer-responsive
+- swipe:
+    direction: LEFT
+    duration: 400

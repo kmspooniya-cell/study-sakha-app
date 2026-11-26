@@ -1,0 +1,20 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - dashboard
+  - navigation
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Library"
+- assertVisible: "Library"
+- tapOn: "Groups"
+- assertVisible: "Study Groups"
+- tapOn: "Sakha AI"
+- assertVisible: "Sakha AI"
+- tapOn: "Profile"
+- assertVisible: "Open Full Statistics"
+- tapOn: "Home"
+- assertVisible: "Make today count."
+- takeScreenshot: bottom-nav-complete

@@ -1,0 +1,18 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - dashboard
+  - profile
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Open menu"
+- assertVisible: "View profile"
+- tapOn: "View profile"
+- extendedWaitUntil:
+    visible: "Open Full Statistics"
+    timeout: 10000
+- takeScreenshot: profile-from-drawer
+- tapOn: "Home"
+- assertVisible: "Make today count."

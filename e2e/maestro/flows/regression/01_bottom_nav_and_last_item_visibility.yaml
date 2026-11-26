@@ -1,0 +1,23 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - regression
+  - layout
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Profile"
+- scrollUntilVisible:
+    element: "Open Full Statistics"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "Open Full Statistics"
+- scrollUntilVisible:
+    element: "Sign Out"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "Sign Out"
+- assertVisible:
+    id: "app-bottom-nav"
+- takeScreenshot: profile-bottom-nav-no-overlap

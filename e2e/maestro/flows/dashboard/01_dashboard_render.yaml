@@ -1,0 +1,15 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - dashboard
+  - smoke
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- assertVisible: "TODAY'S MISSION"
+- assertVisible: "Resume learning"
+- assertVisible: "Add Task"
+- assertVisible: "Focus Lock"
+- assertVisible: "Focus Timer"
+- takeScreenshot: dashboard-rendered

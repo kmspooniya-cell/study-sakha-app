@@ -1,0 +1,54 @@
+name: Playwright Web E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  playwright-web-e2e:
+    name: Expo Web Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Export Expo Web bundle
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm run build:web
+
+      - name: Run Playwright Web E2E tests
+        env:
+          PLAYWRIGHT_HEADLESS: 'true'
+          PLAYWRIGHT_MOCK_AUTH: ${{ vars.PLAYWRIGHT_MOCK_AUTH || '0' }}
+          PLAYWRIGHT_TEST_EMAIL: ${{ secrets.PLAYWRIGHT_TEST_EMAIL }}
+          PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.PLAYWRIGHT_TEST_PASSWORD }}
+        run: pnpm run test:e2e:web
+
+      - name: Upload Playwright report and artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-web-e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

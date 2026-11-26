@@ -1,0 +1,37 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - focus
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Focus Timer"
+- extendedWaitUntil:
+    visible: "Focus Session Setup"
+    timeout: 5000
+- tapOn: "Continue to Full Focus"
+- extendedWaitUntil:
+    visible: "Stop Focus"
+    timeout: 10000
+- assertVisible: "Pause"
+- tapOn: "Pause"
+- assertVisible: "Resume"
+- tapOn: "Resume"
+- assertVisible: "Pause"
+- tapOn: "Stop Focus"
+- extendedWaitUntil:
+    visible: "End Focus Session?"
+    timeout: 5000
+- tapOn: "Cancel and continue focus"
+- assertNotVisible: "End Focus Session?"
+- assertVisible: "Stop Focus"
+- takeScreenshot: focus-cancel-stop-resumed
+- tapOn: "Stop Focus"
+- extendedWaitUntil:
+    visible: "End Focus Session?"
+    timeout: 5000
+- tapOn: "Delete Session"
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 10000

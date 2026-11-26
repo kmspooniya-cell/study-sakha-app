@@ -1,0 +1,35 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - planner
+  - validation
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Add Task"
+- extendedWaitUntil:
+    visible: "Plan tasks, classes, exams and activities"
+    timeout: 10000
+- tapOn: "List"
+- tapOn: "Add Plan"
+- extendedWaitUntil:
+    visible: "Task Title"
+    timeout: 5000
+- tapOn: "Save (.*"
+- assertVisible: "Please enter a title before saving."
+- tapOn: "Task Title"
+- inputText: "Validation Test Task"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Planned duration minutes"
+    direction: DOWN
+    timeout: 5000
+- tapOn: "Planned duration minutes"
+- eraseText: 5
+- inputText: "0"
+- hideKeyboard
+- tapOn: "Save (.*"
+- assertVisible: ".*duration.*|.*minutes.*|.*5.*"
+- tapOn: "Cancel"
+- takeScreenshot: planner-duration-validation

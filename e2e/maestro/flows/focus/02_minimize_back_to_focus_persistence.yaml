@@ -1,0 +1,43 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - focus
+  - persistence
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Focus Timer"
+- extendedWaitUntil:
+    visible: "Focus Session Setup"
+    timeout: 5000
+- tapOn: "Continue to Full Focus"
+- extendedWaitUntil:
+    visible: "Stop Focus"
+    timeout: 10000
+- tapOn: "Minimize Focus Centre"
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 10000
+- assertVisible: "Back to Focus"
+- tapOn: "Groups"
+- extendedWaitUntil:
+    visible: "Study Groups"
+    timeout: 10000
+- assertVisible: "Back to Focus"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- assertVisible: "Back to Focus"
+- tapOn: "Back to Focus"
+- extendedWaitUntil:
+    visible: "Stop Focus"
+    timeout: 10000
+- takeScreenshot: focus-session-persisted
+- tapOn: "Stop Focus"
+- tapOn: "Delete Session"
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 10000

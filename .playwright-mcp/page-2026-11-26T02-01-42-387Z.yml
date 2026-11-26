@@ -1,0 +1,5 @@
+- generic [active] [ref=e1]:
+  - heading "Test" [level=1] [ref=e2]
+  - textbox "Email" [ref=e3]:
+    - /placeholder: you@example.in
+  - button "Go" [ref=e4]

@@ -1,0 +1,27 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - regression
+  - keyboard
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Open Help Menu"
+- extendedWaitUntil:
+    visible: "How can we help you?"
+    timeout: 5000
+- back
+- assertNotVisible: "How can we help you?"
+- tapOn: "Add Task"
+- extendedWaitUntil:
+    visible: "Plan tasks, classes, exams and activities"
+    timeout: 10000
+- tapOn: "List"
+- tapOn: "Add Plan"
+- tapOn: "Task Title"
+- inputText: "Keyboard Overlap Check"
+- assertVisible: "Save (.*"
+- hideKeyboard
+- tapOn: "Cancel"
+- takeScreenshot: dialog-and-keyboard-clean

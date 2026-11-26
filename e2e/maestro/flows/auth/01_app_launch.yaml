@@ -1,0 +1,13 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - auth
+  - smoke
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 15000
+- assertVisible: "Sign in"
+- assertVisible: "Create an account"
+- takeScreenshot: auth-app-launch

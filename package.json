@@ -57,6 +57,7 @@
   "devDependencies": {
     "@dietrichgebert/ponytail": "^5.3.3",
     "@jest/globals": "^29.7.0",
+    "@playwright/test": "^1.65.1",
     "@testing-library/react-native": "^13.3.0",
     "@types/express": "^5.0.6",
     "@types/http-proxy": "^1.17.17",
@@ -81,7 +82,21 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "build:web": "expo export --platform web"
+    "build:web": "expo export --platform web",
+    "test:e2e:web": "playwright test --config=e2e/playwright/playwright.config.ts",
+    "test:e2e:web:ui": "playwright test --config=e2e/playwright/playwright.config.ts --ui",
+    "test:e2e:web:report": "playwright show-report playwright-report",
+    "test:e2e:mobile": "node scripts/run-maestro.cjs e2e/maestro/flows",
+    "test:e2e:mobile:auth": "node scripts/run-maestro.cjs e2e/maestro/flows/auth",
+    "test:e2e:mobile:dashboard": "node scripts/run-maestro.cjs e2e/maestro/flows/dashboard",
+    "test:e2e:mobile:planner": "node scripts/run-maestro.cjs e2e/maestro/flows/planner",
+    "test:e2e:mobile:focus": "node scripts/run-maestro.cjs e2e/maestro/flows/focus",
+    "test:e2e:mobile:notifications": "node scripts/run-maestro.cjs e2e/maestro/flows/notifications",
+    "test:e2e:mobile:groups": "node scripts/run-maestro.cjs e2e/maestro/flows/groups",
+    "test:e2e:mobile:settings": "node scripts/run-maestro.cjs e2e/maestro/flows/settings",
+    "test:e2e:mobile:regression": "node scripts/run-maestro.cjs e2e/maestro/flows/regression",
+    "test:e2e:mobile:smoke": "node scripts/run-maestro.cjs .maestro",
+    "test:e2e:all": "pnpm run test:e2e:web && pnpm run test:e2e:mobile"
   },
   "private": true
 }

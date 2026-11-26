@@ -1,0 +1,22 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - dashboard
+  - navigation
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Open menu"
+- assertVisible: "Offline downloads"
+- assertVisible: "How to use the app"
+- assertVisible: "Settings"
+- takeScreenshot: drawer-opened
+- swipe:
+    direction: LEFT
+    duration: 400
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 5000
+- assertNotVisible: "Offline downloads"
+- takeScreenshot: drawer-closed

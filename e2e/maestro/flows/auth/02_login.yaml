@@ -1,0 +1,21 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - auth
+  - requires-credentials
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 15000
+- tapOn: "you@example.in"
+- inputText: "${MAESTRO_TEST_EMAIL}"
+- tapOn: "Your password"
+- inputText: "${MAESTRO_TEST_PASSWORD}"
+- hideKeyboard
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 20000
+- assertVisible: "TODAY'S MISSION"
+- takeScreenshot: auth-login-dashboard

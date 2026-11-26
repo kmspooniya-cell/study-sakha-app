@@ -1,0 +1,17 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - auth
+  - persistence
+  - requires-credentials
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- assertNotVisible: "Welcome back"
+- takeScreenshot: auth-session-persisted

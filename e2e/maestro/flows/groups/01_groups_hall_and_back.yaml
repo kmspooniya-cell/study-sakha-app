@@ -1,0 +1,38 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - groups
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Groups"
+- extendedWaitUntil:
+    visible: "Study Groups"
+    timeout: 10000
+- tapOn:
+    text: "Open .*"
+    index: 0
+- extendedWaitUntil:
+    visible: "Live Study"
+    timeout: 10000
+- assertVisible: "Study rooms"
+- runFlow:
+    when:
+      visible: "Join room"
+    commands:
+      - tapOn: "Join room"
+      - extendedWaitUntil:
+          visible: "Exit Silent Focus Hall"
+          timeout: 10000
+      - takeScreenshot: group-hall-active
+      - tapOn: "Exit Silent Focus Hall"
+- extendedWaitUntil:
+    visible: "Back to all groups"
+    timeout: 10000
+- tapOn: "Back to all groups"
+- extendedWaitUntil:
+    visible: "Study Groups"
+    timeout: 10000
+- assertNotVisible: "Back to all groups"
+- takeScreenshot: groups-back-clean

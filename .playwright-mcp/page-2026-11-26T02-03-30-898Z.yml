@@ -1,0 +1,4 @@
+- generic [active] [ref=e1]:
+  - heading "Test" [level=1] [ref=e2]
+  - textbox "Email" [ref=e3]
+  - button "Go" [ref=e4]

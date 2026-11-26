@@ -1,0 +1,31 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - notifications
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Notifications"
+- extendedWaitUntil:
+    visible: "Notifications"
+    timeout: 10000
+- runFlow:
+    when:
+      visible: "Mark read"
+    commands:
+      - tapOn: "Mark read"
+- runFlow:
+    when:
+      visible: "Mark all as read"
+    commands:
+      - tapOn: "Mark all as read"
+      - assertVisible: "You are all caught up"
+- runFlow:
+    when:
+      visible: "Open →"
+    commands:
+      - tapOn: "Open →"
+      - takeScreenshot: notification-destination
+      - back
+- takeScreenshot: notifications-verified

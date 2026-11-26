@@ -1,0 +1,33 @@
+flows:
+  - flows/auth/*.yaml
+  - flows/dashboard/*.yaml
+  - flows/planner/*.yaml
+  - flows/focus/*.yaml
+  - flows/notifications/*.yaml
+  - flows/groups/*.yaml
+  - flows/settings/*.yaml
+  - flows/regression/*.yaml
+
+executionOrder:
+  continueOnFailure: false
+  flowsOrder:
+    - 01_app_launch
+    - 02_login
+    - 04_session_persistence
+    - 01_dashboard_render
+    - 02_drawer_open_close
+    - 03_bottom_navigation
+    - 04_profile_navigation
+    - 01_create_edit_delete_task
+    - 02_duration_validation
+    - 03_empty_planner_behavior
+    - 04_task_persistence_restart
+    - 01_start_pause_resume_cancel_stop
+    - 02_minimize_back_to_focus_persistence
+    - 01_notifications_read_and_open
+    - 01_groups_hall_and_back
+    - 01_settings_subscreens_and_10x_reopen
+    - 01_bottom_nav_and_last_item_visibility
+    - 02_dialog_dismissal_and_keyboard
+    - 03_light_dark_theme
+    - 03_logout

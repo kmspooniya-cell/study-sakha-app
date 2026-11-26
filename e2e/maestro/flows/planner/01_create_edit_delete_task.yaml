@@ -1,0 +1,55 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - planner
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Add Task"
+- extendedWaitUntil:
+    visible: "Plan tasks, classes, exams and activities"
+    timeout: 10000
+- tapOn: "List"
+- tapOn: "Add Plan"
+- extendedWaitUntil:
+    visible: "Task Title"
+    timeout: 5000
+- tapOn: "Task Title"
+- inputText: "Maestro Polity ${MAESTRO_RUN_ID}"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Planned duration minutes"
+    direction: DOWN
+    timeout: 5000
+- tapOn: "Planned duration minutes"
+- eraseText: 5
+- inputText: "45"
+- hideKeyboard
+- tapOn: "Save (.*"
+- extendedWaitUntil:
+    visible: "Maestro Polity ${MAESTRO_RUN_ID}"
+    timeout: 10000
+- tapOn: "Maestro Polity ${MAESTRO_RUN_ID}"
+- extendedWaitUntil:
+    visible: "Edit Plan"
+    timeout: 5000
+- tapOn: "Edit Plan"
+- tapOn: "Task Title"
+- eraseText: 40
+- inputText: "Maestro Polity Edited ${MAESTRO_RUN_ID}"
+- hideKeyboard
+- tapOn: "Update Task"
+- extendedWaitUntil:
+    visible: "Maestro Polity Edited ${MAESTRO_RUN_ID}"
+    timeout: 10000
+- tapOn: "Maestro Polity Edited ${MAESTRO_RUN_ID}"
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Delete this plan?"
+    timeout: 5000
+- tapOn:
+    text: "Delete"
+    index: -1
+- assertNotVisible: "Maestro Polity Edited ${MAESTRO_RUN_ID}"
+- takeScreenshot: planner-crud-complete

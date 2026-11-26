@@ -1,0 +1,17 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - regression
+  - theme
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Toggle theme"
+- assertVisible: "Make today count."
+- takeScreenshot: theme-toggled-once
+- tapOn: "Toggle theme"
+- assertVisible: "Make today count."
+- takeScreenshot: theme-toggled-twice
+- tapOn: "Toggle theme"
+- assertVisible: "Make today count."

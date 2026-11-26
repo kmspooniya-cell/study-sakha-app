@@ -45,3 +45,11 @@ yarn-error.*
 .env.*
 !.env.example
 .vercel
+
+# E2E Testing (Playwright & Maestro)
+playwright-report/
+test-results/
+e2e/playwright/.auth/
+e2e/maestro/artifacts/
+.env.test
+.env.test.local

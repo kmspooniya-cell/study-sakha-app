@@ -1,0 +1,38 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - planner
+  - persistence
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Add Task"
+- extendedWaitUntil:
+    visible: "Plan tasks, classes, exams and activities"
+    timeout: 10000
+- tapOn: "List"
+- tapOn: "Add Plan"
+- tapOn: "Task Title"
+- inputText: "Persist Plan ${MAESTRO_RUN_ID}"
+- hideKeyboard
+- tapOn: "Save (.*"
+- extendedWaitUntil:
+    visible: "Persist Plan ${MAESTRO_RUN_ID}"
+    timeout: 10000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Add Task"
+- tapOn: "List"
+- extendedWaitUntil:
+    visible: "Persist Plan ${MAESTRO_RUN_ID}"
+    timeout: 10000
+- takeScreenshot: planner-persisted-after-restart
+- tapOn: "Persist Plan ${MAESTRO_RUN_ID}"
+- tapOn: "Delete"
+- tapOn:
+    text: "Delete"
+    index: -1

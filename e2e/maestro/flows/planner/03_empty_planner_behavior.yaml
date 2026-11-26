@@ -1,0 +1,22 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - planner
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Add Task"
+- extendedWaitUntil:
+    visible: "Plan tasks, classes, exams and activities"
+    timeout: 10000
+- tapOn: "List"
+- repeat:
+    times: 12
+    commands:
+      - tapOn: "Next month"
+- extendedWaitUntil:
+    visible: "No plans in .*"
+    timeout: 5000
+- assertVisible: "Tap \"Add Plan\" or pick any date on the calendar.*"
+- takeScreenshot: planner-empty-month

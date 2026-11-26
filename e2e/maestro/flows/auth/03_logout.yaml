@@ -1,0 +1,25 @@
+appId: ${MAESTRO_APP_ID}
+tags:
+  - auth
+  - requires-credentials
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Make today count."
+    timeout: 15000
+- tapOn: "Profile"
+- scrollUntilVisible:
+    element: "Sign Out"
+    direction: DOWN
+    timeout: 10000
+- tapOn: "Sign Out"
+- extendedWaitUntil:
+    visible: "Sign Out"
+    timeout: 5000
+- tapOn:
+    text: "Sign Out"
+    index: -1
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 15000
+- takeScreenshot: auth-logout-complete
