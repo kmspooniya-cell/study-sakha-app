@@ -558,3 +558,86 @@ export async function reportRoomMember({
   });
   if (error) throw new Error(`Could not submit the room report: ${error.message}`);
 }
+
+export type StudyGroupChatMessageRecord = {
+  id: string;
+  group_id: string;
+  channel_id: string;
+  user_id: string;
+  sender_name: string;
+  sender_initials: string;
+  sender_role: string;
+  message: string;
+  attachment: { name: string; size: string; pages?: number } | null;
+  poll: {
+    question: string;
+    votedId?: string | null;
+    options: { id: string; label: string; votes: number }[];
+  } | null;
+  pinned: boolean;
+  created_at: string;
+};
+
+export async function getStudyGroupMessages(
+  groupId: string,
+  channelId = 'general-chat',
+  limit = 100
+): Promise<StudyGroupChatMessageRecord[]> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase
+    .from('study_group_messages')
+    .select('id, group_id, channel_id, user_id, sender_name, sender_initials, sender_role, message, attachment, poll, pinned, created_at')
+    .eq('group_id', groupId)
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) throw new Error(`Could not load group messages: ${error.message}`);
+  return (data ?? []) as StudyGroupChatMessageRecord[];
+}
+
+export async function sendStudyGroupMessage({
+  groupId,
+  channelId = 'general-chat',
+  message,
+  senderName,
+  senderInitials,
+  senderRole = 'Member',
+  attachment,
+  poll,
+}: {
+  groupId: string;
+  channelId?: string;
+  message: string;
+  senderName: string;
+  senderInitials: string;
+  senderRole?: string;
+  attachment?: { name: string; size: string; pages?: number } | null;
+  poll?: {
+    question: string;
+    votedId?: string | null;
+    options: { id: string; label: string; votes: number }[];
+  } | null;
+}): Promise<StudyGroupChatMessageRecord> {
+  assertSupabaseConfigured();
+  const trimmed = message.trim();
+  if (!trimmed) throw new Error('Message cannot be empty.');
+
+  const { data, error } = await supabase
+    .from('study_group_messages')
+    .insert({
+      group_id: groupId,
+      channel_id: channelId,
+      sender_name: senderName,
+      sender_initials: senderInitials,
+      sender_role: senderRole,
+      message: trimmed,
+      attachment: attachment ?? null,
+      poll: poll ?? null,
+    })
+    .select('id, group_id, channel_id, user_id, sender_name, sender_initials, sender_role, message, attachment, poll, pinned, created_at')
+    .single();
+
+  if (error) throw new Error(`Could not send group message: ${error.message}`);
+  return data as StudyGroupChatMessageRecord;
+}

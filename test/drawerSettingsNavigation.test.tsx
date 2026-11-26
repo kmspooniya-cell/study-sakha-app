@@ -297,4 +297,48 @@ describe('MainDrawerNavigator Settings navigation reliability', () => {
       target: 'stack-1',
     });
   });
+
+  it('navigates to Settings via fallback timer if transitionEnd is not emitted on Android', () => {
+    jest.useFakeTimers();
+    try {
+      const mock = createMockDrawerProps({ drawerStatus: 'open' });
+      const view = renderMainDrawerWithMock(mock.props);
+
+      fireEvent.press(view.getByText('Settings'));
+      expect(mock.closeDrawer).toHaveBeenCalledTimes(1);
+      expect(mock.navigate).not.toHaveBeenCalled();
+
+      act(() => {
+        jest.advanceTimersByTime(350);
+      });
+
+      expect(mock.navigate).toHaveBeenCalledTimes(1);
+      expect(mock.navigate).toHaveBeenCalledWith('MainStack', { screen: 'Settings' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shares an app-wide invitation link via native Share API without group tokens', async () => {
+    const { Share, Alert } = require('react-native');
+    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+
+    const mock = createMockDrawerProps({ drawerStatus: 'open' });
+    const view = renderMainDrawerWithMock(mock.props);
+
+    await act(async () => {
+      fireEvent.press(view.getByText('Share with friends'));
+    });
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(shareSpy).toHaveBeenCalledTimes(1);
+    const [content] = shareSpy.mock.calls[0] as [{ title?: string; message?: string }];
+    expect(content.title).toBe('Study Sakha');
+    expect(content.message).toContain('Study Sakha');
+    expect(content.message).not.toContain('groups/invite');
+
+    shareSpy.mockRestore();
+    alertSpy.mockRestore();
+  });
 });

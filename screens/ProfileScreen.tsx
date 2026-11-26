@@ -27,14 +27,7 @@ import { getProfileContentMaxWidth } from '../lib/profileLayout';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
-import Svg, {
-  Circle,
-  Defs,
-  LinearGradient as SvgLinearGradient,
-  RadialGradient,
-  Rect,
-  Stop,
-} from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -861,7 +854,10 @@ export default function StudySakhaProfileScreen() {
         {/* ==================== SCROLLABLE MAIN CONTENT ==================== */}
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingHorizontal: isCompactPhone ? 12 : 16 },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           {/* 1. SMART HERO PROFILE CARD */}
@@ -872,45 +868,19 @@ export default function StudySakhaProfileScreen() {
                 width: '100%',
                 maxWidth: profileContentMaxWidth,
                 alignSelf: 'center',
-                padding: isCompactPhone ? 16 : 20,
+                padding: isCompactPhone ? 14 : 20,
+                backgroundColor: isDark ? '#0F172A' : '#1E3A8A',
               },
             ]}
           >
-            {/* Hero Mesh Gradient Background (Exact match to CSS .hero-mesh) */}
-            <Svg
-              width="100%"
-              height="100%"
+            {/* Hero Gradient Background (native LinearGradient avoids Android Svg absoluteFill clipping) */}
+            <LinearGradient
+              colors={isDark ? ['#090D16', '#172554', '#1D4ED8'] : ['#0F172A', '#1E3A8A', '#2563EB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
-              preserveAspectRatio="none"
               pointerEvents="none"
-            >
-              <Defs>
-                <SvgLinearGradient id="heroBaseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <Stop offset="0%" stopColor={isDark ? '#090D16' : '#0F172A'} />
-                  <Stop offset="53%" stopColor={isDark ? '#172554' : '#1E3A8A'} />
-                  <Stop offset="100%" stopColor={isDark ? '#1D4ED8' : '#2563EB'} />
-                </SvgLinearGradient>
-                <RadialGradient id="heroGlowTopRight" cx="88%" cy="15%" r="55%">
-                  <Stop
-                    offset="0%"
-                    stopColor="#38BDF8"
-                    stopOpacity={isDark ? '0.25' : '0.35'}
-                  />
-                  <Stop offset="100%" stopColor="#38BDF8" stopOpacity="0" />
-                </RadialGradient>
-                <RadialGradient id="heroGlowBottomLeft" cx="12%" cy="95%" r="58%">
-                  <Stop
-                    offset="0%"
-                    stopColor="#6366F1"
-                    stopOpacity={isDark ? '0.30' : '0.35'}
-                  />
-                  <Stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
-                </RadialGradient>
-              </Defs>
-              <Rect width="100%" height="100%" fill="url(#heroBaseGrad)" />
-              <Rect width="100%" height="100%" fill="url(#heroGlowTopRight)" />
-              <Rect width="100%" height="100%" fill="url(#heroGlowBottomLeft)" />
-            </Svg>
+            />
 
             {/* Subtle geometric ring accents */}
             <View style={styles.heroRingOuter} pointerEvents="none" />
@@ -973,7 +943,7 @@ export default function StudySakhaProfileScreen() {
 
                 <View style={styles.heroTextCol}>
                   <View style={styles.heroNameRow}>
-                    <Text style={styles.heroName} numberOfLines={1}>
+                    <Text style={styles.heroName} numberOfLines={2}>
                       {profile.name}
                     </Text>
                     <View style={styles.adminPill}>
@@ -983,7 +953,7 @@ export default function StudySakhaProfileScreen() {
                     </View>
                   </View>
 
-                  <Text style={styles.heroEmail} numberOfLines={1}>
+                  <Text style={styles.heroEmail} numberOfLines={2}>
                     {profile.email}
                   </Text>
 
@@ -1001,7 +971,7 @@ export default function StudySakhaProfileScreen() {
                     />
                     <Text
                       style={styles.heroFocusText}
-                      numberOfLines={1}
+                      numberOfLines={2}
                     >
                       Focus:{' '}
                       <Text style={styles.heroFocusBold}>{profile.focus}</Text>
@@ -1034,7 +1004,7 @@ export default function StudySakhaProfileScreen() {
                     {streak} {streak === 1 ? 'day' : 'days'}
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel} numberOfLines={1}>Study Streak</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Study Streak</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1048,7 +1018,7 @@ export default function StudySakhaProfileScreen() {
                     {profile.studyMins} min
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel} numberOfLines={1}>Today&apos;s Study</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Today&apos;s Study</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1062,7 +1032,7 @@ export default function StudySakhaProfileScreen() {
                     {earnedBadges} / {badges.length}
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel} numberOfLines={1}>Badges</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Badges</Text>
               </TouchableOpacity>
             </View>
           </View>

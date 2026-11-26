@@ -221,7 +221,11 @@ export function executeDrawerTargetNavigation(
 
 export function CustomDrawerContent(
   props: AppDrawerContentProps & {
-    onPendingTargetChange?: (target: AppStackNavigationTarget | null) => void;
+    onPendingTargetChange?: (
+      target: AppStackNavigationTarget | null,
+      navigation?: AppDrawerContentProps['navigation'],
+      drawerState?: AppDrawerContentProps['state']
+    ) => void;
     onSyncDrawerContext?: (
       navigation: AppDrawerContentProps['navigation'],
       state: AppDrawerContentProps['state']
@@ -258,10 +262,10 @@ export function CustomDrawerContent(
       executeDrawerTargetNavigation(props.navigation, props.state, target);
       return;
     }
-    // Wait for the drawer's actual Reanimated close transitionEnd event rather
-    // than InteractionManager (which is a stub in RN 0.86+) so native stack
-    // transitions never overlap the closing drawer surface on Android.
-    onPendingTargetChange?.(target);
+    // Wait for the drawer's close transitionEnd event (with a deterministic
+    // fallback timer in MainDrawerNavigator) so native stack transitions never
+    // stall if Reanimated skips or interrupts the close callback on Android.
+    onPendingTargetChange?.(target, props.navigation, props.state);
     props.navigation.closeDrawer();
   }, [currentRoute, drawerStatus, onPendingTargetChange, props.navigation, props.state]);
 
@@ -312,18 +316,15 @@ export function CustomDrawerContent(
         onPress={async () => {
           try {
             const url = getAppShareUrl();
-            if (!url) {
-              Alert.alert('Study Sakha is not published yet', 'Set EXPO_PUBLIC_APP_DISTRIBUTION_URL to the official APK or Play Store URL before sharing a production installation link.');
-              return;
-            }
-            await Share.share(
+            const result = await Share.share(
               {
                 title: 'Study Sakha',
                 message: `I'm using Study Sakha to prepare for competitive exams. ${getDistributionLinkMessage()}\n${url}`,
-                url,
+                ...(Platform.OS === 'ios' ? { url } : {}),
               },
               { dialogTitle: 'Share Study Sakha' }
             );
+            if (result?.action === Share.dismissedAction) return;
           } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') return;
             Alert.alert(
@@ -391,12 +392,46 @@ function AuthenticatedStackNavigator() {
 
 export function MainDrawerNavigator() {
   const pendingTargetRef = useRef<AppStackNavigationTarget | null>(null);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestNavigationRef = useRef<AppDrawerContentProps['navigation'] | null>(null);
   const latestStateRef = useRef<AppDrawerContentProps['state'] | null>(null);
 
-  const handlePendingTargetChange = useCallback((target: AppStackNavigationTarget | null) => {
-    pendingTargetRef.current = target;
+  const clearPendingTimer = useCallback(() => {
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
   }, []);
+
+  const flushPendingTarget = useCallback(() => {
+    clearPendingTimer();
+    const nextTarget = pendingTargetRef.current;
+    if (!nextTarget) return;
+    pendingTargetRef.current = null;
+    const nav = latestNavigationRef.current;
+    const drawerState = latestStateRef.current;
+    if (nav && drawerState) {
+      executeDrawerTargetNavigation(nav, drawerState, nextTarget);
+    }
+  }, [clearPendingTimer]);
+
+  useEffect(() => clearPendingTimer, [clearPendingTimer]);
+
+  const handlePendingTargetChange = useCallback((
+    target: AppStackNavigationTarget | null,
+    navigation?: AppDrawerContentProps['navigation'],
+    drawerState?: AppDrawerContentProps['state']
+  ) => {
+    clearPendingTimer();
+    pendingTargetRef.current = target;
+    if (navigation) latestNavigationRef.current = navigation;
+    if (drawerState) latestStateRef.current = drawerState;
+    if (target) {
+      pendingTimerRef.current = setTimeout(() => {
+        flushPendingTarget();
+      }, 350);
+    }
+  }, [clearPendingTimer, flushPendingTarget]);
 
   const handleSyncDrawerContext = useCallback((
     navigation: AppDrawerContentProps['navigation'],
@@ -423,19 +458,13 @@ export function MainDrawerNavigator() {
       screenListeners={{
         transitionStart: (e) => {
           if (!e.data.closing) {
+            clearPendingTimer();
             pendingTargetRef.current = null;
           }
         },
         transitionEnd: (e) => {
           if (!e.data.closing) return;
-          const nextTarget = pendingTargetRef.current;
-          if (!nextTarget) return;
-          pendingTargetRef.current = null;
-          const nav = latestNavigationRef.current;
-          const drawerState = latestStateRef.current;
-          if (nav && drawerState) {
-            executeDrawerTargetNavigation(nav, drawerState, nextTarget);
-          }
+          flushPendingTarget();
         },
       }}
       screenOptions={{ headerShown: false, drawerStyle: { width: 290 } }}

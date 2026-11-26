@@ -1,5 +1,34 @@
 # Development Log — Study Sakha
 
+## 2026-11-26 — Group Hall Bottom Banner Removal, Direct Entry, Focus Decoupling & Group Chat Realtime Sync
+- **1. Remove Group Hall-Specific Banner While Preserving Personal ActiveSessionBar (`components/ActiveSessionBar.tsx`):**
+  - Restored personal Focus Mode `ActiveSessionBar` functionality (timer, status, task/subject, pause/resume, `Back to Focus` navigation) across all screens except `FocusCenter` and `FocusCompletion`.
+  - Removed only the Group Study Hall-specific banner (`showHallOnly`, `Return to Hall` button, `hall.roomName`, `hall.groupName`, `context === 'hall'` dock) and decoupled bar visibility from `activeHallContext` (`hall?.isInsideHall`), so personal Focus Mode remains visible independently of Group Hall membership.
+- **2. Silent Focus Hall – Direct Entry (`screens/GroupsScreen.tsx`):**
+  - Removed the separate "Join room" button from the Silent Focus Hall card and made the entire card directly clickable with accessible role and labels. Clicking anywhere on the card directly triggers `handleJoinRoom` or restores a minimized session.
+- **3. Decouple Group Membership from Personal Focus Activity (`screens/GroupsScreen.tsx`):**
+  - Decoupled member focus presence from entering/leaving group rooms. The authoritative personal focus session (`useOptionalFocusSession`) governs the user's status (`focusing`, `paused`, `available`).
+  - Removed `endGroupRoomFocus` from `clearRoomSession` so leaving or closing a Group Hall preserves the active personal focus session.
+- **4. Group Chat Visibility and Realtime Synchronization (`lib/groupRooms.ts`, `screens/GroupsScreen.tsx`, `supabase/migrations/202611260002_study_group_chat_messages.sql`):**
+  - Added `study_group_messages` table with group/channel indexing, foreign keys, and RLS policies (`public.is_study_group_member(group_id)`) for SELECT and INSERT.
+  - Added `study_group_messages` to `supabase_realtime` publication.
+  - Implemented `getStudyGroupMessages` and `sendStudyGroupMessage` in `lib/groupRooms.ts`.
+  - Added Realtime channel subscription in `screens/GroupsScreen.tsx` with deduplicated live message appending, optimistic update, sender identity mapping, and persistent history across channel navigation.
+- **Verification:**
+  - Added `test/groupChatAndFocusDecoupling.test.tsx` verifying banner removal, direct entry structure, decoupled status mapping, DB migration schema, RLS, and realtime queries. All 4 targeted test suites passed (22/22 tests).
+
+
+## 2026-11-26 — Drawer Settings Navigation, Profile Hero Card & Share with Friends Fixes
+- **1. Drawer Settings Navigation Reliability (`App.tsx`):**
+  - **Root Cause:** On Android (`Platform.OS !== 'web'`), `CustomDrawerContent.navigateToMainStack` waited exclusively on `Drawer.Navigator` `screenListeners.transitionEnd` (`e.data.closing === true`) before calling `executeDrawerTargetNavigation`. If Reanimated's `withSpring` close callback in `Drawer.native.tsx` was interrupted (`finished === false`) or `transitionEnd` was not emitted, `pendingTargetRef.current` was never flushed and Settings did nothing.
+  - **Fix:** Added a deterministic 350ms fallback timer (`pendingTimerRef`) in `MainDrawerNavigator` alongside `transitionEnd` (`flushPendingTarget()`), passed `navigation` and `state` directly into `handlePendingTargetChange`, and cleared pending targets/timers on `transitionStart` (`!e.data.closing`), drawer `open`, and unmount.
+- **2. Profile Blue Hero Card Layout (`screens/ProfileScreen.tsx`):**
+  - **Root Cause:** `styles.heroCard` had `elevation: 4`, `borderRadius: 26`, and `overflow: 'hidden'` without an explicit `backgroundColor`, relying on `<Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>` inside a `ScrollView`. On Android, `elevation` on a transparent `View` with `<Svg style={StyleSheet.absoluteFill}>` causes background/bounds clipping; additionally `heroName`, `heroEmail`, `heroFocusText`, and `heroMetricLabel` had `numberOfLines={1}` without scaling/wrapping on narrow phones.
+  - **Fix:** Added explicit `backgroundColor` (`#0F172A` / `#1E3A8A`) to `heroCard`, replaced the `<Svg>` background with native `expo-linear-gradient` (`LinearGradient` with `StyleSheet.absoluteFill` and `pointerEvents="none"`), removed unused SVG gradient imports, allowed `numberOfLines={2}` on `heroName`, `heroEmail`, and `heroFocusText`, added `adjustsFontSizeToFit minimumFontScale={0.78}` on `heroMetricLabel`, and tightened compact phone horizontal padding (`12`/`14`).
+- **3. Functional Drawer "Share with Friends" (`lib/shareLinks.ts`, `App.tsx`):**
+  - **Root Cause:** `getAppShareUrl()` returned `null` in standalone Android APKs whenever `EXPO_PUBLIC_APP_DISTRIBUTION_URL` was unset, causing the drawer's "Share with friends" button to show a "Study Sakha is not published yet" alert instead of opening the native share sheet.
+  - **Fix:** Updated `getAppShareUrl()` to reuse `resolveGroupInviteBaseUrl()` (same origin resolution as `getGroupInviteUrl`, with `studysakha://` fallback and no group tokens), updated `getDistributionLinkMessage()` for standalone builds, and updated `App.tsx` to invoke `Share.share(...)` with `Platform.OS === 'ios'` `url` handling and `Share.dismissedAction` cancellation handling.
+
 ## 2026-11-26 — Four Targeted UI & Form Fixes
 - **1. Remove Group Hall Label (`components/ActiveSessionBar.tsx`):**
   - Updated `ActiveSessionBar` (`context === 'global'`) to return `null` whenever `route === 'FocusCenter'`, completely removing the persistent Group Hall banner (room/group name and `Return to Hall` button) from Focus Center after leaving Group Hall or across navigation/restarts.

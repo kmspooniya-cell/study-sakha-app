@@ -1,5 +1,20 @@
 # Testing Status — Study Sakha
 
+## Group Hall Banner Removal, Direct Entry, Focus Decoupling & Group Chat Realtime Sync — 2026-11-26
+
+- Focused Jest suites (`test/groupChatAndFocusDecoupling.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/globalFocusBar.test.tsx`, `test/fourFixesRegression.test.tsx`, `test/groupInvitesAndSync.test.tsx`) & ESLint (`components/ActiveSessionBar.tsx`): **PASS** — **5/5 suites passed, 25/25 tests passed**, 0 lint errors.
+  - Personal Focus Mode `ActiveSessionBar` visibility, timer/pause/resume/`Back to Focus` controls, and decoupling from Group Hall membership verified.
+  - Group Hall-specific banner (`Return to Hall`, room/group name) verified absent across screens.
+  - Silent Focus Hall card clickability and separate "Join room" button removal verified.
+  - Group Room exit decoupling from personal focus session verified.
+  - Group Chat database migration, RLS policies, message RPCs, and Realtime event handling verified.
+
+
+## Drawer Settings, Profile Hero Card & Share with Friends Validation — 2026-11-26
+
+- Focused Jest suites (`test/drawerSettingsNavigation.test.tsx`, `test/profileLayout.test.tsx`, `test/fourFixesRegression.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — **4/4 suites, 13/13 tests** (includes new Android fallback timer and Share with friends tests).
+- Android APK build & physical device runtime: **BLOCKED** in Codespace (`ANDROID_HOME` unset, no Android SDK, no connected Android device/emulator, `eas whoami` unconfigured, and `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `EXPO_PUBLIC_API_BASE_URL` missing in container `.env`).
+
 ## Four Targeted UI & Form Fixes Validation — 2026-11-26
 
 - Focused Jest suites (`test/fourFixesRegression.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/profileLayout.test.tsx`, `test/plannerRecovery.test.tsx`, `test/studyPlannerFilters.test.tsx`, `test/groupInvitesAndSync.test.tsx`): **PASS** — **6/6 suites, 32/32 tests**.

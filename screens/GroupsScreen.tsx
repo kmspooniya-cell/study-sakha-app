@@ -91,6 +91,7 @@ import {
   disbandStudyGroup,
   finishRoomSession,
   getStudyGroupInvitePreview,
+  getStudyGroupMessages,
   getStudyRoomLogs,
   getStudyRoomProfiles,
   GroupRoomId,
@@ -103,6 +104,8 @@ import {
   revokeStudyGroupInvite,
   RoomMicroGoal,
   sendBreakRoomMessage,
+  sendStudyGroupMessage,
+  StudyGroupChatMessageRecord,
   StudyGroupInvite,
   StudyGroupInvitePreview,
   StudyRoomLog,
@@ -1587,6 +1590,7 @@ export default function StudySakhaGroupsRN() {
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChatMessageItem[]>>({});
   const [chatInput, setChatInput] = useState('');
   const [threadMessage, setThreadMessage] = useState<ChatMessageItem | null>(null);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   // Goals State
   const [goalTimeframe, setGoalTimeframe] = useState('Daily');
@@ -1834,6 +1838,89 @@ export default function StudySakhaGroupsRN() {
     };
   }, [roomUser?.id]);
 
+  // Realtime & initial fetch for group chat messages
+  useEffect(() => {
+    if (!selectedGroupId || !activeChannel) return;
+    let active = true;
+
+    // Helper to map DB row to ChatMessageItem
+    const mapRowToMessage = (row: StudyGroupChatMessageRecord): ChatMessageItem => {
+      const isMe = row.user_id === roomUser?.id;
+      const createdAt = new Date(row.created_at);
+      const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return {
+        id: row.id,
+        sender: isMe ? `${row.sender_name} (You)` : row.sender_name,
+        initials: row.sender_initials,
+        role: row.sender_role as ChatMessageItem['role'],
+        time: isNaN(createdAt.getTime()) ? 'Just now' : timeStr,
+        text: row.message,
+        attachment: row.attachment ?? undefined,
+        poll: row.poll ?? undefined,
+        pinned: row.pinned,
+        reactions: [],
+        replies: 0,
+      };
+    };
+
+    // Load initial messages for active channel
+    void getStudyGroupMessages(selectedGroupId, activeChannel)
+      .then((records) => {
+        if (!active) return;
+        const mapped = records.map(mapRowToMessage);
+        setMessagesByChannel((prev) => ({
+          ...prev,
+          [activeChannel]: mapped,
+        }));
+      })
+      .catch((error) => {
+        // Silently log or preserve local fallback
+      });
+
+    if (!supabaseConfigured || typeof supabase.channel !== 'function') return;
+
+    // Register handlers before calling .subscribe()
+    const channelTopic = `group-chat:${selectedGroupId}:${activeChannel}`;
+    const channel = supabase.channel(channelTopic);
+
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'study_group_messages',
+        filter: `group_id=eq.${selectedGroupId}`,
+      },
+      (payload) => {
+        if (!active) return;
+        const newRecord = payload.new as StudyGroupChatMessageRecord;
+        if (newRecord.channel_id !== activeChannel) return;
+        const mapped = mapRowToMessage(newRecord);
+        setMessagesByChannel((prev) => {
+          const currentList = prev[activeChannel] || [];
+          if (currentList.some((m) => m.id === mapped.id)) {
+            return currentList;
+          }
+          return {
+            ...prev,
+            [activeChannel]: [...currentList, mapped],
+          };
+        });
+      }
+    );
+
+    channel.subscribe();
+
+    return () => {
+      active = false;
+      if (typeof supabase.removeChannel === 'function') {
+        void supabase.removeChannel(channel).catch(() => {});
+      } else if (typeof channel.unsubscribe === 'function') {
+        void channel.unsubscribe().catch(() => {});
+      }
+    };
+  }, [activeChannel, roomUser?.id, selectedGroupId]);
+
   useEffect(() => {
     if (!roomUser?.id) return;
     let active = true;
@@ -2020,7 +2107,7 @@ export default function StudySakhaGroupsRN() {
   const clearRoomSession = useCallback(() => {
     const currentSessionId = roomSessionIdRef.current;
     if (currentSessionId) {
-      endGroupRoomFocus(currentSessionId);
+      // Clear context registration for this room session, but do not stop active personal focus mode
       clearGroupRoomFocusContext(currentSessionId);
     }
     roomAudioLifecycle.run((player) => player.pause());
@@ -2467,9 +2554,22 @@ export default function StudySakhaGroupsRN() {
 
 // Smart Study Room participant mapping (outside JSX)
   const currentUserChairForSmartRoom = useMemo(() => {
-    const focusing = currentRoomFocusActivity?.status === 'focusing';
-    const paused = currentRoomFocusActivity?.status === 'paused' || currentRoomFocusActivity?.status === 'break';
+    // Personal Focus Mode is authoritative for the user's status:
+    // Starting Focus Mode -> Focusing
+    // Pausing Focus Mode / taking a break -> Paused
+    // Stopping or ending Focus Mode -> Available
+    const isFocusRunning = Boolean(globalFocus?.isRunning && !globalFocus?.isOnBreak);
+    const isFocusPaused = Boolean(
+      globalFocus?.isOnBreak ||
+      (globalFocus?.session && globalFocus.session.phase === 'paused')
+    );
+    const bridgeFocusing = currentRoomFocusActivity?.status === 'focusing';
+    const bridgePaused = currentRoomFocusActivity?.status === 'paused' || currentRoomFocusActivity?.status === 'break';
+
+    const focusing = isFocusRunning || (bridgeFocusing && !isFocusPaused);
+    const paused = isFocusPaused || bridgePaused;
     const state: ChairState = focusing ? 'focusing' : paused ? 'paused' : 'available';
+
     const member: StudyMember = {
       id: roomUser?.id ?? 'self',
       name: roomUser?.name ?? 'You',
@@ -2477,16 +2577,24 @@ export default function StudySakhaGroupsRN() {
       avatarBgColor: '#059669',
       exam: null,
       state,
-      subject: currentRoomFocusActivity?.subject ?? roomSubject ?? null,
-      topic: null,
-      mode: null,
-      targetSeconds: null,
-      elapsedSeconds: currentRoomFocusActivity?.elapsedSeconds ?? 0,
-      startedAt: currentRoomFocusActivity?.startedAt ?? null,
+      subject: globalFocus?.session?.subject ?? currentRoomFocusActivity?.subject ?? roomSubject ?? null,
+      topic: globalFocus?.session?.topic ?? null,
+      mode: globalFocus?.session?.mode ?? null,
+      targetSeconds: globalFocus?.session?.plannedSeconds ?? null,
+      elapsedSeconds: globalFocus?.session?.focusedMilliseconds ? Math.floor(globalFocus.session.focusedMilliseconds / 1000) : (currentRoomFocusActivity?.elapsedSeconds ?? 0),
+      startedAt: globalFocus?.session?.startedAt ?? currentRoomFocusActivity?.startedAt ?? null,
       focusUpdatedAt: currentRoomFocusActivity?.updatedAt ?? null,
     };
     return member;
-  }, [roomUser?.id, roomUser?.name, currentRoomFocusActivity, roomSubject]);
+  }, [
+    globalFocus?.isRunning,
+    globalFocus?.isOnBreak,
+    globalFocus?.session,
+    currentRoomFocusActivity,
+    roomUser?.id,
+    roomUser?.name,
+    roomSubject,
+  ]);
 
   const partnersForSmartRoom = useMemo(() => {
     if (!roomRealtime?.participants) return [];
@@ -2609,23 +2717,74 @@ export default function StudySakhaGroupsRN() {
     }
   };
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return;
-    const msg: ChatMessageItem = {
-      id: `m-${Date.now()}`,
-      sender: 'You (Aarav)',
-      initials: 'AS',
-      role: 'Owner',
-      time: 'Just now',
-      text: chatInput.trim(),
-      reactions: [],
-      replies: 0,
-    };
-    setMessagesByChannel((prev) => ({
-      ...prev,
-      [activeChannel]: [...(prev[activeChannel] || []), msg],
-    }));
+  const handleSendMessage = async () => {
+    const textToSend = chatInput.trim();
+    if (!textToSend || isSendingMessage) return;
+
+    const senderName = roomUser?.name || 'Aspirant';
+    const senderInitials = initialsForName(senderName);
+    const senderRole = selectedGroup?.joined ? 'Member' : 'Member';
+
     setChatInput('');
+    setIsSendingMessage(true);
+
+    try {
+      if (supabaseConfigured && roomUser?.id && selectedGroupId) {
+        const record = await sendStudyGroupMessage({
+          groupId: selectedGroupId,
+          channelId: activeChannel,
+          message: textToSend,
+          senderName,
+          senderInitials,
+          senderRole,
+        });
+
+        // Optimistically ensure it's in the state if realtime hasn't added it already
+        const createdAt = new Date(record.created_at);
+        const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const newMsg: ChatMessageItem = {
+          id: record.id,
+          sender: `${record.sender_name} (You)`,
+          initials: record.sender_initials,
+          role: record.sender_role as ChatMessageItem['role'],
+          time: isNaN(createdAt.getTime()) ? 'Just now' : timeStr,
+          text: record.message,
+          reactions: [],
+          replies: 0,
+        };
+
+        setMessagesByChannel((prev) => {
+          const channelList = prev[activeChannel] || [];
+          if (channelList.some((m) => m.id === newMsg.id)) return prev;
+          return {
+            ...prev,
+            [activeChannel]: [...channelList, newMsg],
+          };
+        });
+      } else {
+        // Fallback for offline / demo mode
+        const msg: ChatMessageItem = {
+          id: `m-${Date.now()}`,
+          sender: `${senderName} (You)`,
+          initials: senderInitials,
+          role: 'Member',
+          time: 'Just now',
+          text: textToSend,
+          reactions: [],
+          replies: 0,
+        };
+        setMessagesByChannel((prev) => ({
+          ...prev,
+          [activeChannel]: [...(prev[activeChannel] || []), msg],
+        }));
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not send message.');
+      // Restore input if sending failed
+      setChatInput(textToSend);
+    } finally {
+      setIsSendingMessage(false);
+    }
   };
 
   const handlePollVote = (channelId: string, msgId: string, optionId: string) => {
@@ -3265,19 +3424,20 @@ export default function StudySakhaGroupsRN() {
                   : room.id === 'pomodoro'
                     ? Zap
                     : BookOpen;
-              return (
-                <View
-                  key={room.id}
-                  style={[
-                    styles.card,
-                    {
-                      width: isTablet ? '48%' : '100%',
-                      backgroundColor: theme.surface,
-                      borderColor: joined ? theme.successBorder : theme.border,
-                      gap: 12,
-                    },
-                  ]}
-                >
+              const isSilentFocusCard = room.id === 'silent-focus';
+              const isCardClickable = isSilentFocusCard;
+              const handleCardPress = () => {
+                if (isCardClickable) {
+                  if (joined) {
+                    setRoomMinimized(false);
+                  } else {
+                    handleJoinRoom(room);
+                  }
+                }
+              };
+
+              const cardContent = (
+                <>
                   <View style={[styles.spaceBetweenRowTight, { alignItems: 'flex-start' }]}>
                     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: room.isCam ? theme.tealSoft : theme.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -3295,38 +3455,88 @@ export default function StudySakhaGroupsRN() {
                     <Text style={{ flex: 1, fontSize: 11, color: theme.textMuted }}>
                       {joined ? `${roomCount} ${roomCount === 1 ? 'learner' : 'learners'} in this room` : 'Live members appear after you join'}
                     </Text>
-                    <Pressable
-                      onPress={() => joined ? setRoomMinimized(false) : handleJoinRoom(room)}
-                      disabled={Boolean(joiningRoomId) || isLeavingRoom}
-                      accessibilityRole="button"
-                      accessibilityState={{ busy: joiningRoomId === room.id, disabled: Boolean(joiningRoomId) || isLeavingRoom }}
-                      style={[
-                        styles.smallOutlineBtn,
-                        {
-                          minHeight: 44,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderColor: joined ? theme.successBorder : theme.primary + '55',
-                          backgroundColor: joined ? theme.successSoft : theme.primarySoft,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 6,
-                          opacity: joiningRoomId && joiningRoomId !== room.id ? 0.55 : 1,
-                        },
-                      ]}
-                    >
-                      {joiningRoomId === room.id
-                        ? <ActivityIndicator size="small" color={theme.primary} />
-                        : joined
-                          ? <Play size={14} color={theme.successText} />
-                          : room.isCam
-                            ? <Shield size={14} color={theme.primary} />
-                            : <Play size={14} color={theme.primary} />}
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: joined ? theme.successText : theme.primaryText }}>
-                        {joiningRoomId === room.id ? 'Joining…' : joined ? 'Return' : room.isCam ? 'Privacy & join' : 'Join room'}
-                      </Text>
-                    </Pressable>
+                    {isSilentFocusCard ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {joiningRoomId === room.id ? (
+                          <ActivityIndicator size="small" color={theme.primary} />
+                        ) : (
+                          <Play size={14} color={joined ? theme.successText : theme.primary} />
+                        )}
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: joined ? theme.successText : theme.primaryText }}>
+                          {joiningRoomId === room.id ? 'Entering…' : joined ? 'Return' : 'Direct Entry'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => joined ? setRoomMinimized(false) : handleJoinRoom(room)}
+                        disabled={Boolean(joiningRoomId) || isLeavingRoom}
+                        accessibilityRole="button"
+                        accessibilityState={{ busy: joiningRoomId === room.id, disabled: Boolean(joiningRoomId) || isLeavingRoom }}
+                        style={[
+                          styles.smallOutlineBtn,
+                          {
+                            minHeight: 44,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderColor: joined ? theme.successBorder : theme.primary + '55',
+                            backgroundColor: joined ? theme.successSoft : theme.primarySoft,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            opacity: joiningRoomId && joiningRoomId !== room.id ? 0.55 : 1,
+                          },
+                        ]}
+                      >
+                        {joiningRoomId === room.id
+                          ? <ActivityIndicator size="small" color={theme.primary} />
+                          : joined
+                            ? <Play size={14} color={theme.successText} />
+                            : room.isCam
+                              ? <Shield size={14} color={theme.primary} />
+                              : <Play size={14} color={theme.primary} />}
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: joined ? theme.successText : theme.primaryText }}>
+                          {joiningRoomId === room.id ? 'Joining…' : joined ? 'Return' : room.isCam ? 'Privacy & join' : 'Join room'}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
+                </>
+              );
+
+              return isCardClickable ? (
+                <Pressable
+                  key={room.id}
+                  onPress={handleCardPress}
+                  disabled={Boolean(joiningRoomId) || isLeavingRoom}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${room.name}. Click to enter directly.`}
+                  style={({ pressed }) => [
+                    styles.card,
+                    {
+                      width: isTablet ? '48%' : '100%',
+                      backgroundColor: theme.surface,
+                      borderColor: joined ? theme.successBorder : theme.border,
+                      gap: 12,
+                      opacity: pressed ? 0.9 : 1,
+                    },
+                  ]}
+                >
+                  {cardContent}
+                </Pressable>
+              ) : (
+                <View
+                  key={room.id}
+                  style={[
+                    styles.card,
+                    {
+                      width: isTablet ? '48%' : '100%',
+                      backgroundColor: theme.surface,
+                      borderColor: joined ? theme.successBorder : theme.border,
+                      gap: 12,
+                    },
+                  ]}
+                >
+                  {cardContent}
                 </View>
               );
             })}

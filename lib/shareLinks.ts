@@ -56,14 +56,21 @@ export function getDeepLinkPrefixes(): string[] {
 
 /**
  * Resolves a link for the environment the user is actually running.
- * Expo Go links are intentionally generated at runtime: Expo documents that
- * they are not stable enough to use as a production distribution URL.
+ * Reuses the same web/deep-link origin resolution as group invitations
+ * without exposing any group-specific token.
  */
-export function getAppShareUrl(): string | null {
+export function getAppShareUrl(): string {
+  if (configuredDistributionUrl) {
+    return configuredDistributionUrl;
+  }
   if (Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo') {
     return ExpoLinking.createURL('');
   }
-  return configuredDistributionUrl || null;
+  const webBase = resolveGroupInviteBaseUrl();
+  if (webBase) {
+    return webBase;
+  }
+  return 'studysakha://';
 }
 
 export function getGroupInviteUrl(inviteTokenOrGroupId: string): string | null {
@@ -159,7 +166,8 @@ export async function clearPendingGroupInvite(): Promise<void> {
 }
 
 export function getDistributionLinkMessage(): string {
-  return configuredDistributionUrl
-    ? 'Open the link to install Study Sakha.'
-    : 'Study Sakha is being tested through Expo Go. Open this link on a device with Expo Go installed.';
+  if (Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo') {
+    return 'Study Sakha is being tested through Expo Go. Open this link on a device with Expo Go installed.';
+  }
+  return 'Join me on Study Sakha to prepare for competitive exams!';
 }
