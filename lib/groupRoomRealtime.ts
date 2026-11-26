@@ -8,6 +8,7 @@ import {
   getBreakRoomMessages,
 } from './groupRooms';
 import type { GroupRoomFocusStatus } from './groupRoomFocusBridge';
+import { classifySyncError, logStructuredSyncEvent } from './groupSyncErrors';
 import { supabase, supabaseConfigured } from './supabase';
 
 type PresencePayload = {
@@ -226,6 +227,20 @@ export function useGroupRoomRealtime({
       if (!active || !session?.access_token) return;
       await supabase.realtime.setAuth(session.access_token);
       if (!active) return;
+
+      if (typeof supabase.getChannels === 'function') {
+        const realtimeTopic = `realtime:${topic}`;
+        const staleChannels = supabase.getChannels().filter(
+          (existing) => existing.topic === realtimeTopic || existing.topic === topic,
+        );
+        for (const stale of staleChannels) {
+          await supabase.removeChannel(stale).catch(() => {});
+          if (typeof (stale as RealtimeChannel & { teardown?: () => void }).teardown === 'function') {
+            (stale as RealtimeChannel & { teardown?: () => void }).teardown?.();
+          }
+        }
+        if (!active) return;
+      }
 
       channel = supabase.channel(topic, {
         config: { private: true, presence: { key: userId } },
@@ -456,10 +471,30 @@ export function useGroupFocusPresence({
         focusUpdatedAt: new Date().toISOString(),
       });
       if (result === 'error' || result === 'timed out') {
-        onErrorRef.current?.('Could not update your live focus status in every joined group.');
+        const classified = classifySyncError(null, result);
+        logStructuredSyncEvent(
+          'warn',
+          'presence_track_failed',
+          { category: classified.category, result, sessionId: current.sessionId },
+          `presence_track:${classified.category}`,
+        );
+        if (classified.requiresUserAction) {
+          onErrorRef.current?.(classified.message);
+        }
+      } else {
+        onErrorRef.current?.('');
       }
     } catch (error) {
-      onErrorRef.current?.(error instanceof Error ? error.message : 'Could not update your live focus status.');
+      const classified = classifySyncError(error);
+      logStructuredSyncEvent(
+        classified.requiresUserAction ? 'error' : 'warn',
+        'presence_track_exception',
+        { category: classified.category, message: classified.message, sessionId: current.sessionId },
+        `presence_track:${classified.category}`,
+      );
+      if (classified.requiresUserAction) {
+        onErrorRef.current?.(classified.message);
+      }
     }
   }, [userId]);
 
@@ -469,6 +504,9 @@ export function useGroupFocusPresence({
     let channels: RealtimeChannel[] = [];
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let appStateSubscription: { remove: () => void } | null = null;
+    const handleOnline = () => {
+      channels.forEach((channel) => void track(channel));
+    };
     void (async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const { data: userData } = await supabase.auth.getUser();
@@ -499,9 +537,20 @@ export function useGroupFocusPresence({
             subscriptionStatus: status,
             authorizationError: error?.message ?? (status === 'SUBSCRIBED' ? null : current.authorizationError),
           }));
-          if (status === 'SUBSCRIBED') void track(channel);
-          else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            onErrorRef.current?.(error?.message || `Focus presence connection ${status.toLowerCase()}.`);
+          if (status === 'SUBSCRIBED') {
+            onErrorRef.current?.('');
+            void track(channel);
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            const classified = classifySyncError(error, status);
+            logStructuredSyncEvent(
+              classified.requiresUserAction ? 'error' : 'warn',
+              'presence_channel_status',
+              { category: classified.category, status, topic, message: classified.message },
+              `presence_channel:${classified.category}:${topic}`,
+            );
+            if (classified.requiresUserAction) {
+              onErrorRef.current?.(classified.message);
+            }
           }
         });
         return channel;
@@ -511,17 +560,31 @@ export function useGroupFocusPresence({
       appStateSubscription = AppState.addEventListener('change', (nextState) => {
         if (nextState === 'active') channels.forEach((channel) => void track(channel));
       });
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('online', handleOnline);
+      }
     })().catch((error: unknown) => {
       if (!active) return;
-      const message = error instanceof Error ? error.message : 'Could not prepare focus presence authorization.';
-      setDiagnosticState((current) => ({ ...current, subscriptionStatus: 'ERROR', authorizationError: message }));
-      onErrorRef.current?.(message);
+      const classified = classifySyncError(error);
+      logStructuredSyncEvent(
+        classified.requiresUserAction ? 'error' : 'warn',
+        'presence_setup_failed',
+        { category: classified.category, message: classified.message },
+        `presence_setup:${classified.category}`,
+      );
+      setDiagnosticState((current) => ({ ...current, subscriptionStatus: 'ERROR', authorizationError: classified.message }));
+      if (classified.requiresUserAction) {
+        onErrorRef.current?.(classified.message);
+      }
     });
 
     return () => {
       active = false;
       if (heartbeat) clearInterval(heartbeat);
       appStateSubscription?.remove();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('online', handleOnline);
+      }
       channelsRef.current = [];
       channels.forEach((channel) => {
         void supabase.removeChannel(channel);

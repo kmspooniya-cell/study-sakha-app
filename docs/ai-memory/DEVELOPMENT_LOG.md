@@ -1,5 +1,42 @@
 # Development Log — Study Sakha
 
+## 2026-11-26 — Four Targeted UI & Form Fixes
+- **1. Remove Group Hall Label (`components/ActiveSessionBar.tsx`):**
+  - Updated `ActiveSessionBar` (`context === 'global'`) to return `null` whenever `route === 'FocusCenter'`, completely removing the persistent Group Hall banner (room/group name and `Return to Hall` button) from Focus Center after leaving Group Hall or across navigation/restarts.
+- **2. Remove Duplicate Information Panel (`screens/GroupsScreen.tsx`):**
+  - Removed the duplicate `<ActiveSessionBar context="hall" />` strip from `GroupsScreen.tsx` inside `silent-focus` Group Hall, preserving `SmartStudyRoomScreen`'s bottom status strip (`footerOuter`) and `ChairDetailBottomSheet` popup opened via table/member cards.
+- **3. Fix Profile Blue Card Layout (`screens/ProfileScreen.tsx`):**
+  - Updated `heroCard` and its internal flex containers (`heroTopRow`, `heroIdentityGroup`, `heroNameRow`, `heroFocusPill`, `heroQuickEditBtn`, `heroMetricsStrip`, `heroMetricItem`, `heroMetricValueRow`) with `minWidth: 0`, `flexShrink: 0` on fixed controls, `flexWrap: 'wrap'` on the name/role row, `maxWidth: '100%'` + `numberOfLines={1}` on the focus pill, `adjustsFontSizeToFit` on metric values, `pointerEvents="none"` on the background `<Svg>`, and compact-phone padding adjustments (`profileViewportWidth < 380`).
+- **4. Fix Study Planner Forms (`screens/StudyPlannerScreen.tsx`):**
+  - Replaced the single shared form state with independent per-category state (`formStatesByCategory` via `createInitialCategoryFormState` / `createAllCategoryFormStates`) for `task`, `class`, `exam`, `vacation`, and `activity` so switching tabs or opening forms never leaks data across categories.
+  - Removed the manual Duration control (Minus button, Plus button, and duration input) from Task and Class forms (`renderStandardWhenSection`) and auto-calculated `durationMinutes` / `duration` from `Start Time` and `End Time` (`computeMinutesBetween`) while preserving existing scheduling and saved data compatibility.
+
+## 2026-11-26 — Focus Centre & Group Hall Unified Experience Refactor
+- **Part 1 — Inline Custom Duration Input (`components/FocusSessionSetupModal.tsx`):**
+  - Replaced the separate `CUSTOM DURATION (MINUTES)` section below the 4-box duration row with an inline editable numeric `TextInput` inside the 4th `Custom` box (`15m`, `25m`, `40m`, `Custom`/`[ N | min ]`).
+  - Auto-focuses on selection, opens `number-pad`, validates `1..360` integer minutes with concise inline feedback, clears custom input state when a preset is tapped, dismisses keyboard on preset/close/continue/submit, and auto-fills remaining planned duration from `Add from Schedule` without modifying Study Planner data.
+- **Part 2 — Offline-First Group Sync & Red Banner Removal (`lib/groupSyncErrors.ts`, `lib/groupRoomRealtime.ts`, `lib/groupActivitySync.ts`, `lib/focusSession.tsx`, `screens/FocusCenterScreen.tsx`):**
+  - Removed the persistent red `presenceWarning` banner from `FocusCenterScreen.tsx`.
+  - Added `classifySyncError` and deduplicated `logStructuredSyncEvent` in `lib/groupSyncErrors.ts` to differentiate `temporary_network`, `slow_network`, `auth_failure`, `permission_rls`, and `server_error`.
+  - Transient network/timeout failures are logged without disruptive UI banners and retried in the background (`useGroupFocusPresence` heartbeat, `AppState` foreground, and web `online` listener), while local focus sessions and `AsyncStorage` activity queues continue uninterrupted.
+- **Part 3 — Focus Centre Top Controls (`components/GeminiFocusTimer.tsx`):**
+  - Removed the `App` button and `Explore Study Sakha` quick-navigation modal from the Focus Centre top control row, leaving only `Group` (left) and `Hide` (right).
+- **Part 4 & 5 — Unified ActiveSessionBar & Non-Destructive Group Hall Exit (`components/ActiveSessionBar.tsx`, `components/FloatingFocusBar.tsx`, `components/RoomHeader.tsx`, `screens/SmartStudyRoomScreen.tsx`, `screens/GroupsScreen.tsx`, `App.tsx`, `lib/focusSession.tsx`):**
+  - Created `components/ActiveSessionBar.tsx` driven by authoritative `FocusSessionProvider` state (`session`, `activeHallContext`, `currentRouteName`, `openActiveHall`), replacing `FloatingFocusBar`, `GroupsScreen`'s minimized room bar, and `GroupsScreen`'s duplicate `LIVE FOCUS TIMER` modal overlay.
+  - Removed the top-right `LogOut` Leave button from `RoomHeader.tsx` and `ExitConfirmModal` (`Leave Silent Focus Hall?`) from `SmartStudyRoomScreen.tsx`, replacing it with non-destructive back navigation (`Back from Silent Focus Hall`) that minimizes the Hall view while preserving group membership, room session, and active focus session.
+
+## 2026-11-26 — Group Study Rooms Cross-Account Sync, Secure Invitations, Deep Linking & Hall Navigation Fix
+- **Cross-Account Discovery & Sync (`supabase/migrations/202611260001_group_invites_discovery_and_realtime.sql`, `lib/groupRooms.ts`, `screens/GroupsScreen.tsx`):**
+  - **Root Cause:** `GroupsScreen` only queried `getActiveStudyGroups` (`study_group_memberships`), never discovering public `study_groups`, hardcoded `privacy: 'Private'` / `joinMethod: 'Leader Approval'` on dynamic groups, lacked pull-to-refresh / screen-focus refresh / Realtime sync on `study_groups` and `study_group_memberships`, and `Disband Group` only updated local state.
+  - **Fix:** Added `list_discoverable_study_groups()`, `leave_study_group()`, `disband_study_group()` (with `archived_at`), and added `study_groups` + `study_group_memberships` to `supabase_realtime`. Updated `GroupsScreen` to use `listDiscoverableStudyGroups` as the source of truth with `useFocusEffect` refresh, `RefreshControl`, and Realtime subscriptions.
+- **Secure Expiring/Revocable Invitations & Web Landing Page (`lib/shareLinks.ts`, `server/invitePage.js`, `server.js`, `app.config.js`):**
+  - **Root Cause:** `getGroupInviteUrl` returned `null` when `EXPO_PUBLIC_GROUP_INVITE_BASE_URL` was unset ("Invite link unavailable"), put raw `groupId` in URLs with no token/expiry/revocation, and lacked an HTML mobile landing page.
+  - **Fix:** Added `study_group_invites` table and rate-limited `create_study_group_invite`, `list_study_group_invites`, `revoke_study_group_invite`, `get_study_group_invite_preview`, and `join_study_group_by_invite` RPCs. Updated `lib/shareLinks.ts` to resolve `EXPO_PUBLIC_GROUP_INVITE_BASE_URL` -> `EXPO_PUBLIC_API_BASE_URL` -> `window.location.origin` -> `studysakha://`, added `server/invitePage.js` (`GET /api/invite/:token`, `GET /groups/invite/:token`), and injected Android App Link `intentFilters` in `app.config.js`.
+- **Cross-Device Deep Linking & Group Hall Navigation (`App.tsx`, `lib/navigation.ts`, `screens/GroupsScreen.tsx`):**
+  - **Root Cause:** `GroupsScreen` never read `inviteGroupId`/`inviteToken`, `App.tsx` dropped deep links when unauthenticated, and `openGroupRoomParam` `useEffect` could re-trigger mid-flight.
+  - **Fix:** Added `Linking.getInitialURL()` + `Linking.addEventListener('url', ...)` + `AsyncStorage` pending invite preservation across `SignIn`/`SignUp` in `App.tsx`, server-side invite preview & join modal in `GroupsScreen`, Android `Share.share` fix, and deterministic `openGroupRoomKey` handling.
+- **Verified in session:** Focused Jest suites (`test/groupInvitesAndSync.test.tsx`, `test/groupRooms.join.test.tsx`, `test/focusSessionSetup.test.tsx`, `test/groupActivitySync.test.tsx`: **4/4 suites, 42/42 tests PASS**), `expo config --type public --json` (**PASS**), and `tsc --noEmit` (**0 errors** in all modified/added files; 66 pre-existing errors in `test/focusImprovements.test.tsx`).
+
 ## 2026-11-26 — Bottom Navigation Flex Layout, Dashboard Focus Lock Cleanup & Drawer-to-Settings Navigation Fix
 - **Bottom Navigation Overlap Fix (`components/Shell.tsx`, `screens/*`):**
   - **Root Cause:** `AppBottomNav` used `position: 'absolute', left: 0, right: 0, bottom: 0` while `Shell` mobile `scroll={false}` rendered `<View style={{ flex: 1, paddingBottom: 0 }}>` underneath it, causing bottom content/CTAs (`ProfileScreen` "Open Full Statistics", `SakhaAIScreen` input bar, `LibraryScreen`/`PYQScreen`/`CurrentAffairsScreen`/`FocusLockScreen`/`GroupsScreen`) to render behind `AppBottomNav`.

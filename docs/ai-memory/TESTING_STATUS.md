@@ -1,5 +1,25 @@
 # Testing Status — Study Sakha
 
+## Four Targeted UI & Form Fixes Validation — 2026-11-26
+
+- Focused Jest suites (`test/fourFixesRegression.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/profileLayout.test.tsx`, `test/plannerRecovery.test.tsx`, `test/studyPlannerFilters.test.tsx`, `test/groupInvitesAndSync.test.tsx`): **PASS** — **6/6 suites, 32/32 tests**.
+
+## Focus Centre & Group Hall Unified Refactor Validation — 2026-11-26
+
+- `npx tsc --noEmit`: **PASS** on all modified/created files (**0 errors** in `App.tsx`, `components/ActiveSessionBar.tsx`, `components/FloatingFocusBar.tsx`, `components/FocusSessionSetupModal.tsx`, `components/GeminiFocusTimer.tsx`, `components/RoomHeader.tsx`, `lib/focusSession.tsx`, `lib/groupActivitySync.ts`, `lib/groupRoomRealtime.ts`, `lib/groupSyncErrors.ts`, `screens/FocusCenterScreen.tsx`, `screens/GroupsScreen.tsx`, `screens/SmartStudyRoomScreen.tsx`, `test/focusUnifiedRefactor.test.tsx`); **FAIL** overall due to 66 pre-existing errors in `test/focusImprovements.test.tsx`.
+- Focused ESLint (`components/FocusSessionSetupModal.tsx`, `components/GeminiFocusTimer.tsx`, `components/ActiveSessionBar.tsx`, `components/FloatingFocusBar.tsx`, `components/RoomHeader.tsx`, `lib/groupSyncErrors.ts`, `lib/groupRoomRealtime.ts`, `lib/groupActivitySync.ts`, `screens/FocusCenterScreen.tsx`): **PASS** (**0 errors, 0 warnings**). `lib/focusSession.tsx` has 3 pre-existing React Compiler lint errors (`react-hooks/refs`, `react-hooks/set-state-in-effect`).
+- Focused Jest suites (`test/focusUnifiedRefactor.test.tsx`, `test/focusSessionSetupModal.test.tsx`, `test/focusSessionSetup.test.tsx`, `test/focusUiSurface.test.tsx`, `test/globalFocusBar.test.tsx`, `test/groupActivitySync.test.tsx`, `test/groupInvitesAndSync.test.tsx`, `test/groupRooms.join.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`): **PASS** (**11/11 suites**, **73/73 tests** — `test/focusUnifiedRefactor.test.tsx` 8/8 after final edit; other 10 suites 65/65).
+- Expo public config (`EXPO_NO_TELEMETRY=1 pnpm exec expo config --type public --json`): **PASS**.
+- Release config validator (`pnpm run validate:release -- preview`): **FAIL** (missing `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_API_BASE_URL` in container `.env`).
+- Maestro E2E / Physical Android device / Live offline-to-online Supabase toggle: **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Study Groups Audit & Fix Validation — 2026-11-26
+
+- Focused Jest suites (`test/groupInvitesAndSync.test.tsx`, `test/groupRooms.join.test.tsx`, `test/focusSessionSetup.test.tsx`, `test/groupActivitySync.test.tsx`): **PASS** — **4 suites passed, 4 total; 42 tests passed, 42 total**.
+- `npx tsc --noEmit`: **PASS** on all modified/created files (**0 errors** in `App.tsx`, `app.config.js`, `lib/groupRooms.ts`, `lib/navigation.ts`, `lib/shareLinks.ts`, `screens/GroupsScreen.tsx`, `test/groupInvitesAndSync.test.tsx`, `test/focusSessionSetup.test.tsx`); **FAIL** overall due to 66 pre-existing errors in `test/focusImprovements.test.tsx`.
+- Expo public config (`EXPO_NO_TELEMETRY=1 pnpm exec expo config --type public --json`): **PASS**.
+- Live Supabase migration `202611260001_group_invites_discovery_and_realtime.sql` deployment & two-device APK deep link test: **NOT VERIFIED** (requires live Supabase push & EAS build on Android devices).
+
 ## Bottom Nav, Dashboard Cleanup & Drawer-Settings Navigation Validation — 2026-11-26
 
 - `npx tsc --noEmit`: **PASS** on all modified/created files (**0 errors** in `App.tsx`, `components/Shell.tsx`, `screens/*`, `test/navigationLayoutFixes.test.tsx`, `test/drawerSettingsNavigation.test.tsx`); **FAIL** overall due to 66 pre-existing errors in untracked `test/focusImprovements.test.tsx`.

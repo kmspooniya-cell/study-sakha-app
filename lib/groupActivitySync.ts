@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { submitStudyMemberActivityToGroups } from './groupRooms';
 import type { StudyMemberActivity } from './groupRooms';
+import { classifySyncError, logStructuredSyncEvent } from './groupSyncErrors';
 
 type ActivitySyncFailure = {
   eventId: string;
@@ -134,13 +135,40 @@ export async function syncStudyMemberActivityWithRetry(
   );
 
   const pending = await getPendingActivity(activity.userId, scopedActivity);
-  const result = await submitStudyMemberActivityToGroups(pending.groupIds, pending);
-  if (!result.failures.length) {
-    await updatePendingActivities(activity.userId, (activities) =>
-      activities.filter((item) => activityKey(item) !== activityKey(activity)),
+  try {
+    const result = await submitStudyMemberActivityToGroups(pending.groupIds, pending);
+    if (!result.failures.length) {
+      await updatePendingActivities(activity.userId, (activities) =>
+        activities.filter((item) => activityKey(item) !== activityKey(activity)),
+      );
+    } else {
+      result.failures.forEach((failure) => {
+        const classified = classifySyncError(failure.message);
+        logStructuredSyncEvent(
+          classified.requiresUserAction ? 'error' : 'warn',
+          'group_activity_sync_partial_failure',
+          { category: classified.category, groupId: failure.groupId, eventId: activity.eventId, message: classified.message },
+          `activity_sync:${classified.category}:${failure.groupId}`,
+        );
+      });
+    }
+    return result;
+  } catch (error) {
+    const classified = classifySyncError(error);
+    logStructuredSyncEvent(
+      classified.requiresUserAction ? 'error' : 'warn',
+      'group_activity_sync_failed',
+      { category: classified.category, eventId: activity.eventId, message: classified.message },
+      `activity_sync:${classified.category}`,
     );
+    return {
+      groupIds: pending.groupIds,
+      failures: pending.groupIds.map((groupId) => ({
+        groupId,
+        message: classified.message,
+      })),
+    };
   }
-  return result;
 }
 
 async function getPendingActivity(userId: string, activity: StudyMemberActivity) {

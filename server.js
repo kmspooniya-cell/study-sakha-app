@@ -18,6 +18,7 @@ try {
 }
 
 const { handleChat } = require('./server/gemini');
+const { renderGroupInviteLandingHtml } = require('./server/invitePage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -76,6 +77,27 @@ app.get('/api/health', (req, res) => {
 
 app.get(['/healthz', '/api/healthz'], (req, res) => {
   res.status(200).send('OK');
+});
+
+app.get('/api/invite/:token', (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).send('Invalid invitation link.');
+  const webAppUrl = `/groups/invite/${encodeURIComponent(token)}?web=1`;
+  return res.status(200).type('html').send(renderGroupInviteLandingHtml({ token, webAppUrl }));
+});
+
+app.get('/groups/invite/:token', (req, res, next) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return next();
+  if (req.query.web === '1') return next();
+  const accept = String(req.headers.accept || '');
+  const userAgent = String(req.headers['user-agent'] || '');
+  const isMobileBrowser = /android|iphone|ipad|mobile/i.test(userAgent);
+  if (isMobileBrowser && accept.includes('text/html')) {
+    const webAppUrl = `/groups/invite/${encodeURIComponent(token)}?web=1`;
+    return res.status(200).type('html').send(renderGroupInviteLandingHtml({ token, webAppUrl }));
+  }
+  return next();
 });
 
 const chatModelIds = new Set(GEMINI_MODELS.map((model) => model.id));

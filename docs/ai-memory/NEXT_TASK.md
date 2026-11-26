@@ -28,4 +28,4 @@ Await explicit user approval of `docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md` befor
 - **No Supabase CLI/service-role credentials in workspace:** Live DB migration status cannot be queried from this container.
 
 ## Exact Next Action
-Review `git status` and commit the working tree changes and `docs/ai-memory/` files, then deploy/verify the Supabase migrations and run an EAS Android preview build.
+Push `supabase/migrations/202611260001_group_invites_discovery_and_realtime.sql` to the linked Supabase project (`supabase db push --remote`), ensure `EXPO_PUBLIC_API_BASE_URL` (and optionally `EXPO_PUBLIC_GROUP_INVITE_BASE_URL`) is set in EAS `preview` / `production` environments, and verify cross-account group discovery + invitation deep linking on an EAS Android build.

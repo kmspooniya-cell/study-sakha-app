@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -226,7 +227,9 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
     () => value.selection === 'schedule' || !isFocusDurationPreset(value.durationMinutes),
   );
   const [customDurationText, setCustomDurationText] = useState(
-    () => (value.durationMinutes > 0 ? String(value.durationMinutes) : ''),
+    () => ((value.selection === 'schedule' || !isFocusDurationPreset(value.durationMinutes)) && value.durationMinutes > 0
+      ? String(value.durationMinutes)
+      : ''),
   );
   const customInputRef = useRef<TextInput | null>(null);
   const wasVisibleRef = useRef(false);
@@ -246,11 +249,14 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
       setSubView('setup');
       const shouldUseCustom = value.selection === 'schedule' || !isFocusDurationPreset(value.durationMinutes);
       setCustomActive(shouldUseCustom);
-      setCustomDurationText(value.durationMinutes >= 0 ? String(value.durationMinutes) : '');
+      setCustomDurationText(
+        shouldUseCustom && value.durationMinutes >= 0 ? String(value.durationMinutes) : '',
+      );
     }
   }, [value.durationMinutes, value.selection, visible]);
 
   const close = () => {
+    Keyboard.dismiss();
     setSubView('setup');
     onClose();
   };
@@ -288,23 +294,25 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
   );
 
   const handleSelectPreset = (minutes: number) => {
+    Keyboard.dismiss();
     setCustomActive(false);
-    setCustomDurationText(String(minutes));
+    setCustomDurationText('');
     update({ durationMinutes: minutes });
   };
 
   const handlePressCustom = () => {
     setCustomActive(true);
-    if (!customDurationText.trim() && value.durationMinutes > 0) {
+    if (!customDurationText.trim() && !isFocusDurationPreset(value.durationMinutes) && value.durationMinutes > 0) {
       setCustomDurationText(String(value.durationMinutes));
     }
     setTimeout(() => customInputRef.current?.focus(), 20);
   };
 
   const handleChangeCustomDuration = (rawText: string) => {
+    const sanitized = rawText.replace(/[^0-9]/g, '');
     setCustomActive(true);
-    setCustomDurationText(rawText);
-    const result = validateCustomFocusDuration(rawText);
+    setCustomDurationText(sanitized);
+    const result = validateCustomFocusDuration(sanitized);
     if (result.valid) {
       update({ durationMinutes: result.minutes });
     }
@@ -334,6 +342,7 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
 
   const handleContinuePress = () => {
     if (!isDurationValid) return;
+    Keyboard.dismiss();
     if (isDurationRequired && customActive) {
       if (!customValidation.valid) return;
       onContinue({ ...value, durationMinutes: customValidation.minutes });
@@ -569,40 +578,18 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                             </Pressable>
                           );
                         })}
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Custom duration"
-                          accessibilityState={{ selected: customActive }}
-                          onPress={handlePressCustom}
-                          style={[
-                            styles.durationPill,
-                            {
-                              backgroundColor: customActive ? colors.blue : surfaceAltBg,
-                              borderColor: customActive ? colors.blue : colors.border,
-                            },
-                          ]}
-                        >
-                          <Txt color={customActive ? '#FFFFFF' : colors.text} size={13} weight="700">
-                            {customActive && customValidation.valid ? `${customValidation.minutes}m` : 'Custom'}
-                          </Txt>
-                        </Pressable>
-                      </View>
-
-                      {customActive ? (
-                        <View style={styles.customDurationSection}>
-                          <View style={styles.customDurationHeader}>
-                            <Txt color={colors.textMuted} size={11.5} weight="700">
-                              {selectedScheduleSummary ? 'SESSION DURATION (EDITABLE)' : 'CUSTOM DURATION (MINUTES)'}
-                            </Txt>
-                            <Txt color={colors.textMuted} size={11}>
-                              {MIN_FOCUS_DURATION_MINUTES}–{MAX_FOCUS_DURATION_MINUTES} min
-                            </Txt>
-                          </View>
-                          <View
+                        {customActive ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Custom duration"
+                            accessibilityState={{ selected: true }}
+                            onPress={() => customInputRef.current?.focus()}
                             style={[
-                              styles.customInputWrapper,
+                              styles.durationPill,
+                              styles.inlineCustomPill,
                               {
-                                backgroundColor: surfaceAltBg,
+                                backgroundColor: `${colors.blue}14`,
+                                borderWidth: 1.5,
                                 borderColor: !customValidation.valid
                                   ? (showZeroCompleteBanner ? warningColor : dangerColor)
                                   : colors.blue,
@@ -614,32 +601,55 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                               accessibilityLabel="Custom duration minutes"
                               value={customDurationText}
                               onChangeText={handleChangeCustomDuration}
+                              onSubmitEditing={() => Keyboard.dismiss()}
                               keyboardType="number-pad"
                               returnKeyType="done"
-                              maxLength={4}
-                              placeholder="Enter minutes (e.g. 35)"
+                              maxLength={3}
+                              selectTextOnFocus
+                              placeholder="min"
                               placeholderTextColor={colors.textMuted}
-                              style={[styles.customInput, { color: colors.text }]}
+                              style={[styles.inlineCustomInput, { color: colors.text }]}
                             />
-                            <Txt color={colors.textMuted} size={12.5} weight="700">min</Txt>
+                            <Txt color={colors.textMuted} size={11.5} weight="700">min</Txt>
+                          </Pressable>
+                        ) : (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Custom duration"
+                            accessibilityState={{ selected: false }}
+                            onPress={handlePressCustom}
+                            style={[
+                              styles.durationPill,
+                              {
+                                backgroundColor: surfaceAltBg,
+                                borderColor: colors.border,
+                              },
+                            ]}
+                          >
+                            <Txt color={colors.text} size={13} weight="700">
+                              Custom
+                            </Txt>
+                          </Pressable>
+                        )}
+                      </View>
+
+                      {customActive ? (
+                        showZeroCompleteBanner ? (
+                          <View style={[styles.feedbackBanner, { borderColor: warningColor, backgroundColor: `${warningColor}18` }]}>
+                            <Ionicons name="checkmark-circle-outline" size={16} color={warningColor} />
+                            <Txt color={colors.text} size={11.5} style={{ flex: 1 }}>
+                              This task is already complete (0 min remaining). Enter 1–{MAX_FOCUS_DURATION_MINUTES} min or choose a preset.
+                            </Txt>
                           </View>
-                          {showZeroCompleteBanner ? (
-                            <View style={[styles.feedbackBanner, { borderColor: warningColor, backgroundColor: `${warningColor}18` }]}>
-                              <Ionicons name="checkmark-circle-outline" size={16} color={warningColor} />
-                              <Txt color={colors.text} size={11.5} style={{ flex: 1 }}>
-                                This task is already complete (0 min remaining). Enter a positive custom duration or choose a preset to focus longer.
-                              </Txt>
-                            </View>
-                          ) : !customValidation.valid ? (
-                            <Txt color={dangerColor} size={11.5} weight="600" style={{ marginTop: 6 }}>
-                              {customValidation.error}
-                            </Txt>
-                          ) : selectedScheduleSummary && selectedScheduleSummary.remainingMinutes !== null ? (
-                            <Txt color={colors.textMuted} size={11} style={{ marginTop: 6 }}>
-                              Auto-filled from remaining planned time. Editing this duration will not alter your Study Planner task.
-                            </Txt>
-                          ) : null}
-                        </View>
+                        ) : !customValidation.valid ? (
+                          <Txt color={dangerColor} size={11.5} weight="600" style={{ marginBottom: 6 }}>
+                            {customValidation.error}
+                          </Txt>
+                        ) : selectedScheduleSummary && selectedScheduleSummary.remainingMinutes !== null ? (
+                          <Txt color={colors.textMuted} size={11} style={{ marginBottom: 6 }}>
+                            Auto-filled from remaining planned time. Editing this duration will not alter your Study Planner task.
+                          </Txt>
+                        ) : null
                       ) : null}
                     </>
                   ) : null}
@@ -817,25 +827,15 @@ const styles = StyleSheet.create({
   modeTabItem: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 10 },
   studySourceButton: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingHorizontal: 8 },
   selectedScheduleCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
-  durationRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  durationRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   durationPill: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  customDurationSection: { marginBottom: 8 },
-  customDurationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  customInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 46,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  customInput: { flex: 1, fontSize: 15, fontWeight: '700', paddingVertical: 8 },
+  inlineCustomPill: { flexDirection: 'row', paddingHorizontal: 6, gap: 2 },
+  inlineCustomInput: { minWidth: 26, flexShrink: 1, fontSize: 13.5, fontWeight: '800', textAlign: 'center', paddingVertical: 4, paddingHorizontal: 0 },
   feedbackBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 8,
+    marginBottom: 8,
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,

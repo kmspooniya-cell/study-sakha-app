@@ -6,6 +6,7 @@ import {
   View,
   Text,
   Pressable,
+  RefreshControl,
   TextInput,
   ScrollView,
   Modal,
@@ -81,20 +82,29 @@ import { AudioPlayerLifecycle } from '../lib/audioPlayerLifecycle';
 import { useStore } from '../lib/store';
 import { useOptionalFocusSession } from '../lib/focusSession';
 import { getGroupInviteUrl } from '../lib/shareLinks';
+import { supabase, supabaseConfigured } from '../lib/supabase';
 import {
   AmbientAudio,
   createRoomSession,
   createStudyGroup,
+  createStudyGroupInvite,
+  disbandStudyGroup,
   finishRoomSession,
-  getActiveStudyGroups,
+  getStudyGroupInvitePreview,
   getStudyRoomLogs,
   getStudyRoomProfiles,
   GroupRoomId,
   GroupRoomPhase,
   joinOpenStudyGroup,
+  joinStudyGroupByInvite,
+  listDiscoverableStudyGroups,
+  listStudyGroupInvites,
   reportRoomMember,
+  revokeStudyGroupInvite,
   RoomMicroGoal,
   sendBreakRoomMessage,
+  StudyGroupInvite,
+  StudyGroupInvitePreview,
   StudyRoomLog,
   StudyRoomProfile,
   updateRoomSession,
@@ -118,6 +128,7 @@ import libraryHumAudio from '../assets/Sounds/library_hum.wav';
 
 const EMPTY_ROOM_STUDY_LOGS: StudyRoomLog[] = [];
 const EMPTY_ROOM_STUDY_PROFILES: StudyRoomProfile[] = [];
+let studyGroupsSyncChannelSeq = 0;
 
 /**
  * ============================================================================
@@ -1415,7 +1426,6 @@ export default function StudySakhaGroupsRN() {
   const { colors: appColors, scheme } = useTheme();
   const store = useStore();
   const globalFocus = useOptionalFocusSession();
-  const hasGlobalFocusBar = Boolean(globalFocus?.session && !globalFocus.session.pendingRecord);
   const navigation = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'Groups'>>();
   const roomUser = store.state.user;
@@ -1459,6 +1469,7 @@ export default function StudySakhaGroupsRN() {
   const [groupMembershipsLoaded, setGroupMembershipsLoaded] = useState(false);
   const [groupMembershipLoadError, setGroupMembershipLoadError] = useState<string | null>(null);
   const [groupMembershipRetry, setGroupMembershipRetry] = useState(0);
+  const [refreshingGroups, setRefreshingGroups] = useState(false);
   const [mainCategory, setMainCategory] = useState('my_groups');
   const [recommendedCategory, setRecommendedCategory] = useState('recommended');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1467,6 +1478,15 @@ export default function StudySakhaGroupsRN() {
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [detailTab, setDetailTab] = useState('live');
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [activeInvite, setActiveInvite] = useState<StudyGroupInvite | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [invitePreviewToken, setInvitePreviewToken] = useState<string | null>(null);
+  const [invitePreview, setInvitePreview] = useState<StudyGroupInvitePreview | null>(null);
+  const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
+  const [invitePreviewError, setInvitePreviewError] = useState<string | null>(null);
+  const [joiningByInvite, setJoiningByInvite] = useState(false);
+  const handledInviteKeyRef = useRef<string | null>(null);
 
   // Interactive Study Rooms
   const [activeRoom, setActiveRoom] = useState<StudyRoom | null>(null);
@@ -1483,6 +1503,33 @@ export default function StudySakhaGroupsRN() {
   const [roomJoinError, setRoomJoinError] = useState<string | null>(null);
   const [isLeavingRoom, setIsLeavingRoom] = useState(false);
   const [roomMinimized, setRoomMinimized] = useState(false);
+
+  useEffect(() => {
+    if (!globalFocus?.setActiveHallContext) return;
+    if (activeRoom && roomSessionId) {
+      const groupName = groups.find((g) => g.id === (activeRoomGroupId ?? selectedGroupId))?.name ?? 'Study Group';
+      globalFocus.setActiveHallContext({
+        groupId: activeRoomGroupId ?? selectedGroupId,
+        groupName,
+        roomId: activeRoom.id,
+        roomName: activeRoom.name,
+        roomSessionId,
+        isInsideHall: !roomMinimized,
+      });
+    } else {
+      globalFocus.setActiveHallContext(null);
+    }
+  }, [activeRoom, activeRoomGroupId, globalFocus, groups, roomMinimized, roomSessionId, selectedGroupId]);
+
+  useEffect(() => {
+    if (!globalFocus?.registerHallOpener) return;
+    globalFocus.registerHallOpener(() => {
+      returningToFocusRef.current = false;
+      setRoomMinimized(false);
+      navigation.navigate('Groups');
+    });
+    return () => globalFocus.registerHallOpener(null);
+  }, [globalFocus, navigation]);
   const [roomFocusing, setRoomFocusing] = useState(false);
   const [roomSubject, setRoomSubject] = useState('Current Affairs');
   const [showRoomFocusSetup, setShowRoomFocusSetup] = useState(false);
@@ -1691,59 +1738,101 @@ export default function StudySakhaGroupsRN() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   }, []);
 
-  useEffect(() => {
+  const refreshGroups = useCallback(async (options?: { silent?: boolean }) => {
     if (!roomUser?.id) return;
-    let active = true;
     const requestId = ++groupMembershipRequest.current;
-    void getActiveStudyGroups(roomUser.id).then((joinedGroups) => {
-      if (active && requestId === groupMembershipRequest.current) {
-        setGroupMembershipLoadError(null);
-        const joinedById = new Map(joinedGroups.map((group) => [group.id, group]));
-        setGroups((current) => {
-          const knownIds = new Set(current.map((group) => group.id));
-          const updated = current.map((group) => ({
-            ...group,
-            joined: joinedById.has(group.id),
-            ...(joinedById.has(group.id) ? { name: joinedById.get(group.id)!.name } : {}),
-          }));
-          const dynamicGroups: GroupItem[] = joinedGroups
-            .filter((group) => !knownIds.has(group.id))
-            .map((group) => ({
-              id: group.id,
-              name: group.name,
-              shortName: group.name.slice(0, 2).toUpperCase(),
-              description: 'A joined Study Sakha group.',
-              exam: 'General',
-              subject: 'General Study',
-              type: 'General Study',
-              privacy: 'Private',
-              joinMethod: 'Leader Approval',
-              language: 'Bilingual',
-              joined: true,
-              unreadCount: 0,
-              activeRoomLabel: 'Silent Focus Hall',
-              accentHex: '#2563EB',
-              treeLevel: 1,
-              treeXp: 0,
-              matchReason: 'Joined group',
-              dataSource: 'backend',
-            }));
-          return [...dynamicGroups, ...updated];
+    if (!options?.silent) {
+      setGroupMembershipLoadError(null);
+    }
+    try {
+      const discoverable = await listDiscoverableStudyGroups(roomUser.id);
+      if (requestId !== groupMembershipRequest.current) return;
+      setGroupMembershipLoadError(null);
+      setGroups((current) => {
+        const previousById = new Map(current.map((group) => [group.id, group]));
+        return discoverable.map((group) => {
+          const prev = previousById.get(group.id);
+          return {
+            id: group.id,
+            name: group.name,
+            shortName: prev?.shortName ?? group.name.slice(0, 2).toUpperCase(),
+            description: prev?.description ?? (group.privacy === 'Public'
+              ? 'Public Study Sakha group open for collaborative exam preparation.'
+              : 'Private Study Sakha group.'),
+            exam: prev?.exam ?? 'General',
+            subject: prev?.subject ?? 'General Study',
+            type: prev?.type ?? 'General Study',
+            privacy: group.privacy,
+            joinMethod: group.joinMethod,
+            language: prev?.language ?? 'Bilingual',
+            membersCount: group.memberCount,
+            memberLimit: prev?.memberLimit,
+            dailyTargetHours: prev?.dailyTargetHours,
+            joined: group.isMember,
+            unreadCount: prev?.unreadCount ?? 0,
+            activeRoomLabel: prev?.activeRoomLabel ?? 'Silent Focus Hall',
+            accentHex: prev?.accentHex ?? '#2563EB',
+            treeLevel: prev?.treeLevel ?? 1,
+            treeXp: prev?.treeXp ?? 0,
+            matchReason: group.isMember
+              ? (group.memberRole === 'Owner' ? 'Created by You' : 'Joined group')
+              : 'Public Study Circle',
+            dataSource: 'backend',
+          };
         });
+      });
+    } catch (error: unknown) {
+      if (requestId !== groupMembershipRequest.current) return;
+      const message = error instanceof Error ? error.message : 'Could not load study groups.';
+      setGroupMembershipLoadError(message);
+      if (!options?.silent) showToast(message);
+    } finally {
+      if (requestId === groupMembershipRequest.current) {
+        setGroupMembershipsLoaded(true);
+        setRefreshingGroups(false);
       }
-    }).catch((error: unknown) => {
-      if (active && requestId === groupMembershipRequest.current) {
-        const message = error instanceof Error ? error.message : 'Could not load group memberships.';
-        setGroupMembershipLoadError(message);
-        showToast(message);
-      }
-    }).finally(() => {
-      if (active && requestId === groupMembershipRequest.current) setGroupMembershipsLoaded(true);
-    });
+    }
+  }, [roomUser?.id, showToast]);
+
+  useEffect(() => {
+    void refreshGroups();
+  }, [groupMembershipRetry, refreshGroups]);
+
+  const refreshGroupsRef = useRef(refreshGroups);
+  useEffect(() => {
+    refreshGroupsRef.current = refreshGroups;
+  }, [refreshGroups]);
+
+  useEffect(() => {
+    if (!roomUser?.id || !supabaseConfigured || typeof supabase.channel !== 'function') return;
+    let active = true;
+    const channelTopic = `study-groups-sync:${roomUser.id}:${++studyGroupsSyncChannelSeq}`;
+    const channel = supabase.channel(channelTopic);
+    channel
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'study_groups' },
+        () => {
+          if (active) void refreshGroupsRef.current({ silent: true });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'study_group_memberships', filter: `user_id=eq.${roomUser.id}` },
+        () => {
+          if (active) void refreshGroupsRef.current({ silent: true });
+        }
+      );
+    channel.subscribe();
     return () => {
       active = false;
+      if (typeof supabase.removeChannel === 'function') {
+        void supabase.removeChannel(channel).catch(() => {});
+      } else if (typeof channel.unsubscribe === 'function') {
+        void channel.unsubscribe().catch(() => {});
+      }
     };
-  }, [groupMembershipRetry, roomUser?.id, showToast]);
+  }, [roomUser?.id]);
 
   useEffect(() => {
     if (!roomUser?.id) return;
@@ -1782,6 +1871,7 @@ export default function StudySakhaGroupsRN() {
     useCallback(() => {
       returningToFocusRef.current = false;
       focusLaunchRef.current = false;
+      void refreshGroups({ silent: true });
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
         if (isAppDrawerOpen(navigation)) return false;
         if (activeScreen === 'main') navigation.popTo('DashboardRoot');
@@ -1789,7 +1879,7 @@ export default function StudySakhaGroupsRN() {
         return true;
       });
       return () => subscription.remove();
-    }, [activeScreen, navigation])
+    }, [activeScreen, navigation, refreshGroups])
   );
 
   const filteredGroups = useMemo(() => {
@@ -1950,7 +2040,104 @@ export default function StudySakhaGroupsRN() {
   }, [roomAudioLifecycle]);
 
   const openGroupRoomParam = route.params?.openGroupRoom;
+  const inviteTokenParam = route.params?.inviteToken;
+  const inviteGroupIdParam = route.params?.inviteGroupId;
   const fallbackSelectedGroupId = selectedGroup?.id ?? '';
+
+  useEffect(() => {
+    if (!showInviteModal || !selectedGroup?.id || !roomUser?.id) return;
+    let active = true;
+    setInviteLoading(true);
+    setInviteError(null);
+    void listStudyGroupInvites(selectedGroup.id)
+      .then(async (existing) => {
+        if (!active) return;
+        if (existing.length > 0) {
+          setActiveInvite(existing[0]);
+          return;
+        }
+        const created = await createStudyGroupInvite({ groupId: selectedGroup.id });
+        if (active) setActiveInvite(created);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setActiveInvite(null);
+        setInviteError(error instanceof Error ? error.message : 'Could not prepare an invitation link.');
+      })
+      .finally(() => {
+        if (active) setInviteLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [roomUser?.id, selectedGroup?.id, showInviteModal]);
+
+  useEffect(() => {
+    const rawToken = inviteTokenParam?.trim();
+    const rawGroupId = inviteGroupIdParam?.trim();
+    const normalizedToken = rawToken && !rawToken.startsWith('grp-') ? rawToken : undefined;
+    const normalizedGroupId = rawGroupId || (rawToken && rawToken.startsWith('grp-') ? rawToken : undefined);
+    const inviteKey = normalizedToken ? `token:${normalizedToken}` : normalizedGroupId ? `group:${normalizedGroupId}` : '';
+
+    if (!inviteKey) {
+      handledInviteKeyRef.current = null;
+      return;
+    }
+    if (handledInviteKeyRef.current === inviteKey) return;
+    if (!roomUser?.id) return;
+
+    if (normalizedToken) {
+      handledInviteKeyRef.current = inviteKey;
+      navigation.setParams({ inviteToken: undefined, inviteGroupId: undefined });
+      setInvitePreviewToken(normalizedToken);
+      setInvitePreview(null);
+      setInvitePreviewError(null);
+      setInvitePreviewLoading(true);
+      void getStudyGroupInvitePreview(normalizedToken)
+        .then((preview) => {
+          setInvitePreview(preview);
+          if (preview.valid && preview.isMember && preview.groupId) {
+            void refreshGroups({ silent: true });
+            setSelectedGroupId(preview.groupId);
+            setActiveScreen('detail');
+            setDetailTab('live');
+            setInvitePreviewToken(null);
+            showToast(`Opened ${preview.groupName ?? 'study group'}.`);
+          }
+        })
+        .catch((error: unknown) => {
+          setInvitePreviewError(error instanceof Error ? error.message : 'Could not verify this invitation.');
+        })
+        .finally(() => {
+          setInvitePreviewLoading(false);
+        });
+      return;
+    }
+
+    if (!groupMembershipsLoaded || !normalizedGroupId) return;
+    handledInviteKeyRef.current = inviteKey;
+    navigation.setParams({ inviteToken: undefined, inviteGroupId: undefined });
+    const targetGroup = groups.find((g) => g.id === normalizedGroupId);
+    if (targetGroup?.joined) {
+      handleOpenGroupDetail(targetGroup);
+      showToast(`Opened ${targetGroup.name}.`);
+    } else if (targetGroup && targetGroup.privacy === 'Public' && targetGroup.joinMethod === 'Open Join') {
+      void handleInitiateJoin(targetGroup);
+    } else {
+      showToast('This group requires a valid invitation link.');
+    }
+  }, [
+    groupMembershipsLoaded,
+    groups,
+    handleInitiateJoin,
+    handleOpenGroupDetail,
+    inviteGroupIdParam,
+    inviteTokenParam,
+    navigation,
+    refreshGroups,
+    roomUser?.id,
+    showToast,
+  ]);
 
   const beginRoomSession = useCallback(async (
     room: StudyRoom,
@@ -2040,16 +2227,20 @@ export default function StudySakhaGroupsRN() {
     if (await beginRoomSession(camConsentRoom, true)) setCamConsentRoom(null);
   };
 
+  const openGroupRoomKey = openGroupRoomParam
+    ? `${openGroupRoomParam.groupId}:${openGroupRoomParam.roomId}:${openGroupRoomParam.focusSession?.sessionId ?? ''}`
+    : '';
+
   useEffect(() => {
     const target = openGroupRoomParam;
-    if (!target) {
+    if (!target || !openGroupRoomKey) {
       handledOpenRoomRef.current = null;
       return;
     }
-    if (handledOpenRoomRef.current === target || openingDirectHallRef.current) return;
+    if (handledOpenRoomRef.current === openGroupRoomKey || openingDirectHallRef.current) return;
 
     if (!roomUser?.id) {
-      handledOpenRoomRef.current = target;
+      handledOpenRoomRef.current = openGroupRoomKey;
       navigation.setParams({ openGroupRoom: undefined });
       queueMicrotask(() => showToast('Sign in before joining a study room.'));
       return;
@@ -2058,23 +2249,23 @@ export default function StudySakhaGroupsRN() {
 
     const group = groups.find((candidate) => candidate.id === target.groupId);
     if (!group || !group.joined) {
-      handledOpenRoomRef.current = target;
+      handledOpenRoomRef.current = openGroupRoomKey;
       navigation.setParams({ openGroupRoom: undefined });
       queueMicrotask(() => showToast('This group is not among your active memberships.'));
       return;
     }
     const room = STUDY_ROOMS.find((candidate) => candidate.id === target.roomId);
     if (!room) {
-      handledOpenRoomRef.current = target;
+      handledOpenRoomRef.current = openGroupRoomKey;
       navigation.setParams({ openGroupRoom: undefined });
       queueMicrotask(() => showToast('That study room is not available.'));
       return;
     }
 
-    handledOpenRoomRef.current = target;
+    handledOpenRoomRef.current = openGroupRoomKey;
 
     // Restore an already-active matching Hall directly without creating another instance.
-    if (activeRoom?.id === room.id && activeRoomGroupId === group.id) {
+    if (activeRoomRef.current?.id === room.id && activeRoomGroupId === group.id) {
       queueMicrotask(() => {
         returningToFocusRef.current = false;
         focusLaunchRef.current = false;
@@ -2274,16 +2465,6 @@ export default function StudySakhaGroupsRN() {
     });
   };
 
-  const handleBackToFocusCentre = () => {
-    if (returningToFocusRef.current) return;
-    returningToFocusRef.current = true;
-    setRoomMinimized(true);
-
-    const hasFocusCentre = navigation.getState().routes.some((route) => route.name === 'FocusCenter');
-    if (hasFocusCentre) navigation.popTo('FocusCenter');
-    else navigation.navigate('FocusCenter');
-  };
-
 // Smart Study Room participant mapping (outside JSX)
   const currentUserChairForSmartRoom = useMemo(() => {
     const focusing = currentRoomFocusActivity?.status === 'focusing';
@@ -2352,7 +2533,8 @@ export default function StudySakhaGroupsRN() {
 
   const handleExitHallForSmartRoom = () => {
     if (!activeRoom || activeRoom.id !== 'silent-focus') return;
-    void handleLeaveRoom();
+    returningToFocusRef.current = false;
+    setRoomMinimized(true);
   };
   const handleAddMicroGoal = () => {
     const title = newRoomGoal.trim();
@@ -4750,84 +4932,28 @@ export default function StudySakhaGroupsRN() {
               {renderGroupDetail()}
             </View>
           ) : (
-            <ScrollView key={activeScreen} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              key={activeScreen}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                activeScreen === 'main' ? (
+                  <RefreshControl
+                    refreshing={refreshingGroups}
+                    onRefresh={() => {
+                      setRefreshingGroups(true);
+                      void refreshGroups({ silent: true });
+                    }}
+                    tintColor={theme.primary}
+                  />
+                ) : undefined
+              }
+            >
               {activeScreen === 'main' && renderMainScreen()}
               {activeScreen === 'notifications' && renderNotificationsScreen()}
             </ScrollView>
           )}
         </KeyboardAvoidingView>
-        {activeRoom && roomMinimized && (
-          <View
-            style={{
-              position: 'absolute',
-              bottom: (Platform.OS !== 'web' && !isTablet ? 12 : Math.max(insets.bottom, 12)) + (hasGlobalFocusBar ? 64 : 0),
-              right: 16,
-              left: isTablet ? undefined : 16,
-              width: isTablet ? 420 : undefined,
-              padding: 8,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: theme.successBorder,
-              backgroundColor: theme.surface,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              elevation: 8,
-            }}
-          >
-            <View style={[styles.liveDot, { backgroundColor: theme.live }]} />
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>{activeRoom.name}</Text>
-              <Text style={{ fontSize: 11, color: roomFocusing ? theme.successText : theme.textSecondary }}>
-                {focusBarSession
-                  ? `Focus ${formatFocusElapsed(focusBarElapsedSeconds)} · ${focusBarSession.status === 'focusing' ? 'Active' : focusBarSession.status === 'paused' ? 'Paused' : 'Break'}`
-                  : currentRoomFocusActivity
-                  ? currentRoomFocusActivity.status === 'break'
-                    ? 'On break'
-                    : currentRoomFocusActivity.status === 'paused'
-                      ? 'Focus paused'
-                      : 'Focus session active'
-                  : roomRealtime.connected
-                    ? 'Live · ready to focus'
-                    : roomRealtime.error
-                      ? 'Connection issue'
-                      : 'Connecting…'}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                returningToFocusRef.current = false;
-                setRoomMinimized(false);
-              }}
-              style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 12, borderColor: theme.border, backgroundColor: theme.surfaceElevated }]}
-              accessibilityRole="button"
-            >
-              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>Return to room</Text>
-            </Pressable>
-            {focusBarSession && !hasGlobalFocusBar ? (
-              <Pressable
-                onPress={handleBackToFocusCentre}
-                style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 10, borderColor: theme.successBorder, backgroundColor: theme.successSoft }]}
-                accessibilityRole="button"
-                accessibilityLabel="Back to Focus Centre"
-              >
-                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.successText }}>Back to Focus Centre</Text>
-              </Pressable>
-            ) : null}
-            {activeRoom.id !== 'silent-focus' && (
-              <Pressable
-                onPress={() => void handleLeaveRoom()}
-                disabled={isLeavingRoom}
-                style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 10, borderColor: theme.danger, backgroundColor: theme.dangerSoft }]}
-                accessibilityRole="button"
-                accessibilityState={{ busy: isLeavingRoom, disabled: isLeavingRoom }}
-                accessibilityLabel="Leave and log study room"
-              >
-                {isLeavingRoom ? <ActivityIndicator size="small" color={theme.danger} /> : <LogOut size={16} color={theme.danger} />}
-              </Pressable>
-            )}
-          </View>
-        )}
 
         <Modal
           visible={Boolean(activeRoom && !roomMinimized)}
@@ -5190,46 +5316,6 @@ export default function StudySakhaGroupsRN() {
               )}
               </KeyboardAvoidingView>
 
-              {activeRoom.id === 'silent-focus' && focusBarSession ? (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 12,
-                    right: 12,
-                    bottom: Math.max(insets.bottom, 8),
-                    minHeight: 58,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: theme.successBorder,
-                    backgroundColor: theme.surface,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    elevation: 10,
-                  }}
-                >
-                  <View style={[styles.liveDot, { backgroundColor: focusBarSession.status === 'focusing' ? theme.live : theme.warning }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.textSecondary }}>LIVE FOCUS TIMER</Text>
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: theme.textPrimary, fontVariant: ['tabular-nums'] }}>
-                      {formatFocusElapsed(focusBarElapsedSeconds)}
-                      {' · '}
-                      {focusBarSession.status === 'focusing' ? 'Active' : focusBarSession.status === 'paused' ? 'Paused' : 'Break'}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={handleBackToFocusCentre}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back to Focus Centre"
-                    style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 12, borderColor: theme.successBorder, backgroundColor: theme.successSoft }]}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: theme.successText }}>Back to Focus Centre</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-
               {showExamReflection && activeRoom.id === 'exam-simulation' && (
                 <View style={[styles.modalBackdrop, { position: 'absolute', backgroundColor: theme.overlay, justifyContent: 'center', padding: 16 }]}>
                   <KeyboardAvoidingView
@@ -5343,21 +5429,77 @@ export default function StudySakhaGroupsRN() {
                 <X size={18} color={theme.textSecondary} />
               </Pressable>
             </View>
-            <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 14, marginBottom: 6 }}>Invite link</Text>
-            <View style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
-              <Text selectable numberOfLines={1} style={{ fontSize: 12, color: theme.textPrimary }}>
-                {getGroupInviteUrl(selectedGroup.id) ?? 'Configure a verified invitation host to create a link.'}
-              </Text>
+            <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 14, marginBottom: 6 }}>
+              Secure invite link (expires in 7 days)
+            </Text>
+            <View style={[styles.input, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, minHeight: 44, justifyContent: 'center' }]}>
+              {inviteLoading ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>Generating secure invite link…</Text>
+                </View>
+              ) : inviteError ? (
+                <Text style={{ fontSize: 12, color: theme.danger }}>{inviteError}</Text>
+              ) : (
+                <Text selectable numberOfLines={1} style={{ fontSize: 12, color: theme.textPrimary }}>
+                  {(activeInvite ? getGroupInviteUrl(activeInvite.token) : null) ?? 'Unable to generate invite link.'}
+                </Text>
+              )}
             </View>
+            {activeInvite && !inviteLoading && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                <Text style={{ fontSize: 11, color: theme.textMuted }}>
+                  Used {activeInvite.useCount}{activeInvite.maxUses ? `/${activeInvite.maxUses}` : ''} times
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <Pressable
+                    onPress={() => {
+                      setInviteLoading(true);
+                      setInviteError(null);
+                      void createStudyGroupInvite({ groupId: selectedGroup.id })
+                        .then((created) => {
+                          setActiveInvite(created);
+                          showToast('Generated a new invite link.');
+                        })
+                        .catch((err: unknown) => {
+                          setInviteError(err instanceof Error ? err.message : 'Could not create invite link.');
+                        })
+                        .finally(() => setInviteLoading(false));
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: theme.primary }}>New link</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      const currentId = activeInvite.id;
+                      setInviteLoading(true);
+                      void revokeStudyGroupInvite(currentId)
+                        .then(() => createStudyGroupInvite({ groupId: selectedGroup.id }))
+                        .then((created) => {
+                          setActiveInvite(created);
+                          showToast('Previous link revoked. New link ready.');
+                        })
+                        .catch((err: unknown) => {
+                          setInviteError(err instanceof Error ? err.message : 'Could not revoke invite link.');
+                        })
+                        .finally(() => setInviteLoading(false));
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: theme.danger }}>Revoke</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
             <View style={styles.modalFooter}>
               <Pressable onPress={() => setShowInviteModal(false)} style={[styles.secondaryBtn, { backgroundColor: theme.surfaceElevated }]}>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textPrimary }}>Cancel</Text>
               </Pressable>
               <Pressable
+                disabled={inviteLoading || !activeInvite}
                 onPress={() => {
-                  const inviteUrl = getGroupInviteUrl(selectedGroup.id);
+                  const inviteUrl = activeInvite ? getGroupInviteUrl(activeInvite.token) : null;
                   if (!inviteUrl) {
-                    Alert.alert('Invite link unavailable', 'Set EXPO_PUBLIC_GROUP_INVITE_BASE_URL to the verified web invitation host for standalone builds.');
+                    showToast(inviteError ?? 'Generate an invite link first.');
                     return;
                   }
                   void Clipboard.setStringAsync(inviteUrl).then(() => {
@@ -5368,28 +5510,29 @@ export default function StudySakhaGroupsRN() {
                     showToast('Could not copy the invite link. Please try again.');
                   });
                 }}
-                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: inviteLoading || !activeInvite ? 0.5 : 1 }]}
               >
                 <Text style={styles.primaryBtnText}>Copy link</Text>
               </Pressable>
               <Pressable
+                disabled={inviteLoading || !activeInvite}
                 onPress={async () => {
-                  const inviteUrl = getGroupInviteUrl(selectedGroup.id);
+                  const inviteUrl = activeInvite ? getGroupInviteUrl(activeInvite.token) : null;
                   if (!inviteUrl) {
-                    Alert.alert('Invite link unavailable', 'Set EXPO_PUBLIC_GROUP_INVITE_BASE_URL to the verified web invitation host for standalone builds.');
+                    showToast(inviteError ?? 'Generate an invite link first.');
                     return;
                   }
                   try {
                     await Share.share({
                       title: `Join ${selectedGroup.name} on Study Sakha`,
-                      message: `Join ${selectedGroup.name} on Study Sakha.\n${inviteUrl}`,
-                      url: inviteUrl,
+                      message: `Join "${selectedGroup.name}" on Study Sakha:\n${inviteUrl}`,
+                      ...(Platform.OS === 'ios' ? { url: inviteUrl } : {}),
                     }, { dialogTitle: 'Share group invitation' });
                   } catch (error) {
                     if (!(error instanceof Error && error.name === 'AbortError')) showToast('Could not open the share sheet. Please copy the link instead.');
                   }
                 }}
-                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: inviteLoading || !activeInvite ? 0.5 : 1 }]}
               >
                 <Text style={styles.primaryBtnText}>Share</Text>
               </Pressable>
@@ -5397,6 +5540,93 @@ export default function StudySakhaGroupsRN() {
           </View>
         </View>
       </Modal> : null}
+
+      {invitePreviewToken ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setInvitePreviewToken(null)}>
+          <View style={[styles.modalBackdrop, { backgroundColor: theme.overlay, justifyContent: 'center' }]}>
+            <View style={[styles.modalSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Group Invitation</Text>
+                <Pressable onPress={() => setInvitePreviewToken(null)} style={styles.iconBtn} accessibilityLabel="Close invitation preview">
+                  <X size={18} color={theme.textSecondary} />
+                </Pressable>
+              </View>
+              {invitePreviewLoading ? (
+                <View style={{ paddingVertical: 24, alignItems: 'center', gap: 10 }}>
+                  <ActivityIndicator color={theme.primary} />
+                  <Text style={{ fontSize: 13, color: theme.textSecondary }}>Verifying invitation…</Text>
+                </View>
+              ) : invitePreviewError || !invitePreview?.valid ? (
+                <View style={{ paddingVertical: 14, gap: 10 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: theme.danger }}>
+                    Invitation unavailable
+                  </Text>
+                  <Text style={{ fontSize: 13, lineHeight: 19, color: theme.textSecondary }}>
+                    {invitePreviewError ??
+                      (invitePreview?.statusReason === 'expired'
+                        ? 'This invitation link has expired. Ask a group member for a new link.'
+                        : invitePreview?.statusReason === 'revoked'
+                          ? 'This invitation link has been revoked by a group admin.'
+                          : invitePreview?.statusReason === 'max_uses_reached'
+                            ? 'This invitation link has reached its maximum number of uses.'
+                            : invitePreview?.statusReason === 'archived'
+                              ? 'This study group is no longer active.'
+                              : 'This invitation link is invalid.')}
+                  </Text>
+                  <View style={styles.modalFooter}>
+                    <Pressable onPress={() => setInvitePreviewToken(null)} style={[styles.primaryBtn, { backgroundColor: theme.primary }]}>
+                      <Text style={styles.primaryBtnText}>Close</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ paddingTop: 12, gap: 10 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: theme.textPrimary }}>
+                    {invitePreview.groupName}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+                    {invitePreview.privacy} · {invitePreview.memberCount} active {invitePreview.memberCount === 1 ? 'member' : 'members'}
+                  </Text>
+                  <Text style={{ fontSize: 12, lineHeight: 18, color: theme.textSecondary }}>
+                    Join this study circle to access its live study rooms and shared accountability.
+                  </Text>
+                  <View style={styles.modalFooter}>
+                    <Pressable
+                      disabled={joiningByInvite}
+                      onPress={() => setInvitePreviewToken(null)}
+                      style={[styles.secondaryBtn, { backgroundColor: theme.surfaceElevated }]}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textPrimary }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={joiningByInvite}
+                      onPress={() => {
+                        setJoiningByInvite(true);
+                        void joinStudyGroupByInvite(invitePreviewToken)
+                          .then(async (joinedGroupId) => {
+                            await refreshGroups({ silent: true });
+                            setInvitePreviewToken(null);
+                            setSelectedGroupId(joinedGroupId);
+                            setActiveScreen('detail');
+                            setDetailTab('live');
+                            showToast(`Joined ${invitePreview.groupName ?? 'study group'}!`);
+                          })
+                          .catch((err: unknown) => {
+                            setInvitePreviewError(err instanceof Error ? err.message : 'Could not join this study group.');
+                          })
+                          .finally(() => setJoiningByInvite(false));
+                      }}
+                      style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: joiningByInvite ? 0.6 : 1 }]}
+                    >
+                      <Text style={styles.primaryBtnText}>{joiningByInvite ? 'Joining…' : 'Join Group'}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       {/* CREATE GROUP MULTI-STEP MODAL */}
       <Modal visible={showCreateModal} transparent animationType="slide" onRequestClose={() => setShowCreateModal(false)}>
@@ -5708,9 +5938,16 @@ export default function StudySakhaGroupsRN() {
                       danger: true,
                       requireText: selectedGroup.name,
                       onConfirm: () => {
-                        setGroups((prev) => prev.filter((g) => g.id !== selectedGroup.id));
-                        setActiveScreen('main');
-                        showToast('Group disbanded.');
+                        const targetGroupId = selectedGroup.id;
+                        void disbandStudyGroup(targetGroupId)
+                          .then(() => {
+                            setGroups((prev) => prev.filter((g) => g.id !== targetGroupId));
+                            setActiveScreen('main');
+                            showToast('Group disbanded.');
+                          })
+                          .catch((err: unknown) => {
+                            showToast(err instanceof Error ? err.message : 'Could not disband this group.');
+                          });
                       },
                     });
                   }}

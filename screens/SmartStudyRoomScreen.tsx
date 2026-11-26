@@ -18,9 +18,6 @@ import {
 import {
   ChairDetailBottomSheet,
 } from '../components/ChairDetailBottomSheet';
-import {
-  ExitConfirmModal,
-} from '../components/ExitConfirmModal';
 import type {
   ResponsiveMetrics,
   SmartStudyRoomScreenProps,
@@ -71,7 +68,6 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
   const partners = externalPartners || internalPartners;
 
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [isExitModalOpen, setIsExitModalOpen] = useState<boolean>(false);
 
   const handleToggleTheme = useCallback(() => {
     if (externalOnToggleTheme) {
@@ -172,18 +168,16 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
     [currentUserChair.id, handleStartFocus]
   );
 
-  const handleConfirmExit = useCallback(() => {
-    handleEndSession();
+  const handleBackFromHall = useCallback(() => {
     setSelectedMemberId(null);
-    setIsExitModalOpen(false);
     if (externalOnExitHall) {
       externalOnExitHall();
-    } else if (nav) {
+    } else if (nav && typeof nav.canGoBack === 'function' && nav.canGoBack()) {
       nav.goBack();
     } else {
       setScreen('lobby');
     }
-  }, [handleEndSession, externalOnExitHall, nav]);
+  }, [externalOnExitHall, nav]);
 
   if (screen === 'lobby') {
     return (
@@ -280,7 +274,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
         focusingNowCount={focusingNowCount}
         isDark={isDark}
         onToggleTheme={handleToggleTheme}
-        onPressExit={() => setIsExitModalOpen(true)}
+        onPressBack={handleBackFromHall}
       />
 
       <ScrollView
@@ -484,14 +478,6 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
         isDark={isDark}
         onPauseToggle={handleTogglePause}
         onEndSession={handleEndSession}
-      />
-
-      <ExitConfirmModal
-        isOpen={isExitModalOpen}
-        isFocusing={isUserActive}
-        isDark={isDark}
-        onCancel={() => setIsExitModalOpen(false)}
-        onConfirm={handleConfirmExit}
       />
     </SafeAreaView>
   );

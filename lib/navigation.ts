@@ -14,6 +14,7 @@ export type AppStackParamList = {
   Library: LibraryParams | undefined;
   Groups: (HeaderParams & {
     inviteGroupId?: string;
+    inviteToken?: string;
     openGroupRoom?: {
       groupId: string;
       roomId: GroupRoomId;

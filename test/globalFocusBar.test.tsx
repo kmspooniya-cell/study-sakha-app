@@ -77,8 +77,12 @@ jest.mock('../lib/store', () => ({
 
 jest.mock('../lib/theme', () => ({
   shadow: () => ({}),
+  spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
+  radii: { card: 16, dialog: 20, pill: 999 },
+  fonts: { display: 'System', body: 'System' },
   useTheme: () => ({
     scheme: 'light',
+    f: (n: number) => n,
     colors: {
       surface: '#FFFFFF',
       surfaceAlt: '#F2F2F7',

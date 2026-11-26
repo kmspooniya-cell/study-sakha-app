@@ -5,6 +5,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import {
   endGroupRoomFocus,
   getGroupRoomFocusActivity,
+  setGroupRoomFocusContext,
   subscribeGroupRoomFocus,
 } from '../lib/groupRoomFocusBridge';
 import { VirtualStudyHall } from '../components/VirtualStudyHall';
@@ -141,6 +142,17 @@ jest.mock('../lib/groupRooms', () => {
     ...actual,
     createRoomSession: jest.fn(async () => 'room-session-1'),
     getActiveStudyGroups: jest.fn(async () => [{ id: 'grp-ras-mains', name: 'RAS Mains 2026 — Rajasthan Special' }]),
+    listDiscoverableStudyGroups: jest.fn(async () => [{
+      id: 'grp-ras-mains',
+      name: 'RAS Mains 2026 — Rajasthan Special',
+      privacy: 'Private',
+      joinMethod: 'Leader Approval',
+      ownerId: 'user-1',
+      createdAt: '2026-11-26T00:00:00.000Z',
+      memberCount: 1,
+      isMember: true,
+      memberRole: 'Owner',
+    }]),
     getActiveStudyGroupIds: jest.fn(async () => ['grp-ras-mains']),
     submitStudyMemberActivityToGroups: jest.fn(async (groupIds: string[], activity: Record<string, unknown>) => {
       await Promise.all(groupIds.map((groupId) => mockSubmitStudyMemberActivity({ groupId, ...activity } as Parameters<typeof mockSubmitStudyMemberActivity>[0])));
@@ -283,7 +295,7 @@ describe('shared focus session setup', () => {
     expect(mockStore.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recordFocusStudy' }));
   });
 
-  it('leaves Silent Focus Hall only after confirmation and returns to the Groups screen', async () => {
+  it('exits Silent Focus Hall freely without a leave confirmation or ending the session', async () => {
     jest.useFakeTimers();
     const view = render(<GroupsScreen />);
     await waitFor(() => expect(view.getByRole('button', { name: 'Open RAS Mains 2026 — Rajasthan Special' })).toBeTruthy());
@@ -293,14 +305,14 @@ describe('shared focus session setup', () => {
       await Promise.resolve();
     });
 
-    fireEvent.press(view.getByRole('button', { name: 'Exit Silent Focus Hall' }));
-    expect(view.getByText('Leave Silent Focus Hall?')).toBeTruthy();
-    fireEvent.press(view.getByText('Leave Room'));
+    expect(view.queryByRole('button', { name: 'Exit Silent Focus Hall' })).toBeNull();
+    fireEvent.press(view.getByRole('button', { name: 'Back from Silent Focus Hall' }));
 
-    await waitFor(() => expect(mockFinishRoomSession).toHaveBeenCalledWith('room-session-1', { status: 'left' }));
+    expect(mockFinishRoomSession).not.toHaveBeenCalled();
     expect(view.queryByText('Leave Silent Focus Hall?')).toBeNull();
     expect(view.getByText('RAS Mains 2026 — Rajasthan Special')).toBeTruthy();
     expect(mockNavigation.goBack).not.toHaveBeenCalled();
+    setGroupRoomFocusContext(null);
     view.unmount();
     jest.clearAllTimers();
     jest.useRealTimers();

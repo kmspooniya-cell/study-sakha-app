@@ -503,6 +503,96 @@ function computeMinutesBetween(startTime?: string, endTime?: string): number | n
   return diff > 0 ? diff : null;
 }
 
+type PlannerFormDraft = {
+  title: string;
+  subject: string;
+  taskType: string;
+  teacher: string;
+  room: string;
+  building: string;
+  seatNumber: string;
+  onlineLink: string;
+  examType: string;
+  activityType: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  termName: string;
+  rangeFrom: string;
+  rangeUntil: string;
+  notes: string;
+};
+
+type CategoryFormState = {
+  recurrenceMode: string;
+  recurrence: string;
+  repeatDays: number[];
+  dateRangeMode: string;
+  whereMode: string;
+  examDuration: number;
+  plannedDuration: number | null;
+  durationText: string;
+  durationTouched: boolean;
+  vacationPreset: string;
+  coverPhotoName: string;
+  showActivityTimeEditor: boolean;
+  draft: PlannerFormDraft;
+};
+
+function createInitialCategoryFormState(category: string, isoDate: string): CategoryFormState {
+  const defaultStart = category === 'exam' ? '10:00' : category === 'activity' ? '16:00' : '09:00';
+  const defaultEnd = category === 'activity' ? '17:00' : '10:00';
+  const initialDuration = category === 'vacation'
+    ? null
+    : category === 'exam'
+      ? 60
+      : computeMinutesBetween(defaultStart, defaultEnd) ?? 60;
+
+  return {
+    recurrenceMode: 'once',
+    recurrence: 'none',
+    repeatDays: [parseISODate(isoDate).getDay()],
+    dateRangeMode: category === 'vacation' ? 'manual' : 'none',
+    whereMode: 'in_person',
+    examDuration: 60,
+    plannedDuration: initialDuration,
+    durationText: initialDuration !== null ? String(initialDuration) : '',
+    durationTouched: false,
+    vacationPreset: '1d',
+    coverPhotoName: '',
+    showActivityTimeEditor: false,
+    draft: {
+      title: '',
+      subject: '',
+      taskType: '',
+      teacher: '',
+      room: '',
+      building: '',
+      seatNumber: '',
+      onlineLink: '',
+      examType: 'Exam',
+      activityType: 'Sports & Fitness',
+      date: isoDate,
+      startTime: defaultStart,
+      endTime: defaultEnd,
+      termName: TERM_OPTIONS[0],
+      rangeFrom: isoDate,
+      rangeUntil: isoDate,
+      notes: '',
+    },
+  };
+}
+
+function createAllCategoryFormStates(isoDate: string): Record<string, CategoryFormState> {
+  return {
+    task: createInitialCategoryFormState('task', isoDate),
+    class: createInitialCategoryFormState('class', isoDate),
+    exam: createInitialCategoryFormState('exam', isoDate),
+    vacation: createInitialCategoryFormState('vacation', isoDate),
+    activity: createInitialCategoryFormState('activity', isoDate),
+  };
+}
+
 function getTimeRangeDisplay(plan) {
   if (plan.startTime && plan.endTime) {
     return `${formatTime12h(plan.startTime)} – ${formatTime12h(plan.endTime)}`;
@@ -1309,41 +1399,59 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
       : current);
   }, [state.settings?.focusDurationMinutes]);
 
-  // Form interactive state (exact 1:1 parity)
+  // Form interactive state (independent per category)
   const [formCategory, setFormCategory] = useState('task');
-  const [formRecurrenceMode, setFormRecurrenceMode] = useState('once');
-  const [formRecurrence, setFormRecurrence] = useState('none');
-  const [formRepeatDays, setFormRepeatDays] = useState([todayObj.getDay()]);
-  const [formDateRangeMode, setFormDateRangeMode] = useState('none');
-  const [formWhereMode, setFormWhereMode] = useState('in_person');
-  const [formExamDuration, setFormExamDuration] = useState(60);
-  const [formPlannedDuration, setFormPlannedDuration] = useState<number | null>(60);
-  const [formDurationText, setFormDurationText] = useState('60');
-  const [formDurationTouched, setFormDurationTouched] = useState(false);
-  const [formVacationPreset, setFormVacationPreset] = useState('1d');
-  const [formCoverPhotoName, setFormCoverPhotoName] = useState('');
-  const [formShowActivityTimeEditor, setFormShowActivityTimeEditor] = useState(false);
+  const formCategoryRef = useRef(formCategory);
+  useEffect(() => {
+    formCategoryRef.current = formCategory;
+  }, [formCategory]);
+  const [formStatesByCategory, setFormStatesByCategory] = useState<Record<string, CategoryFormState>>(
+    () => createAllCategoryFormStates(TODAY_ISO)
+  );
   const [formError, setFormError] = useState('');
 
-  const [formDraft, setFormDraft] = useState({
-    title: '',
-    subject: '',
-    taskType: '',
-    teacher: '',
-    room: '',
-    building: '',
-    seatNumber: '',
-    onlineLink: '',
-    examType: 'Exam',
-    activityType: 'Sports & Fitness',
-    date: TODAY_ISO,
-    startTime: '09:00',
-    endTime: '10:00',
-    termName: TERM_OPTIONS[0],
-    rangeFrom: TODAY_ISO,
-    rangeUntil: TODAY_ISO,
-    notes: '',
-  });
+  const activeFormState = formStatesByCategory[formCategory] ?? createInitialCategoryFormState(formCategory, TODAY_ISO);
+  const formRecurrenceMode = activeFormState.recurrenceMode;
+  const formRecurrence = activeFormState.recurrence;
+  const formRepeatDays = activeFormState.repeatDays;
+  const formDateRangeMode = activeFormState.dateRangeMode;
+  const formWhereMode = activeFormState.whereMode;
+  const formExamDuration = activeFormState.examDuration;
+  const formPlannedDuration = activeFormState.plannedDuration;
+  const formDurationText = activeFormState.durationText;
+  const formDurationTouched = activeFormState.durationTouched;
+  const formVacationPreset = activeFormState.vacationPreset;
+  const formCoverPhotoName = activeFormState.coverPhotoName;
+  const formShowActivityTimeEditor = activeFormState.showActivityTimeEditor;
+  const formDraft = activeFormState.draft;
+
+  const updateActiveFormField = useCallback(<K extends keyof CategoryFormState>(
+    key: K,
+    valueOrUpdater: CategoryFormState[K] | ((prev: CategoryFormState[K]) => CategoryFormState[K])
+  ) => {
+    const cat = formCategoryRef.current;
+    setFormStatesByCategory((prev) => {
+      const current = prev[cat] ?? createInitialCategoryFormState(cat, TODAY_ISO);
+      const nextVal = typeof valueOrUpdater === 'function'
+        ? (valueOrUpdater as (p: CategoryFormState[K]) => CategoryFormState[K])(current[key])
+        : valueOrUpdater;
+      return { ...prev, [cat]: { ...current, [key]: nextVal } };
+    });
+  }, [TODAY_ISO]);
+
+  const setFormRecurrenceMode = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('recurrenceMode', v), [updateActiveFormField]);
+  const setFormRecurrence = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('recurrence', v), [updateActiveFormField]);
+  const setFormRepeatDays = useCallback((v: number[] | ((p: number[]) => number[])) => updateActiveFormField('repeatDays', v), [updateActiveFormField]);
+  const setFormDateRangeMode = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('dateRangeMode', v), [updateActiveFormField]);
+  const setFormWhereMode = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('whereMode', v), [updateActiveFormField]);
+  const setFormExamDuration = useCallback((v: number | ((p: number) => number)) => updateActiveFormField('examDuration', v), [updateActiveFormField]);
+  const setFormPlannedDuration = useCallback((v: number | null | ((p: number | null) => number | null)) => updateActiveFormField('plannedDuration', v), [updateActiveFormField]);
+  const setFormDurationText = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('durationText', v), [updateActiveFormField]);
+  const setFormDurationTouched = useCallback((v: boolean | ((p: boolean) => boolean)) => updateActiveFormField('durationTouched', v), [updateActiveFormField]);
+  const setFormVacationPreset = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('vacationPreset', v), [updateActiveFormField]);
+  const setFormCoverPhotoName = useCallback((v: string | ((p: string) => string)) => updateActiveFormField('coverPhotoName', v), [updateActiveFormField]);
+  const setFormShowActivityTimeEditor = useCallback((v: boolean | ((p: boolean) => boolean)) => updateActiveFormField('showActivityTimeEditor', v), [updateActiveFormField]);
+  const setFormDraft = useCallback((v: PlannerFormDraft | ((p: PlannerFormDraft) => PlannerFormDraft)) => updateActiveFormField('draft', v), [updateActiveFormField]);
 
   // Modals & native picker overlays
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
@@ -1529,51 +1637,14 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
 
   const openNewPlanFormForDate = useCallback(
     (isoDate, category = 'task') => {
-      const defaultStart = category === 'exam' ? '10:00' : category === 'activity' ? '16:00' : '09:00';
-      const defaultEnd = category === 'activity' ? '17:00' : '10:00';
-      const initialDuration = category === 'vacation'
-        ? null
-        : category === 'exam'
-          ? 60
-          : computeMinutesBetween(defaultStart, defaultEnd) ?? 60;
-
       setSelectedDate(isoDate);
       setSheetMode('form');
       setEditingPlanId(null);
       setViewingPlanId(null);
+      formCategoryRef.current = category;
       setFormCategory(category);
-      setFormRecurrenceMode('once');
-      setFormRecurrence('none');
-      setFormRepeatDays([parseISODate(isoDate).getDay()]);
-      setFormDateRangeMode(category === 'vacation' ? 'manual' : 'none');
-      setFormWhereMode('in_person');
-      setFormExamDuration(60);
-      setFormPlannedDuration(initialDuration);
-      setFormDurationText(initialDuration !== null ? String(initialDuration) : '');
-      setFormDurationTouched(false);
-      setFormVacationPreset('1d');
-      setFormCoverPhotoName('');
-      setFormShowActivityTimeEditor(false);
+      setFormStatesByCategory(createAllCategoryFormStates(isoDate));
       setFormError('');
-      setFormDraft({
-        title: '',
-        subject: '',
-        taskType: '',
-        teacher: '',
-        room: '',
-        building: '',
-        seatNumber: '',
-        onlineLink: '',
-        examType: 'Exam',
-        activityType: 'Sports & Fitness',
-        date: isoDate,
-        startTime: defaultStart,
-        endTime: defaultEnd,
-        termName: TERM_OPTIONS[0],
-        rangeFrom: isoDate,
-        rangeUntil: isoDate,
-        notes: '',
-      });
       openBottomSheet();
     },
     [openBottomSheet]
@@ -1616,41 +1687,44 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
       setEditingPlanId(plan.id);
       setViewingPlanId(null);
       setSheetMode('form');
+      formCategoryRef.current = plan.category;
       setFormCategory(plan.category);
-      setFormRecurrenceMode(isRep ? 'repeating' : 'once');
-      setFormRecurrence(isRep ? plan.recurrence : 'none');
-      setFormRepeatDays(
-        plan.repeatDays && plan.repeatDays.length ? [...plan.repeatDays] : [parseISODate(plan.date).getDay()]
-      );
-      setFormDateRangeMode(plan.dateRangeMode || (plan.category === 'vacation' ? 'manual' : 'none'));
-      setFormWhereMode(plan.whereMode || 'in_person');
-      setFormExamDuration(plan.durationMinutes || 60);
-      setFormPlannedDuration(plan.category === 'vacation' ? null : (existingDuration ?? null));
-      setFormDurationText(plan.category === 'vacation' || existingDuration == null ? '' : String(existingDuration));
-      setFormDurationTouched(true);
-      setFormVacationPreset(plan.vacationPreset || (plan.endDate && plan.endDate !== plan.date ? 'custom' : '1d'));
-      setFormCoverPhotoName(plan.coverPhotoName || '');
-      setFormShowActivityTimeEditor(false);
+      const nextStates = createAllCategoryFormStates(plan.date || occurrenceDate);
+      nextStates[plan.category] = {
+        recurrenceMode: isRep ? 'repeating' : 'once',
+        recurrence: isRep ? plan.recurrence : 'none',
+        repeatDays: plan.repeatDays && plan.repeatDays.length ? [...plan.repeatDays] : [parseISODate(plan.date).getDay()],
+        dateRangeMode: plan.dateRangeMode || (plan.category === 'vacation' ? 'manual' : 'none'),
+        whereMode: plan.whereMode || 'in_person',
+        examDuration: plan.durationMinutes || 60,
+        plannedDuration: plan.category === 'vacation' ? null : (existingDuration ?? null),
+        durationText: plan.category === 'vacation' || existingDuration == null ? '' : String(existingDuration),
+        durationTouched: true,
+        vacationPreset: plan.vacationPreset || (plan.endDate && plan.endDate !== plan.date ? 'custom' : '1d'),
+        coverPhotoName: plan.coverPhotoName || '',
+        showActivityTimeEditor: false,
+        draft: {
+          title: plan.title || '',
+          subject: plan.subject || '',
+          taskType: plan.taskType || '',
+          teacher: plan.teacher || plan.instructor || '',
+          room: plan.room || plan.location || '',
+          building: plan.building || '',
+          seatNumber: plan.seatNumber || '',
+          onlineLink: plan.onlineLink || '',
+          examType: plan.examType || 'Exam',
+          activityType: plan.activityType || 'Sports & Fitness',
+          date: plan.date || selectedDate,
+          startTime: plan.startTime || plan.time || defaultStart,
+          endTime: plan.endTime || defaultEnd,
+          termName: plan.termName || TERM_OPTIONS[0],
+          rangeFrom: plan.rangeFrom || plan.date || selectedDate,
+          rangeUntil: plan.rangeUntil || plan.endDate || plan.repeatUntil || plan.date || selectedDate,
+          notes: plan.notes || '',
+        },
+      };
+      setFormStatesByCategory(nextStates);
       setFormError('');
-      setFormDraft({
-        title: plan.title || '',
-        subject: plan.subject || '',
-        taskType: plan.taskType || '',
-        teacher: plan.teacher || plan.instructor || '',
-        room: plan.room || plan.location || '',
-        building: plan.building || '',
-        seatNumber: plan.seatNumber || '',
-        onlineLink: plan.onlineLink || '',
-        examType: plan.examType || 'Exam',
-        activityType: plan.activityType || 'Sports & Fitness',
-        date: plan.date || selectedDate,
-        startTime: plan.startTime || plan.time || defaultStart,
-        endTime: plan.endTime || defaultEnd,
-        termName: plan.termName || TERM_OPTIONS[0],
-        rangeFrom: plan.rangeFrom || plan.date || selectedDate,
-        rangeUntil: plan.rangeUntil || plan.endDate || plan.repeatUntil || plan.date || selectedDate,
-        notes: plan.notes || '',
-      });
       if (!sheetOpen) {
         openBottomSheet();
       }
@@ -1685,26 +1759,11 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
 
   const handleSwitchFormTab = useCallback(
     (nextCat) => {
+      formCategoryRef.current = nextCat;
       setFormCategory(nextCat);
-      if (nextCat === 'vacation' && formDateRangeMode === 'none') {
-        setFormDateRangeMode('manual');
-      } else if (nextCat !== 'vacation' && !editingPlanId) {
-        setFormDateRangeMode('none');
-      }
-      setFormDraft((prev) => {
-        if (nextCat === 'exam') return { ...prev, startTime: '10:00' };
-        if (nextCat === 'activity') return { ...prev, startTime: '16:00', endTime: '17:00' };
-        return prev;
-      });
-      if (!formDurationTouched) {
-        const nextMinutes = nextCat === 'vacation' ? null : nextCat === 'exam' ? formExamDuration : 60;
-        setFormPlannedDuration(nextMinutes);
-        setFormDurationText(nextMinutes !== null ? String(nextMinutes) : '');
-      }
-      setFormShowActivityTimeEditor(false);
       setFormError('');
     },
-    [editingPlanId, formDateRangeMode, formDurationTouched, formExamDuration]
+    []
   );
 
   const handleFormSubmit = useCallback(() => {
@@ -1760,8 +1819,12 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
       }
     }
 
-    const parsedDurationInput = formDurationText.trim() ? Number(formDurationText.trim()) : null;
+    const usesRangeDuration = formCategory === 'task' || formCategory === 'class';
+    const parsedDurationInput = !usesRangeDuration && formDurationText.trim()
+      ? Number(formDurationText.trim())
+      : null;
     if (
+      !usesRangeDuration &&
       formCategory !== 'exam' &&
       formCategory !== 'vacation' &&
       parsedDurationInput !== null &&
@@ -1776,11 +1839,13 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
       ? formExamDuration
       : formCategory === 'vacation'
         ? null
-        : parsedDurationInput !== null
-          ? Math.round(parsedDurationInput)
-          : formPlannedDuration !== null
-            ? Math.round(formPlannedDuration)
-            : computedFromRange;
+        : usesRangeDuration
+          ? computedFromRange
+          : parsedDurationInput !== null
+            ? Math.round(parsedDurationInput)
+            : formPlannedDuration !== null
+              ? Math.round(formPlannedDuration)
+              : computedFromRange;
     const plannedDurationLabel = resolvedDurationMinutes !== null && resolvedDurationMinutes >= 0
       ? `${resolvedDurationMinutes} min`
       : undefined;
@@ -2421,8 +2486,6 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
             </TouchableOpacity>
           </View>
         </View>
-
-        {!includeVacationPresets && renderDurationControl()}
 
         <View>
           <Text style={[styles.formLabel, { color: theme.textMuted }]}>DATE RANGE</Text>
@@ -4617,7 +4680,7 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
           if (timePickerTarget) {
             const nextDraft = { ...formDraft, [timePickerTarget.field]: t };
             setFormDraft(nextDraft);
-            if (!formDurationTouched && formCategory !== 'exam' && formCategory !== 'vacation') {
+            if ((formCategory === 'task' || formCategory === 'class' || !formDurationTouched) && formCategory !== 'exam' && formCategory !== 'vacation') {
               const span = computeMinutesBetween(nextDraft.startTime, nextDraft.endTime);
               if (span !== null) {
                 setFormPlannedDuration(span);

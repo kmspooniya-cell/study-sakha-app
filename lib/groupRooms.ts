@@ -51,6 +51,41 @@ export type ActiveStudyGroup = {
   name: string;
 };
 
+export type DiscoverableStudyGroup = {
+  id: string;
+  name: string;
+  privacy: 'Public' | 'Private';
+  joinMethod: 'Open Join' | 'Password Protected' | 'Answer-based Entry' | 'Leader Approval';
+  ownerId: string | null;
+  createdAt: string;
+  memberCount: number;
+  isMember: boolean;
+  memberRole: string | null;
+};
+
+export type StudyGroupInvite = {
+  id: string;
+  groupId: string;
+  token: string;
+  expiresAt: string;
+  maxUses: number | null;
+  useCount: number;
+  revokedAt?: string | null;
+  createdAt: string;
+};
+
+export type StudyGroupInvitePreview = {
+  valid: boolean;
+  statusReason: 'ok' | 'invalid' | 'revoked' | 'expired' | 'max_uses_reached' | 'archived';
+  groupId: string | null;
+  groupName: string | null;
+  privacy: 'Public' | 'Private' | null;
+  joinMethod: 'Open Join' | 'Password Protected' | 'Answer-based Entry' | 'Leader Approval' | null;
+  memberCount: number;
+  isMember: boolean;
+  expiresAt: string | null;
+};
+
 export type StudyRoomProfile = {
   user_id: string;
   display_name: string;
@@ -142,6 +177,167 @@ export async function getActiveStudyGroups(userId: string): Promise<ActiveStudyG
     .order('name', { ascending: true });
   if (error) throw new Error(`Could not load your joined study groups: ${error.message}`);
   return (data ?? []).map((group) => ({ id: group.id, name: group.name }));
+}
+
+export async function listDiscoverableStudyGroups(userId: string): Promise<DiscoverableStudyGroup[]> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('list_discoverable_study_groups');
+  if (!error && Array.isArray(data)) {
+    return data.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      privacy: row.privacy === 'Public' ? 'Public' : 'Private',
+      joinMethod: (row.join_method ?? 'Leader Approval') as DiscoverableStudyGroup['joinMethod'],
+      ownerId: typeof row.owner_id === 'string' ? row.owner_id : null,
+      createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+      memberCount: typeof row.member_count === 'number' ? row.member_count : Number(row.member_count ?? 0),
+      isMember: Boolean(row.is_member),
+      memberRole: typeof row.member_role === 'string' ? row.member_role : null,
+    }));
+  }
+  if (error && error.code !== 'PGRST202') {
+    throw new Error(`Could not load study groups: ${error.message}`);
+  }
+
+  // Fallback for environments where 202611260001 has not been applied yet:
+  // query study_groups directly (RLS returns public groups + user's joined groups)
+  // alongside the user's active memberships.
+  const [joinedIds, groupsRes] = await Promise.all([
+    getActiveStudyGroupIds(userId),
+    supabase
+      .from('study_groups')
+      .select('id, name, privacy, join_method, owner_id, created_at')
+      .order('created_at', { ascending: false }),
+  ]);
+  if (groupsRes.error) {
+    throw new Error(`Could not load study groups: ${groupsRes.error.message}`);
+  }
+  const joinedSet = new Set(joinedIds);
+  return (groupsRes.data ?? []).map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    privacy: row.privacy === 'Public' ? 'Public' : 'Private',
+    joinMethod: (row.join_method ?? 'Leader Approval') as DiscoverableStudyGroup['joinMethod'],
+    ownerId: typeof row.owner_id === 'string' ? row.owner_id : null,
+    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    memberCount: joinedSet.has(String(row.id)) ? 1 : 0,
+    isMember: joinedSet.has(String(row.id)),
+    memberRole: row.owner_id === userId ? 'Owner' : joinedSet.has(String(row.id)) ? 'Member' : null,
+  }));
+}
+
+export async function createStudyGroupInvite({
+  groupId,
+  expiresInHours = 168,
+  maxUses = null,
+}: {
+  groupId: string;
+  expiresInHours?: number;
+  maxUses?: number | null;
+}): Promise<StudyGroupInvite> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('create_study_group_invite', {
+    group_key: groupId,
+    expires_in_hours: expiresInHours,
+    max_uses_limit: maxUses,
+  });
+  if (error) throw rpcAvailabilityError(error, 'Group invitations');
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row.token !== 'string') {
+    throw new Error('Could not generate an invitation link.');
+  }
+  return {
+    id: String(row.id),
+    groupId: String(row.group_id),
+    token: row.token,
+    expiresAt: String(row.expires_at),
+    maxUses: typeof row.max_uses === 'number' ? row.max_uses : null,
+    useCount: typeof row.use_count === 'number' ? row.use_count : 0,
+    createdAt: String(row.created_at),
+  };
+}
+
+export async function listStudyGroupInvites(groupId: string): Promise<StudyGroupInvite[]> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('list_study_group_invites', { group_key: groupId });
+  if (error) {
+    if (error.code === 'PGRST202') return [];
+    throw new Error(`Could not load group invitations: ${error.message}`);
+  }
+  return (Array.isArray(data) ? data : []).map((row) => ({
+    id: String(row.id),
+    groupId: String(row.group_id),
+    token: String(row.token),
+    expiresAt: String(row.expires_at),
+    maxUses: typeof row.max_uses === 'number' ? row.max_uses : null,
+    useCount: typeof row.use_count === 'number' ? row.use_count : 0,
+    revokedAt: typeof row.revoked_at === 'string' ? row.revoked_at : null,
+    createdAt: String(row.created_at),
+  }));
+}
+
+export async function revokeStudyGroupInvite(inviteId: string): Promise<boolean> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('revoke_study_group_invite', { invite_key: inviteId });
+  if (error) throw rpcAvailabilityError(error, 'Group invitation revocation');
+  return Boolean(data);
+}
+
+export async function getStudyGroupInvitePreview(inviteToken: string): Promise<StudyGroupInvitePreview> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('get_study_group_invite_preview', {
+    invite_token: inviteToken,
+  });
+  if (error) throw rpcAvailabilityError(error, 'Group invitation verification');
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    return {
+      valid: false,
+      statusReason: 'invalid',
+      groupId: null,
+      groupName: null,
+      privacy: null,
+      joinMethod: null,
+      memberCount: 0,
+      isMember: false,
+      expiresAt: null,
+    };
+  }
+  return {
+    valid: Boolean(row.valid),
+    statusReason: (row.status_reason ?? 'invalid') as StudyGroupInvitePreview['statusReason'],
+    groupId: typeof row.group_id === 'string' ? row.group_id : null,
+    groupName: typeof row.group_name === 'string' ? row.group_name : null,
+    privacy: row.privacy === 'Public' || row.privacy === 'Private' ? row.privacy : null,
+    joinMethod: (row.join_method ?? null) as StudyGroupInvitePreview['joinMethod'],
+    memberCount: typeof row.member_count === 'number' ? row.member_count : Number(row.member_count ?? 0),
+    isMember: Boolean(row.is_member),
+    expiresAt: typeof row.expires_at === 'string' ? row.expires_at : null,
+  };
+}
+
+export async function joinStudyGroupByInvite(inviteToken: string): Promise<string> {
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.rpc('join_study_group_by_invite', {
+    invite_token: inviteToken,
+  });
+  if (error) throw rpcAvailabilityError(error, 'Group invitation join');
+  if (typeof data !== 'string' || !data) {
+    throw new Error('Could not join this study group via invitation.');
+  }
+  return data;
+}
+
+export async function leaveStudyGroup(groupId: string): Promise<void> {
+  assertSupabaseConfigured();
+  const { error } = await supabase.rpc('leave_study_group', { group_key: groupId });
+  if (error) throw rpcAvailabilityError(error, 'Leaving study group');
+}
+
+export async function disbandStudyGroup(groupId: string): Promise<void> {
+  assertSupabaseConfigured();
+  const { error } = await supabase.rpc('disband_study_group', { group_key: groupId });
+  if (error) throw rpcAvailabilityError(error, 'Disbanding study group');
 }
 
 export async function createStudyGroup({

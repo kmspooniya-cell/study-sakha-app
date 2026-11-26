@@ -16,7 +16,8 @@ import type { GroupRoomFocusContext, GroupRoomFocusStatus } from './groupRoomFoc
 import { useGroupFocusPresence } from './groupRoomRealtime';
 import type { RealtimeDiagnosticState } from './groupRoomRealtime';
 import { getActiveStudyGroups } from './groupRooms';
-import type { ActiveStudyGroup } from './groupRooms';
+import type { ActiveStudyGroup, GroupRoomId } from './groupRooms';
+import { classifySyncError, logStructuredSyncEvent } from './groupSyncErrors';
 import { getSchedulePlanDurationSeconds } from './planner';
 import { dayKey, getUserScopedStorageKey, PlannerScheduleItem, PlannerTask, useStore } from './store';
 
@@ -203,6 +204,15 @@ type CompleteCallbacks = {
   onCompleted?: (payload: FocusCompletionPayload) => void;
 };
 
+export type ActiveHallContext = {
+  groupId: string;
+  groupName: string;
+  roomId: GroupRoomId;
+  roomName: string;
+  roomSessionId: string;
+  isInsideHall: boolean;
+};
+
 export type FocusSessionContextValue = {
   session: ActiveFocusSession | null;
   sessionRef: React.MutableRefObject<ActiveFocusSession | null>;
@@ -224,6 +234,12 @@ export type FocusSessionContextValue = {
   diagnosticState: RealtimeDiagnosticState;
   activeRoomContext: GroupRoomFocusContext | null;
   setActiveRoomContext: (ctx: GroupRoomFocusContext | null) => void;
+  activeHallContext: ActiveHallContext | null;
+  setActiveHallContext: (ctx: ActiveHallContext | null) => void;
+  registerHallOpener: (handler: (() => void) | null) => void;
+  openActiveHall: () => void;
+  currentRouteName: string | undefined;
+  setCurrentRouteName: (name: string | undefined) => void;
   startSession: (setup: FocusSessionSetup, roomFocus?: GroupRoomFocusContext | null) => ActiveFocusSession | null;
   togglePause: () => void;
   toggleBreak: () => void;
@@ -290,6 +306,15 @@ export function FocusSessionProvider({
     activeRoomContextRef.current = ctx;
     setActiveRoomContextState(ctx);
   }, []);
+  const [activeHallContext, setActiveHallContext] = useState<ActiveHallContext | null>(null);
+  const [currentRouteName, setCurrentRouteName] = useState<string | undefined>(undefined);
+  const hallOpenerRef = useRef<(() => void) | null>(null);
+  const registerHallOpener = useCallback((handler: (() => void) | null) => {
+    hallOpenerRef.current = handler;
+  }, []);
+  const openActiveHall = useCallback(() => {
+    hallOpenerRef.current?.();
+  }, []);
   const [joinedGroups, setJoinedGroups] = useState<ActiveStudyGroup[]>([]);
   const [joinedGroupsLoading, setJoinedGroupsLoading] = useState(Boolean(userId));
   const [joinedGroupsError, setJoinedGroupsError] = useState('');
@@ -350,9 +375,16 @@ export function FocusSessionProvider({
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') retryPending();
     });
+    const handleOnline = () => retryPending();
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('online', handleOnline);
+    }
     return () => {
       active = false;
       subscription.remove();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('online', handleOnline);
+      }
     };
   }, [userId]);
 
@@ -1185,8 +1217,21 @@ export function FocusSessionProvider({
     : null;
 
   const reportPresenceError = useCallback((message: string) => {
+    if (!message) {
+      setGroupPresenceError('');
+      return;
+    }
     if (/\b(?:socket|websocket)\s+closed\s*:\s*1000\b/i.test(message) || (/\b1000\b/.test(message) && /closed|normal/i.test(message))) return;
-    setGroupPresenceError(message);
+    const classified = classifySyncError(message);
+    logStructuredSyncEvent(
+      classified.requiresUserAction ? 'error' : 'warn',
+      'group_presence_error',
+      { category: classified.category, message: classified.message },
+      `group_presence:${classified.category}`,
+    );
+    if (classified.requiresUserAction) {
+      setGroupPresenceError(classified.message);
+    }
   }, []);
 
   const activeSilentRoomGroupId = activeRoomContext?.roomId === 'silent-focus'
@@ -1245,6 +1290,12 @@ export function FocusSessionProvider({
     diagnosticState,
     activeRoomContext,
     setActiveRoomContext,
+    activeHallContext,
+    setActiveHallContext,
+    registerHallOpener,
+    openActiveHall,
+    currentRouteName,
+    setCurrentRouteName,
     startSession,
     togglePause,
     toggleBreak,
@@ -1276,6 +1327,10 @@ export function FocusSessionProvider({
     groupPresenceError,
     diagnosticState,
     activeRoomContext,
+    activeHallContext,
+    registerHallOpener,
+    openActiveHall,
+    currentRouteName,
     startSession,
     togglePause,
     toggleBreak,

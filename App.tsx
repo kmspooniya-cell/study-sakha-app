@@ -15,10 +15,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Animated, AppState, Easing, Image, Platform, Share, View, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { FloatingFocusBar } from './components/FloatingFocusBar';
+import { ActiveSessionBar } from './components/ActiveSessionBar';
 import { Logo } from './components/Logo';
 import { Txt } from './components/ui';
-import { FocusSessionProvider } from './lib/focusSession';
+import { FocusSessionProvider, useOptionalFocusSession } from './lib/focusSession';
 import type { FocusCompletionPayload } from './lib/focusSession';
 import { getDisplayName, StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
@@ -65,6 +65,7 @@ import StudyPlannerScreen from './screens/StudyPlannerScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
+import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import {
   capturePresentedNotifications,
@@ -72,7 +73,15 @@ import {
   notificationFromExpoResponse,
   syncUpcomingPlannerReminder,
 } from './lib/notifications';
-import { getAppShareUrl, getDistributionLinkMessage } from './lib/shareLinks';
+import {
+  clearPendingGroupInvite,
+  extractGroupInviteFromUrl,
+  getAppShareUrl,
+  getDeepLinkPrefixes,
+  getDistributionLinkMessage,
+  getPendingGroupInvite,
+  savePendingGroupInvite,
+} from './lib/shareLinks';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -91,7 +100,7 @@ const DRAWER_ITEMS = [
 }[];
 
 const linking: AppLinkingOptions = {
-  prefixes: ['studysakha://'],
+  prefixes: getDeepLinkPrefixes(),
   config: {
     screens: {
       SignIn: 'sign-in',
@@ -104,7 +113,7 @@ const linking: AppLinkingOptions = {
             screens: {
               DashboardRoot: '',
               Library: 'library',
-              Groups: 'groups/invite/:inviteGroupId',
+              Groups: 'groups/invite/:inviteToken',
               More: 'more',
               LibraryNotes: 'library/notes',
               LibraryBooks: 'library/books',
@@ -442,15 +451,53 @@ export function MainDrawerNavigator() {
 function Navigation() {
   const { state, dispatch } = useStore();
   const { colors, scheme, reduceMotion } = useTheme();
+  const focus = useOptionalFocusSession();
   const [showBrandIntro, setShowBrandIntro] = useState(true);
   const [activeRouteName, setActiveRouteName] = useState<string | undefined>(undefined);
   const pendingNotificationRoute = useRef<'Notifications' | null>(null);
+  const pendingInviteRef = useRef<{ inviteToken?: string; inviteGroupId?: string } | null>(null);
+  const lastDispatchedInviteKeyRef = useRef<string | null>(null);
   const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
 
   const syncCurrentRoute = useCallback(() => {
     if (!navigationRef.isReady()) return;
-    setActiveRouteName(navigationRef.getCurrentRoute()?.name);
-  }, []);
+    const nextName = navigationRef.getCurrentRoute()?.name;
+    setActiveRouteName(nextName);
+    focus?.setCurrentRouteName(nextName);
+  }, [focus]);
+
+  const openPendingInviteRoute = useCallback(() => {
+    const pending = pendingInviteRef.current;
+    if (
+      !pending ||
+      !navigationRef.isReady() ||
+      !state.hydrated ||
+      !state.authReady ||
+      showBrandIntro ||
+      !state.user
+    ) {
+      return;
+    }
+    const inviteKey = `${pending.inviteToken ?? ''}:${pending.inviteGroupId ?? ''}`;
+    if (!inviteKey || lastDispatchedInviteKeyRef.current === inviteKey) {
+      pendingInviteRef.current = null;
+      void clearPendingGroupInvite();
+      return;
+    }
+    lastDispatchedInviteKeyRef.current = inviteKey;
+    pendingInviteRef.current = null;
+    void clearPendingGroupInvite();
+    navigationRef.navigate('Dashboard', {
+      screen: 'MainStack',
+      params: {
+        screen: 'Groups',
+        params: {
+          ...(pending.inviteToken ? { inviteToken: pending.inviteToken } : {}),
+          ...(pending.inviteGroupId ? { inviteGroupId: pending.inviteGroupId } : {}),
+        },
+      },
+    });
+  }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
 
   const openNotificationRoute = useCallback(() => {
     syncCurrentRoute();
@@ -497,6 +544,49 @@ function Navigation() {
   }, [openNotificationRoute]);
 
   useEffect(() => {
+    openPendingInviteRoute();
+  }, [openPendingInviteRoute]);
+
+  useEffect(() => {
+    let active = true;
+    const captureInviteUrl = (url: string | null | undefined) => {
+      const parsed = extractGroupInviteFromUrl(url);
+      if (!parsed) return;
+      const inviteKey = `${parsed.inviteToken ?? ''}:${parsed.inviteGroupId ?? ''}`;
+      if (lastDispatchedInviteKeyRef.current === inviteKey) return;
+      pendingInviteRef.current = parsed;
+      void savePendingGroupInvite(parsed);
+      openPendingInviteRoute();
+    };
+
+    void getPendingGroupInvite().then((stored) => {
+      if (!active || !stored) return;
+      if (!pendingInviteRef.current) {
+        pendingInviteRef.current = {
+          ...(stored.inviteToken ? { inviteToken: stored.inviteToken } : {}),
+          ...(stored.inviteGroupId ? { inviteGroupId: stored.inviteGroupId } : {}),
+        };
+      }
+      openPendingInviteRoute();
+    });
+
+    void Linking.getInitialURL().then((initialUrl) => {
+      if (active && initialUrl) captureInviteUrl(initialUrl);
+    }).catch((error: unknown) => {
+      console.error('Initial deep link URL could not be read:', error);
+    });
+
+    const urlSub = Linking.addEventListener('url', ({ url }) => {
+      if (active) captureInviteUrl(url);
+    });
+
+    return () => {
+      active = false;
+      urlSub.remove();
+    };
+  }, [openPendingInviteRoute]);
+
+  useEffect(() => {
     let active = true;
     const persistCaptured = (notif: ReturnType<typeof notificationFromExpoNotification>) => {
       if (!notif) return;
@@ -537,15 +627,15 @@ function Navigation() {
   if (!state.authReady) return <Splash />;
   if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
-  const showFloatingFocusBar = Boolean(state.user) &&
-    activeRouteName !== 'FocusCenter' &&
-    activeRouteName !== 'FocusCompletion';
-
   return (
     <View style={{ flex: 1 }}>
       <NavigationContainer
         ref={navigationRef}
-        onReady={openNotificationRoute}
+        onReady={() => {
+          syncCurrentRoute();
+          openNotificationRoute();
+          openPendingInviteRoute();
+        }}
         onStateChange={syncCurrentRoute}
         theme={navTheme}
         linking={linking}
@@ -572,7 +662,11 @@ function Navigation() {
           )}
         </Stack.Navigator>
       </NavigationContainer>
-      <FloatingFocusBar visible={showFloatingFocusBar} onPressBackToFocus={handleBackToFocus} />
+      <ActiveSessionBar
+        visible={Boolean(state.user)}
+        currentRouteName={activeRouteName}
+        onPressBackToFocus={handleBackToFocus}
+      />
     </View>
   );
 }

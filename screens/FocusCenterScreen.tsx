@@ -66,7 +66,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
     joinedGroups,
     joinedGroupsLoading,
     joinedGroupsError,
-    groupPresenceError,
     diagnosticState,
     setActiveRoomContext,
     startSession,
@@ -279,11 +278,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
             <Txt size={11}>Membership/topic: {diagnosticState.activeGroupMembershipMatch ? 'match' : 'no match'} / {diagnosticState.topic ?? 'none'}</Txt>
             <Txt size={11}>Subscription: {diagnosticState.subscriptionStatus}</Txt>
             {diagnosticState.authorizationError ? <Txt size={11} color={colors.danger}>Error: {diagnosticState.authorizationError}</Txt> : null}
-          </View>
-        ) : null}
-        {groupPresenceError ? (
-          <View style={[styles.presenceWarning, { backgroundColor: colors.surfaceAlt, borderColor: colors.danger }]}>
-            <Txt size={11} color={colors.danger}>{groupPresenceError}</Txt>
           </View>
         ) : null}
         <GeminiFocusTimer
@@ -644,7 +638,6 @@ export default function FocusCenterScreen() {
 }
 
 const styles = StyleSheet.create({
-  presenceWarning: { position: 'absolute', top: 12, left: 16, right: 16, zIndex: 5, padding: 10, borderWidth: 1, borderRadius: 10 },
   diagnosticButton: { position: 'absolute', top: 12, right: 16, zIndex: 6, minHeight: 36, paddingHorizontal: 10, justifyContent: 'center', borderWidth: 1, borderRadius: 10 },
   diagnosticPanel: { position: 'absolute', top: 54, right: 16, zIndex: 6, width: 280, padding: 12, gap: 4, borderWidth: 1, borderRadius: 12 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 20 },

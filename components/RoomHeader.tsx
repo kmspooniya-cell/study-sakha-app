@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { LogOut, Moon, Sun } from 'lucide-react-native';
+import { ChevronLeft, Moon, Sun } from 'lucide-react-native';
 
 export interface RoomHeaderProps {
   roomName: string;
@@ -8,7 +8,7 @@ export interface RoomHeaderProps {
   focusingNowCount: number;
   isDark: boolean;
   onToggleTheme: () => void;
-  onPressExit: () => void;
+  onPressBack?: () => void;
 }
 
 export const RoomHeader: React.FC<RoomHeaderProps> = ({
@@ -17,7 +17,7 @@ export const RoomHeader: React.FC<RoomHeaderProps> = ({
   focusingNowCount,
   isDark,
   onToggleTheme,
-  onPressExit,
+  onPressBack,
 }) => {
   return (
     <View
@@ -30,6 +30,23 @@ export const RoomHeader: React.FC<RoomHeaderProps> = ({
       ]}
     >
       <View style={styles.headerInner}>
+        {onPressBack ? (
+          <Pressable
+            onPress={onPressBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back from Silent Focus Hall"
+            style={({ pressed }) => [
+              styles.iconSquareBtn,
+              {
+                backgroundColor: isDark ? '#131924' : '#F8FAFC',
+                borderColor: isDark ? '#1E293B' : '#E2E8F0',
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <ChevronLeft size={19} color={isDark ? '#F1F5F9' : '#0F172A'} />
+          </Pressable>
+        ) : null}
         <View style={styles.headerTitleGroup}>
           <Text
             numberOfLines={1}
@@ -84,23 +101,6 @@ export const RoomHeader: React.FC<RoomHeaderProps> = ({
             ]}
           >
             {isDark ? <Sun size={17} color="#FCD34D" /> : <Moon size={17} color="#475569" />}
-          </Pressable>
-          <Pressable
-            onPress={onPressExit}
-            accessibilityRole="button"
-            accessibilityLabel="Exit Silent Focus Hall"
-            style={({ pressed }) => [
-              styles.iconSquareBtn,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(244, 63, 94, 0.12)'
-                  : 'rgba(255, 241, 242, 0.85)',
-                borderColor: isDark ? 'rgba(244, 63, 94, 0.4)' : '#FDA4AF',
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <LogOut size={17} color={isDark ? '#FB7185' : '#E11D48'} />
           </Pressable>
         </View>
       </View>

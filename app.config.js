@@ -35,12 +35,49 @@ module.exports = ({ config }) => {
     assertAbsoluteHttpsUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
   }
 
+  const inviteOrigin =
+    process.env.EXPO_PUBLIC_GROUP_INVITE_BASE_URL?.trim() ||
+    process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  let inviteHost = null;
+  if (inviteOrigin) {
+    try {
+      const parsed = new URL(inviteOrigin);
+      if (parsed.protocol === 'https:' && parsed.hostname) {
+        inviteHost = parsed.hostname;
+      }
+    } catch {
+      // Ignore invalid URL here; EAS build check above validates EXPO_PUBLIC_API_BASE_URL.
+    }
+  }
+
+  const baseIntentFilters = Array.isArray(config.android?.intentFilters)
+    ? config.android.intentFilters
+    : [];
+  const intentFilters = inviteHost
+    ? [
+        ...baseIntentFilters,
+        {
+          action: 'VIEW',
+          autoVerify: true,
+          data: [
+            {
+              scheme: 'https',
+              host: inviteHost,
+              pathPrefix: '/groups/invite',
+            },
+          ],
+          category: ['BROWSABLE', 'DEFAULT'],
+        },
+      ]
+    : baseIntentFilters;
+
   return {
     ...config,
     android: {
       ...config.android,
       allowBackup: false,
       blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW'],
+      ...(intentFilters.length > 0 ? { intentFilters } : {}),
     },
   };
 };

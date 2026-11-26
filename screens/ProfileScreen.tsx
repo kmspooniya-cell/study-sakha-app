@@ -386,6 +386,7 @@ export default function StudySakhaProfileScreen() {
   const nav = useNavigation<AppNavigation>();
   const { width: profileViewportWidth } = useWindowDimensions();
   const profileContentMaxWidth = getProfileContentMaxWidth(profileViewportWidth);
+  const isCompactPhone = profileViewportWidth < 380;
   const { isMobile } = useLayout();
   const { state, badges, todayMinutes, streak, dispatch, saveProfile, signOut } = useStore();
   const { scheme } = useTheme();
@@ -864,13 +865,24 @@ export default function StudySakhaProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* 1. SMART HERO PROFILE CARD */}
-          <View style={[styles.heroCard, { width: '100%', maxWidth: profileContentMaxWidth, alignSelf: 'center' }]}>
+          <View
+            style={[
+              styles.heroCard,
+              {
+                width: '100%',
+                maxWidth: profileContentMaxWidth,
+                alignSelf: 'center',
+                padding: isCompactPhone ? 16 : 20,
+              },
+            ]}
+          >
             {/* Hero Mesh Gradient Background (Exact match to CSS .hero-mesh) */}
             <Svg
               width="100%"
               height="100%"
               style={StyleSheet.absoluteFill}
               preserveAspectRatio="none"
+              pointerEvents="none"
             >
               <Defs>
                 <SvgLinearGradient id="heroBaseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -906,7 +918,7 @@ export default function StudySakhaProfileScreen() {
 
             {/* Top Row: Avatar + Identity + Quick Edit */}
             <View style={styles.heroTopRow}>
-              <View style={styles.heroIdentityGroup}>
+              <View style={[styles.heroIdentityGroup, { gap: isCompactPhone ? 12 : 14 }]}>
                 {/* Avatar with Profile Completion SVG Ring */}
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -987,7 +999,10 @@ export default function StudySakhaProfileScreen() {
                         { opacity: pulseAnim },
                       ]}
                     />
-                    <Text style={styles.heroFocusText}>
+                    <Text
+                      style={styles.heroFocusText}
+                      numberOfLines={1}
+                    >
                       Focus:{' '}
                       <Text style={styles.heroFocusBold}>{profile.focus}</Text>
                     </Text>
@@ -1007,47 +1022,47 @@ export default function StudySakhaProfileScreen() {
             </View>
 
             {/* Glanceable Micro-Metrics Strip */}
-            <View style={styles.heroMetricsStrip}>
+            <View style={[styles.heroMetricsStrip, { gap: isCompactPhone ? 6 : 8 }]}>
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={() => handleSwitchTab('stats')}
-                style={styles.heroMetricItem}
+                style={[styles.heroMetricItem, { paddingHorizontal: isCompactPhone ? 4 : 8 }]}
               >
                 <View style={styles.heroMetricValueRow}>
                   <Text style={styles.heroFireEmoji}>🔥</Text>
-                  <Text style={styles.heroMetricValue}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                     {streak} {streak === 1 ? 'day' : 'days'}
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel}>Study Streak</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>Study Streak</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={() => handleSwitchTab('stats')}
-                style={styles.heroMetricItem}
+                style={[styles.heroMetricItem, { paddingHorizontal: isCompactPhone ? 4 : 8 }]}
               >
                 <View style={styles.heroMetricValueRow}>
                   <Clock size={14} color="#7DD3FC" />
-                  <Text style={styles.heroMetricValue}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                     {profile.studyMins} min
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel}>Today&apos;s Study</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>Today&apos;s Study</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={() => handleOpenSheet('badges')}
-                style={styles.heroMetricItem}
+                style={[styles.heroMetricItem, { paddingHorizontal: isCompactPhone ? 4 : 8 }]}
               >
                 <View style={styles.heroMetricValueRow}>
                   <Award size={14} color="#6EE7B7" />
-                  <Text style={styles.heroMetricValue}>
+                  <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                     {earnedBadges} / {badges.length}
                   </Text>
                 </View>
-                <Text style={styles.heroMetricLabel}>Badges</Text>
+                <Text style={styles.heroMetricLabel} numberOfLines={1}>Badges</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2934,12 +2949,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
+    width: '100%',
   },
   heroIdentityGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     flex: 1,
+    minWidth: 0,
   },
   heroAvatarWrapper: {
     width: 68,
@@ -2947,6 +2964,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   heroAvatarCircle: {
     position: 'absolute',
@@ -2987,6 +3005,7 @@ const styles = StyleSheet.create({
   heroNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   heroName: {
@@ -3003,6 +3022,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
+    flexShrink: 0,
   },
   adminPillText: {
     color: '#BAE6FD',
@@ -3018,6 +3038,7 @@ const styles = StyleSheet.create({
   heroFocusPill: {
     marginTop: 10,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -3034,11 +3055,13 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#34D399',
+    flexShrink: 0,
   },
   heroFocusText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+    flexShrink: 1,
   },
   heroFocusBold: {
     fontWeight: '800',
@@ -3052,6 +3075,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   heroMetricsStrip: {
     marginTop: 16,
@@ -3059,12 +3083,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.12)',
     flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
     gap: 8,
   },
   heroMetricItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
-    paddingVertical: 6,
+    justifyContent: 'center',
+    paddingVertical: 8,
     paddingHorizontal: 8,
     borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -3072,7 +3100,9 @@ const styles = StyleSheet.create({
   heroMetricValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
+    maxWidth: '100%',
   },
   heroFireEmoji: {
     fontSize: 13,
@@ -3081,12 +3111,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+    flexShrink: 1,
   },
   heroMetricLabel: {
     color: 'rgba(219, 234, 254, 0.75)',
     fontSize: 10,
     fontWeight: '500',
     marginTop: 2,
+    textAlign: 'center',
   },
 
   // Profile Completion Nudge
