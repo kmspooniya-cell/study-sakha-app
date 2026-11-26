@@ -79,6 +79,7 @@ import { useTheme } from '../lib/theme';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { AudioPlayerLifecycle } from '../lib/audioPlayerLifecycle';
 import { useStore } from '../lib/store';
+import { useOptionalFocusSession } from '../lib/focusSession';
 import { getGroupInviteUrl } from '../lib/shareLinks';
 import {
   AmbientAudio,
@@ -1413,6 +1414,8 @@ export default function StudySakhaGroupsRN() {
   const insets = useSafeAreaInsets();
   const { colors: appColors, scheme } = useTheme();
   const store = useStore();
+  const globalFocus = useOptionalFocusSession();
+  const hasGlobalFocusBar = Boolean(globalFocus?.session && !globalFocus.session.pendingRecord);
   const navigation = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'Groups'>>();
   const roomUser = store.state.user;
@@ -1518,7 +1521,15 @@ export default function StudySakhaGroupsRN() {
   const [roomLogRefresh, setRoomLogRefresh] = useState(0);
   const roomUpdateQueue = useRef(Promise.resolve());
   const groupMembershipRequest = useRef(0);
-  const handledOpenRoomKey = useRef<string | null>(null);
+  const handledOpenRoomRef = useRef<unknown>(null);
+  const openingDirectHallRef = useRef(false);
+  const openingDirectHall = Boolean(route.params?.openGroupRoom) && !activeRoom;
+  const activeRoomRef = useRef<StudyRoom | null>(null);
+  const roomSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeRoomRef.current = activeRoom;
+    roomSessionIdRef.current = roomSessionId;
+  }, [activeRoom, roomSessionId]);
   const joiningRoomRef = useRef(false);
   const leavingRoomRef = useRef(false);
   const focusLaunchRef = useRef(false);
@@ -1769,6 +1780,8 @@ export default function StudySakhaGroupsRN() {
 
   useFocusEffect(
     useCallback(() => {
+      returningToFocusRef.current = false;
+      focusLaunchRef.current = false;
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
         if (isAppDrawerOpen(navigation)) return false;
         if (activeScreen === 'main') navigation.popTo('DashboardRoot');
@@ -1802,11 +1815,11 @@ export default function StudySakhaGroupsRN() {
 
   const unreadNotifCount = notifications.filter((n) => !n.read).length;
 
-  const handleOpenGroupDetail = (group: GroupItem) => {
+  const handleOpenGroupDetail = useCallback((group: GroupItem) => {
     setSelectedGroupId(group.id);
     setActiveScreen('detail');
     setDetailTab('live');
-  };
+  }, []);
 
   // Join Group Flow
   const handleInitiateJoin = async (group: GroupItem) => {
@@ -1914,17 +1927,43 @@ export default function StudySakhaGroupsRN() {
     persistRoomUpdate(event.roomSessionId, { focusing: false });
   }), [activeRoomGroupId, persistRoomUpdate, roomSessionId]);
 
-  const beginRoomSession = async (
+  const clearRoomSession = useCallback(() => {
+    const currentSessionId = roomSessionIdRef.current;
+    if (currentSessionId) {
+      endGroupRoomFocus(currentSessionId);
+      clearGroupRoomFocusContext(currentSessionId);
+    }
+    roomAudioLifecycle.run((player) => player.pause());
+    focusLaunchRef.current = false;
+    setActiveRoom(null);
+    setActiveRoomGroupId(null);
+    setRoomSessionId(null);
+    setRoomMinimized(false);
+    setRoomFocusing(false);
+    setRoomAmbientAudio('muted');
+    setShowRoomFocusSetup(false);
+    setRoomMicroGoals([]);
+    setRoomError(null);
+    setRoomJoinError(null);
+    setOpenedFocusSession(null);
+    setRoomLogRefresh((current) => current + 1);
+  }, [roomAudioLifecycle]);
+
+  const openGroupRoomParam = route.params?.openGroupRoom;
+  const fallbackSelectedGroupId = selectedGroup?.id ?? '';
+
+  const beginRoomSession = useCallback(async (
     room: StudyRoom,
     cameraConsent = false,
-    groupId = selectedGroup.id,
+    groupId = fallbackSelectedGroupId,
+    options?: { bypassActiveRoomCheck?: boolean },
   ) => {
     if (joiningRoomRef.current) return false;
     if (!roomUser) {
       setRoomJoinError('Sign in before joining a study room.');
       return false;
     }
-    if (activeRoom) {
+    if (!options?.bypassActiveRoomCheck && activeRoomRef.current) {
       setRoomJoinError('Leave your current room before joining another.');
       return false;
     }
@@ -1946,8 +1985,8 @@ export default function StudySakhaGroupsRN() {
       setActiveRoom(room);
       setRoomMinimized(false);
       setRoomFocusing(false);
-      const preview = route.params?.openGroupRoom?.focusSession;
-      if (preview && room.id === 'silent-focus' && groupId === route.params.openGroupRoom.groupId) {
+      const preview = openGroupRoomParam?.focusSession;
+      if (preview && room.id === 'silent-focus' && groupId === openGroupRoomParam?.groupId) {
         const activity: GroupRoomFocusActivity = {
           groupId,
           roomId: room.id,
@@ -1979,7 +2018,7 @@ export default function StudySakhaGroupsRN() {
       joiningRoomRef.current = false;
       setJoiningRoomId(null);
     }
-  };
+  }, [fallbackSelectedGroupId, openGroupRoomParam, roomSubject, roomUser, showToast]);
 
   const handleJoinRoom = (room: StudyRoom) => {
     if (joiningRoomRef.current) return;
@@ -2002,63 +2041,108 @@ export default function StudySakhaGroupsRN() {
   };
 
   useEffect(() => {
-    const target = route.params?.openGroupRoom;
-    if (!target || !roomUser?.id || !groupMembershipsLoaded || activeRoom || joiningRoomRef.current) return;
-    const key = `${target.groupId}:${target.roomId}:${target.focusSession?.sessionId ?? ''}`;
-    if (handledOpenRoomKey.current === key) return;
+    const target = openGroupRoomParam;
+    if (!target) {
+      handledOpenRoomRef.current = null;
+      return;
+    }
+    if (handledOpenRoomRef.current === target || openingDirectHallRef.current) return;
+
+    if (!roomUser?.id) {
+      handledOpenRoomRef.current = target;
+      navigation.setParams({ openGroupRoom: undefined });
+      queueMicrotask(() => showToast('Sign in before joining a study room.'));
+      return;
+    }
+    if (!groupMembershipsLoaded || joiningRoomRef.current) return;
+
     const group = groups.find((candidate) => candidate.id === target.groupId);
     if (!group || !group.joined) {
-      handledOpenRoomKey.current = key;
+      handledOpenRoomRef.current = target;
       navigation.setParams({ openGroupRoom: undefined });
-      requestAnimationFrame(() => showToast('This group is not among your active memberships.'));
+      queueMicrotask(() => showToast('This group is not among your active memberships.'));
       return;
     }
     const room = STUDY_ROOMS.find((candidate) => candidate.id === target.roomId);
     if (!room) {
-      handledOpenRoomKey.current = key;
+      handledOpenRoomRef.current = target;
       navigation.setParams({ openGroupRoom: undefined });
-      requestAnimationFrame(() => showToast('That study room is not available.'));
+      queueMicrotask(() => showToast('That study room is not available.'));
       return;
     }
-    handledOpenRoomKey.current = key;
-    requestAnimationFrame(() => {
-      handleOpenGroupDetail(group);
-      void beginRoomSession(room, false, group.id).then((joined) => {
-        if (joined) navigation.setParams({ openGroupRoom: undefined });
+
+    handledOpenRoomRef.current = target;
+
+    // Restore an already-active matching Hall directly without creating another instance.
+    if (activeRoom?.id === room.id && activeRoomGroupId === group.id) {
+      queueMicrotask(() => {
+        returningToFocusRef.current = false;
+        focusLaunchRef.current = false;
+        handleOpenGroupDetail(group);
+        setRoomMinimized(false);
+        if (target.focusSession) {
+          setOpenedFocusSession(target.focusSession);
+          if (roomSessionId && (!currentRoomFocusActivity || currentRoomFocusActivity.focusSessionId !== target.focusSession.sessionId)) {
+            const activity: GroupRoomFocusActivity = {
+              groupId: group.id,
+              roomId: room.id,
+              roomSessionId,
+              focusSessionId: target.focusSession.sessionId,
+              subject: target.focusSession.subject,
+              status: target.focusSession.status,
+              startedAt: target.focusSession.startedAt,
+              elapsedSeconds: target.focusSession.elapsedSeconds,
+              updatedAt: new Date().toISOString(),
+            };
+            setRoomFocusActivity(activity);
+            setRoomFocusing(target.focusSession.status === 'focusing');
+            setRoomSubject(target.focusSession.subject);
+            publishGroupRoomFocus(activity, 'update');
+          }
+        }
+        navigation.setParams({ openGroupRoom: undefined });
       });
-    });
+      return;
+    }
+
+    openingDirectHallRef.current = true;
+    void (async () => {
+      try {
+        if (activeRoomRef.current && roomSessionIdRef.current) {
+          try {
+            await roomUpdateQueue.current;
+            await finishRoomSession(roomSessionIdRef.current, { status: 'left' });
+          } catch {
+            // Best-effort cleanup of previous room session before switching halls.
+          }
+          clearRoomSession();
+        }
+        const joined = await beginRoomSession(room, false, group.id, { bypassActiveRoomCheck: true });
+        if (joined) {
+          returningToFocusRef.current = false;
+          focusLaunchRef.current = false;
+          handleOpenGroupDetail(group);
+        }
+      } finally {
+        openingDirectHallRef.current = false;
+        navigation.setParams({ openGroupRoom: undefined });
+      }
+    })();
   }, [
     activeRoom,
+    activeRoomGroupId,
+    beginRoomSession,
+    clearRoomSession,
+    currentRoomFocusActivity,
     groupMembershipsLoaded,
     groups,
     handleOpenGroupDetail,
-    beginRoomSession,
     navigation,
+    openGroupRoomParam,
+    roomSessionId,
     roomUser?.id,
-    route.params?.openGroupRoom,
     showToast,
   ]);
-
-  const clearRoomSession = () => {
-    if (roomSessionId) {
-      endGroupRoomFocus(roomSessionId);
-      clearGroupRoomFocusContext(roomSessionId);
-    }
-    roomAudioLifecycle.run((player) => player.pause());
-    focusLaunchRef.current = false;
-    setActiveRoom(null);
-    setActiveRoomGroupId(null);
-    setRoomSessionId(null);
-    setRoomMinimized(false);
-    setRoomFocusing(false);
-    setRoomAmbientAudio('muted');
-    setShowRoomFocusSetup(false);
-    setRoomMicroGoals([]);
-    setRoomError(null);
-    setRoomJoinError(null);
-    setOpenedFocusSession(null);
-    setRoomLogRefresh((current) => current + 1);
-  };
 
   const handleLeaveRoom = async () => {
     if (!activeRoom || !roomSessionId || leavingRoomRef.current) return;
@@ -3317,7 +3401,7 @@ export default function StudySakhaGroupsRN() {
         )}
 
         {/* Composer */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, paddingBottom: 10 + (Platform.OS === 'web' ? 0 : Math.min(insets.bottom, 12)), borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, paddingBottom: 10 + (Platform.OS === 'web' || !isTablet ? 0 : Math.min(insets.bottom, 12)), borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface }}>
           <Pressable onPress={() => showToast('Native PDF / Image picker ready.')} style={styles.iconBtn}>
             <Paperclip size={18} color={theme.textSecondary} />
           </Pressable>
@@ -4656,7 +4740,12 @@ export default function StudySakhaGroupsRN() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          {activeScreen === 'detail' ? (
+          {openingDirectHall && !activeRoom ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>Opening Group Hall…</Text>
+            </View>
+          ) : activeScreen === 'detail' ? (
             <View style={{ flex: 1, padding: 16, paddingBottom: 8 }}>
               {renderGroupDetail()}
             </View>
@@ -4671,7 +4760,7 @@ export default function StudySakhaGroupsRN() {
           <View
             style={{
               position: 'absolute',
-              bottom: Math.max(insets.bottom, 12),
+              bottom: (Platform.OS !== 'web' && !isTablet ? 12 : Math.max(insets.bottom, 12)) + (hasGlobalFocusBar ? 64 : 0),
               right: 16,
               left: isTablet ? undefined : 16,
               width: isTablet ? 420 : undefined,
@@ -4706,13 +4795,16 @@ export default function StudySakhaGroupsRN() {
               </Text>
             </View>
             <Pressable
-              onPress={() => setRoomMinimized(false)}
+              onPress={() => {
+                returningToFocusRef.current = false;
+                setRoomMinimized(false);
+              }}
               style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 12, borderColor: theme.border, backgroundColor: theme.surfaceElevated }]}
               accessibilityRole="button"
             >
               <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>Return to room</Text>
             </Pressable>
-            {focusBarSession ? (
+            {focusBarSession && !hasGlobalFocusBar ? (
               <Pressable
                 onPress={handleBackToFocusCentre}
                 style={[styles.smallOutlineBtn, { minHeight: 44, paddingHorizontal: 10, borderColor: theme.successBorder, backgroundColor: theme.successSoft }]}
@@ -5229,7 +5321,7 @@ export default function StudySakhaGroupsRN() {
         />
 
         {reportSuccess && (
-          <View style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + (roomMinimized ? 68 : 12), padding: 12, borderRadius: 12, backgroundColor: theme.successSoft }}>
+          <View style={{ position: 'absolute', left: 16, right: 16, bottom: (Platform.OS !== 'web' && !isTablet ? 12 : Math.max(insets.bottom, 12)) + (roomMinimized ? 68 : 12), padding: 12, borderRadius: 12, backgroundColor: theme.successSoft }}>
             <Text style={{ fontSize: 12, color: theme.successText }}>{reportSuccess}</Text>
             <Pressable onPress={() => setReportSuccess(null)} accessibilityRole="button" style={{ minHeight: 40, justifyContent: 'center', alignSelf: 'flex-end' }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: theme.successText }}>Dismiss</Text>

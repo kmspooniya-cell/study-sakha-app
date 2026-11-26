@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import { Modal, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { formatClockMinute, selectClockMinute, type ClockTime } from '../lib/clockTime';
+import { normalizePlannerTime } from '../lib/plannerSchedule';
 
 type NativeDatePickerProps = {
   visible: boolean;
@@ -285,7 +286,9 @@ type WebTimePickerProps = {
 };
 
 function toClockParts(value: string) {
-  const [hour = '09', minute = '00'] = value.split(':');
+  const normalized = normalizePlannerTime(value);
+  const canonical = normalized.ok && normalized.value ? normalized.value : '09:00';
+  const [hour = '09', minute = '00'] = canonical.split(':');
   const hour24 = Number(hour);
   return {
     hour: String(hour24 % 12 || 12),

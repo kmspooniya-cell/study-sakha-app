@@ -2200,7 +2200,7 @@ export default function StudySakhaProfileScreen() {
             styles.toastWrap,
             {
               opacity: toastOpacity,
-              bottom: isMobile ? -32 : 80,
+              bottom: isMobile ? 16 : 24,
               transform: [{ translateY: toastTranslateY }],
             },
           ]}

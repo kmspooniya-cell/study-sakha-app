@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { createDrawerNavigator, DrawerContentScrollView } from '@react-navigation/drawer';
-import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { createDrawerNavigator, DrawerContentScrollView, getDrawerStatusFromState } from '@react-navigation/drawer';
+import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,11 +12,14 @@ import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, InteractionManager, Platform, Share, View, Text, Pressable } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Image, Platform, Share, View, Pressable } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { FloatingFocusBar } from './components/FloatingFocusBar';
 import { Logo } from './components/Logo';
 import { Txt } from './components/ui';
+import { FocusSessionProvider } from './lib/focusSession';
+import type { FocusCompletionPayload } from './lib/focusSession';
 import { getDisplayName, StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
 import type {
@@ -63,7 +66,12 @@ import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
 import * as Notifications from 'expo-notifications';
-import { syncUpcomingPlannerReminder } from './lib/notifications';
+import {
+  capturePresentedNotifications,
+  notificationFromExpoNotification,
+  notificationFromExpoResponse,
+  syncUpcomingPlannerReminder,
+} from './lib/notifications';
 import { getAppShareUrl, getDistributionLinkMessage } from './lib/shareLinks';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -177,34 +185,87 @@ function BrandIntro({ onFinished }: { onFinished: () => void }) {
 // ----------------------------------------------------
 // 1. CUSTOM LEFT DRAWER COMPONENT
 // ----------------------------------------------------
-function CustomDrawerContent(props: AppDrawerContentProps) {
+export function executeDrawerTargetNavigation(
+  navigation: AppDrawerContentProps['navigation'],
+  drawerState: AppDrawerContentProps['state'],
+  target: AppStackNavigationTarget
+) {
+  if (!target.screen) return;
+  const mainStackState = drawerState?.routes?.[drawerState?.index ?? 0]?.state;
+  const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
+  if (currentRoute === target.screen) return;
+  const targetScreen = target.screen;
+  const targetExistsInStack = Boolean(
+    mainStackState?.key &&
+    Array.isArray(mainStackState.routes) &&
+    mainStackState.routes.some((route) => route.name === targetScreen)
+  );
+  if (targetExistsInStack && mainStackState?.key) {
+    navigation.dispatch({
+      ...StackActions.popTo(targetScreen, target.params),
+      target: mainStackState.key,
+    });
+    return;
+  }
+  navigation.navigate('MainStack', target);
+}
+
+export function CustomDrawerContent(
+  props: AppDrawerContentProps & {
+    onPendingTargetChange?: (target: AppStackNavigationTarget | null) => void;
+    onSyncDrawerContext?: (
+      navigation: AppDrawerContentProps['navigation'],
+      state: AppDrawerContentProps['state']
+    ) => void;
+  }
+) {
   const { state } = useStore();
   const { colors, scheme } = useTheme();
   const first = getDisplayName(state.user).split(/\s+/)[0];
   const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
   const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
+  const drawerStatus = getDrawerStatusFromState(props.state);
+  const { onPendingTargetChange, onSyncDrawerContext } = props;
+
+  useEffect(() => {
+    onSyncDrawerContext?.(props.navigation, props.state);
+  }, [onSyncDrawerContext, props.navigation, props.state]);
+
+  useEffect(() => {
+    if (drawerStatus === 'open') {
+      onPendingTargetChange?.(null);
+    }
+  }, [drawerStatus, onPendingTargetChange]);
+
   const navigateToMainStack = useCallback((target: AppStackNavigationTarget) => {
-    // Wait for the drawer's close transition to finish. Navigating during the
-    // Android drawer animation can leave the native gesture surface mounted,
-    // which is why Settings/Guide eventually appeared to stop receiving taps.
-    InteractionManager.runAfterInteractions(() => {
-      props.navigation.navigate('MainStack', target);
-    });
-  }, [props.navigation]);
+    if (!target.screen || currentRoute === target.screen) {
+      onPendingTargetChange?.(null);
+      props.navigation.closeDrawer();
+      return;
+    }
+    if (Platform.OS === 'web' || drawerStatus === 'closed') {
+      onPendingTargetChange?.(null);
+      props.navigation.closeDrawer();
+      executeDrawerTargetNavigation(props.navigation, props.state, target);
+      return;
+    }
+    // Wait for the drawer's actual Reanimated close transitionEnd event rather
+    // than InteractionManager (which is a stub in RN 0.86+) so native stack
+    // transitions never overlap the closing drawer surface on Android.
+    onPendingTargetChange?.(target);
+    props.navigation.closeDrawer();
+  }, [currentRoute, drawerStatus, onPendingTargetChange, props.navigation, props.state]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 0 }}>
+    <View collapsable={false} style={{ flex: 1, backgroundColor: colors.bg }}>
+      <DrawerContentScrollView {...props} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 0 }}>
         {/* Profile Header (Top) */}
         <LinearGradient 
           colors={scheme === 'dark' ? [colors.navy, colors.bg] : [colors.rose, colors.navy]}
           style={{ padding: 20, paddingTop: 56, paddingBottom: 28, flexDirection: 'row', alignItems: 'center' }}
         >
           <Pressable
-            onPress={() => {
-              props.navigation.closeDrawer();
-              navigateToMainStack({ screen: 'Profile' });
-            }}
+            onPress={() => navigateToMainStack({ screen: 'Profile' })}
             accessibilityRole="button"
             accessibilityLabel="View profile"
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.82 : 1 })}
@@ -220,19 +281,19 @@ function CustomDrawerContent(props: AppDrawerContentProps) {
         </LinearGradient>
 
         {/* 4 Menu Options */}
-        <View style={{ padding: 16, gap: 6 }}>
+        <View collapsable={false} style={{ padding: 16, gap: 6 }}>
           {DRAWER_ITEMS.map((item) => (
-            <Pressable
-              key={item.label}
-              onPress={() => {
-                props.navigation.closeDrawer();
-                navigateToMainStack(item.target);
-              }}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.target.screen ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
-            >
-              <Ionicons name={item.icon} size={22} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} />
-              <Txt size={15} weight={currentRoute === item.target.screen ? '800' : '600'} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} style={{ marginLeft: 15 }}>{translateLabel(item.label, state.settings.language)}</Txt>
-            </Pressable>
+            <View key={item.label} collapsable={false}>
+              <Pressable
+                onPress={() => navigateToMainStack(item.target)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: currentRoute === item.target.screen }}
+                style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.target.screen ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
+              >
+                <Ionicons name={item.icon} size={22} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} />
+                <Txt size={15} weight={currentRoute === item.target.screen ? '800' : '600'} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} style={{ marginLeft: 15 }}>{translateLabel(item.label, state.settings.language)}</Txt>
+              </Pressable>
+            </View>
           ))}
         </View>
       </DrawerContentScrollView>
@@ -319,10 +380,55 @@ function AuthenticatedStackNavigator() {
   );
 }
 
-function MainDrawerNavigator() {
+export function MainDrawerNavigator() {
+  const pendingTargetRef = useRef<AppStackNavigationTarget | null>(null);
+  const latestNavigationRef = useRef<AppDrawerContentProps['navigation'] | null>(null);
+  const latestStateRef = useRef<AppDrawerContentProps['state'] | null>(null);
+
+  const handlePendingTargetChange = useCallback((target: AppStackNavigationTarget | null) => {
+    pendingTargetRef.current = target;
+  }, []);
+
+  const handleSyncDrawerContext = useCallback((
+    navigation: AppDrawerContentProps['navigation'],
+    drawerState: AppDrawerContentProps['state']
+  ) => {
+    latestNavigationRef.current = navigation;
+    latestStateRef.current = drawerState;
+  }, []);
+
+  const renderDrawerContent = useCallback(
+    (props: AppDrawerContentProps) => (
+      <CustomDrawerContent
+        {...props}
+        onPendingTargetChange={handlePendingTargetChange}
+        onSyncDrawerContext={handleSyncDrawerContext}
+      />
+    ),
+    [handlePendingTargetChange, handleSyncDrawerContext]
+  );
+
   return (
     <Drawer.Navigator 
-      drawerContent={(props) => <CustomDrawerContent {...props} />}
+      drawerContent={renderDrawerContent}
+      screenListeners={{
+        transitionStart: (e) => {
+          if (!e.data.closing) {
+            pendingTargetRef.current = null;
+          }
+        },
+        transitionEnd: (e) => {
+          if (!e.data.closing) return;
+          const nextTarget = pendingTargetRef.current;
+          if (!nextTarget) return;
+          pendingTargetRef.current = null;
+          const nav = latestNavigationRef.current;
+          const drawerState = latestStateRef.current;
+          if (nav && drawerState) {
+            executeDrawerTargetNavigation(nav, drawerState, nextTarget);
+          }
+        },
+      }}
       screenOptions={{ headerShown: false, drawerStyle: { width: 290 } }}
     >
       <Drawer.Screen name="MainStack" component={AuthenticatedStackNavigator} />
@@ -334,20 +440,39 @@ function MainDrawerNavigator() {
 // 3. ROOT STACK NAVIGATOR
 // ----------------------------------------------------
 function Navigation() {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const { colors, scheme, reduceMotion } = useTheme();
   const [showBrandIntro, setShowBrandIntro] = useState(true);
+  const [activeRouteName, setActiveRouteName] = useState<string | undefined>(undefined);
   const pendingNotificationRoute = useRef<'Notifications' | null>(null);
   const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
 
+  const syncCurrentRoute = useCallback(() => {
+    if (!navigationRef.isReady()) return;
+    setActiveRouteName(navigationRef.getCurrentRoute()?.name);
+  }, []);
+
   const openNotificationRoute = useCallback(() => {
-    if (pendingNotificationRoute.current !== 'Notifications' || !navigationRef.isReady()) return;
+    syncCurrentRoute();
+    if (
+      pendingNotificationRoute.current !== 'Notifications' ||
+      !navigationRef.isReady() ||
+      !state.hydrated ||
+      !state.authReady ||
+      showBrandIntro ||
+      !state.user
+    ) return;
     pendingNotificationRoute.current = null;
     navigationRef.navigate('Dashboard', { screen: 'MainStack', params: { screen: 'Notifications' } });
     void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
       console.error('Notification response could not be cleared:', error);
     });
-  }, []);
+  }, [showBrandIntro, state.authReady, state.hydrated, state.user, syncCurrentRoute]);
+
+  const handleBackToFocus = useCallback(() => {
+    if (!navigationRef.isReady() || !state.user) return;
+    navigationRef.navigate('Dashboard', { screen: 'MainStack', params: { screen: 'FocusCenter' } });
+  }, [state.user]);
 
   const navTheme = {
     ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
@@ -368,56 +493,100 @@ function Navigation() {
   }, [state.plannerScheduleItems, state.settings.notifications]);
 
   useEffect(() => {
+    openNotificationRoute();
+  }, [openNotificationRoute]);
+
+  useEffect(() => {
     let active = true;
+    const persistCaptured = (notif: ReturnType<typeof notificationFromExpoNotification>) => {
+      if (!notif) return;
+      dispatch({ type: 'notify', notif, fromSystem: true });
+    };
+    const handleReceived = (notification: unknown) => {
+      persistCaptured(notificationFromExpoNotification(notification));
+    };
     const handleResponse = (response: unknown) => {
-      if (getNotificationNavigationRoute(response) !== 'Notifications') return;
+      const captured = notificationFromExpoResponse(response);
+      if (captured) persistCaptured(captured);
+      if (getNotificationNavigationRoute(response) !== 'Notifications' && !captured) return;
       pendingNotificationRoute.current = 'Notifications';
       openNotificationRoute();
     };
-    const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    const receivedSub = Notifications.addNotificationReceivedListener(handleReceived);
+    const responseSub = Notifications.addNotificationResponseReceivedListener(handleResponse);
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (active && response) handleResponse(response);
     }).catch((error: unknown) => {
       if (active) console.error('Initial notification response could not be read:', error);
     });
+    void capturePresentedNotifications(persistCaptured);
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void capturePresentedNotifications(persistCaptured);
+      }
+    });
     return () => {
       active = false;
-      subscription.remove();
+      receivedSub.remove();
+      responseSub.remove();
+      appStateSub.remove();
     };
-  }, [openNotificationRoute]);
+  }, [dispatch, openNotificationRoute]);
 
   if (!state.hydrated) return <Splash />;
   if (!state.authReady) return <Splash />;
   if (showBrandIntro) return <BrandIntro onFinished={finishBrandIntro} />;
 
+  const showFloatingFocusBar = Boolean(state.user) &&
+    activeRouteName !== 'FocusCenter' &&
+    activeRouteName !== 'FocusCompletion';
+
   return (
-    <NavigationContainer ref={navigationRef} onReady={openNotificationRoute} theme={navTheme} linking={linking} fallback={<Splash />}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <NavigationBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          animation: Platform.OS === 'web' || reduceMotion ? 'none' : 'default',
-          contentStyle: { backgroundColor: colors.bg },
-        }}
+    <View style={{ flex: 1 }}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={openNotificationRoute}
+        onStateChange={syncCurrentRoute}
+        theme={navTheme}
+        linking={linking}
+        fallback={<Splash />}
       >
-        {state.user ? (
-          <>
-            <Stack.Screen name="Dashboard" component={MainDrawerNavigator} />
-          </>
-        ) : (
-          <>
-            <Stack.Screen name="SignIn" component={SignInScreen} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} />
-          </>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <NavigationBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false,
+            animation: Platform.OS === 'web' || reduceMotion ? 'none' : 'default',
+            contentStyle: { backgroundColor: colors.bg },
+          }}
+        >
+          {state.user ? (
+            <>
+              <Stack.Screen name="Dashboard" component={MainDrawerNavigator} />
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="SignIn" component={SignInScreen} />
+              <Stack.Screen name="SignUp" component={SignUpScreen} />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+      <FloatingFocusBar visible={showFloatingFocusBar} onPressBackToFocus={handleBackToFocus} />
+    </View>
   );
 }
 
 function Themed() {
   const { state } = useStore();
+  const handleBackgroundCompletion = useCallback((payload: FocusCompletionPayload) => {
+    if (!navigationRef.isReady() || !state.user) return;
+    navigationRef.navigate('Dashboard', {
+      screen: 'MainStack',
+      params: { screen: 'FocusCompletion', params: payload },
+    });
+  }, [state.user]);
+
   return (
     <ThemeProvider
       mode={state.settings.themeMode}
@@ -433,7 +602,9 @@ function Themed() {
       backgroundOpacity={state.settings.backgroundOpacity}
       overlayIntensity={state.settings.overlayIntensity}
     >
-      <Navigation />
+      <FocusSessionProvider onNavigateCompletion={handleBackgroundCompletion}>
+        <Navigation />
+      </FocusSessionProvider>
     </ThemeProvider>
   );
 }

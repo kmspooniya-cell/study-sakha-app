@@ -4360,7 +4360,7 @@ const styles = StyleSheet.create({
   },
 
   // Scroll Body
-  scrollBody: { padding: 16, gap: 14, paddingBottom: 32 },
+  scrollBody: { padding: 16, gap: 14, paddingBottom: 24 },
 
   // Cards
   cardRounded3xl: { borderRadius: 24, borderWidth: 1, padding: 16 },

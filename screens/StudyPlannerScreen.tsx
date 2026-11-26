@@ -25,8 +25,18 @@ import { useTheme as useAppTheme } from '../lib/theme';
 import { Shell } from '../components/Shell';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
-import type { AppNavigation } from '../lib/navigation';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { getPlannerScheduleOccurrence } from '../lib/planner';
+import { calculateScheduleFocusDuration } from '../lib/focusSetup';
+import { useOptionalFocusSession } from '../lib/focusSession';
+import {
+  isPlannerDate,
+  migratePlannerScheduleItem,
+  normalizePlannerCategory,
+  normalizePlannerTime,
+  stripInvalidTimeFromRecord,
+  type PlannerRecoveryEntry,
+} from '../lib/plannerSchedule';
 
 /* ========================================================================= */
 /* DESIGN TOKENS & CATEGORY CONFIGURATION (1:1 FROM HTML TAILWIND THEME)     */
@@ -334,8 +344,8 @@ export function scheduleItemToPlan(item: PlannerScheduleItem): StudyPlan {
     coverPhotoName: item.coverPhotoName,
     dateRangeMode: item.dateRangeMode,
     termName: item.termName,
-    rangeFrom: item.fromDate,
-    rangeUntil: item.untilDate,
+    rangeFrom: item.rangeFrom || item.fromDate,
+    rangeUntil: item.rangeUntil || item.untilDate,
     endDate: item.endDate,
     activityType: item.activityType,
     date: item.date || item.fromDate || '',
@@ -352,51 +362,63 @@ export function scheduleItemToPlan(item: PlannerScheduleItem): StudyPlan {
 
 export function planToScheduleItem(plan: StudyPlan): PlannerScheduleItem {
   const occurrence = plan.recurrence && plan.recurrence !== 'none' ? 'Repeating' : 'Once';
-  return {
+  const nonEmpty = (val?: string) => (typeof val === 'string' && val.trim() ? val.trim() : undefined);
+  const normalizedDate = nonEmpty(plan.date);
+  const normalizedTime = nonEmpty(plan.time);
+  const normalizedStart = nonEmpty(plan.startTime);
+  const normalizedEnd = nonEmpty(plan.endTime);
+  const normalizedFrom = nonEmpty(plan.rangeFrom);
+  const normalizedUntil = nonEmpty(plan.repeatUntil) || nonEmpty(plan.rangeUntil);
+  const normalizedEndDate = nonEmpty(plan.endDate);
+  const normalizedRepeatUntil = nonEmpty(plan.repeatUntil);
+  const normalizedRangeFrom = nonEmpty(plan.rangeFrom);
+  const normalizedRangeUntil = nonEmpty(plan.rangeUntil);
+  const rawItem: PlannerScheduleItem = {
     id: plan.id,
     category: categoryToStore(plan.category),
     title: plan.title,
-    subject: plan.subject,
-    taskType: plan.taskType,
-    type: plan.examType || plan.taskType || plan.activityType,
-    teacher: plan.teacher || plan.instructor,
-    date: plan.date,
-    time: plan.time,
-    endDate: plan.endDate,
-    startTime: plan.startTime,
-    endTime: plan.endTime,
-    duration: plan.durationMinutes ?? undefined,
+    subject: nonEmpty(plan.subject),
+    taskType: nonEmpty(plan.taskType),
+    type: nonEmpty(plan.examType) || nonEmpty(plan.taskType) || nonEmpty(plan.activityType),
+    teacher: nonEmpty(plan.teacher) || nonEmpty(plan.instructor),
+    date: normalizedDate,
+    time: normalizedTime,
+    endDate: normalizedEndDate,
+    startTime: normalizedStart,
+    endTime: normalizedEnd,
+    duration: typeof plan.durationMinutes === 'number' && plan.durationMinutes > 0 ? plan.durationMinutes : undefined,
     occurs: occurrence,
-    days: plan.repeatDays?.map((day) => WEEKDAY_SHORT[day]),
+    days: plan.repeatDays?.length ? plan.repeatDays.map((day) => WEEKDAY_SHORT[day]).filter(Boolean) : undefined,
     dateRange: plan.dateRangeMode === 'manual' ? 'Manual' : plan.dateRangeMode === 'term' ? 'Term' : 'None',
-    whereType: plan.whereMode === 'online' ? 'Online' : 'In Person',
-    room: plan.room,
-    building: plan.building,
-    seat: plan.seatNumber,
-    notes: plan.notes,
-    hasCoverPhoto: Boolean(plan.coverPhotoName),
+    whereType: plan.whereMode === 'online' ? 'Online' : plan.whereMode === 'in_person' ? 'In Person' : undefined,
+    room: nonEmpty(plan.room),
+    building: nonEmpty(plan.building),
+    seat: nonEmpty(plan.seatNumber),
+    notes: nonEmpty(plan.notes),
+    hasCoverPhoto: Boolean(nonEmpty(plan.coverPhotoName)),
     completed: plan.completed,
-    fromDate: plan.rangeFrom,
-    untilDate: plan.repeatUntil || plan.rangeUntil,
-    instructor: plan.instructor,
-    whereMode: plan.whereMode,
-    seatNumber: plan.seatNumber,
-    onlineLink: plan.onlineLink,
-    location: plan.location,
-    examType: plan.examType,
-    durationMinutes: plan.durationMinutes ?? undefined,
-    durationLabel: plan.duration,
-    vacationPreset: plan.vacationPreset,
-    coverPhotoName: plan.coverPhotoName,
+    fromDate: normalizedFrom,
+    untilDate: normalizedUntil,
+    instructor: nonEmpty(plan.instructor),
+    whereMode: plan.whereMode === 'online' || plan.whereMode === 'in_person' ? plan.whereMode : undefined,
+    seatNumber: nonEmpty(plan.seatNumber),
+    onlineLink: nonEmpty(plan.onlineLink),
+    location: nonEmpty(plan.location),
+    examType: nonEmpty(plan.examType),
+    durationMinutes: typeof plan.durationMinutes === 'number' && plan.durationMinutes >= 0 ? plan.durationMinutes : undefined,
+    durationLabel: nonEmpty(plan.duration),
+    vacationPreset: nonEmpty(plan.vacationPreset),
+    coverPhotoName: nonEmpty(plan.coverPhotoName),
     dateRangeMode: plan.dateRangeMode,
-    termName: plan.termName,
-    rangeFrom: plan.rangeFrom,
-    rangeUntil: plan.rangeUntil,
-    activityType: plan.activityType,
+    termName: nonEmpty(plan.termName),
+    rangeFrom: normalizedRangeFrom,
+    rangeUntil: normalizedRangeUntil,
+    activityType: nonEmpty(plan.activityType),
     recurrence: plan.recurrence,
     repeatDays: plan.repeatDays,
-    repeatUntil: plan.repeatUntil,
+    repeatUntil: normalizedRepeatUntil,
   };
+  return migratePlannerScheduleItem(rawItem) ?? rawItem;
 }
 
 /* ========================================================================= */
@@ -449,7 +471,9 @@ function getDaySpanLabel(fromISO, untilISO) {
 
 function formatTime12h(timeStr) {
   if (!timeStr) return '';
-  const parts = timeStr.split(':');
+  const normalized = normalizePlannerTime(timeStr);
+  const canonical = normalized.ok && normalized.value ? normalized.value : timeStr;
+  const parts = canonical.split(':');
   if (parts.length < 2) return timeStr;
   let h = parseInt(parts[0], 10);
   const m = parts[1];
@@ -460,9 +484,23 @@ function formatTime12h(timeStr) {
   return `${h}:${m} ${ampm}`;
 }
 
-function formatFocusedTime(seconds) {
-  const minutes = Math.floor(seconds / 60);
-  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+function formatFocusedTime(seconds: number) {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  if (minutes === 60) return '60m';
+  return minutes > 60
+    ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`
+    : `${minutes}m`;
+}
+
+function computeMinutesBetween(startTime?: string, endTime?: string): number | null {
+  if (!startTime || !endTime) return null;
+  const s = normalizePlannerTime(startTime);
+  const e = normalizePlannerTime(endTime);
+  if (!s.ok || !s.value || !e.ok || !e.value) return null;
+  const [sh, sm] = s.value.split(':').map(Number);
+  const [eh, em] = e.value.split(':').map(Number);
+  const diff = (eh * 60 + em - (sh * 60 + sm) + 1440) % 1440;
+  return diff > 0 ? diff : null;
 }
 
 function getTimeRangeDisplay(plan) {
@@ -552,183 +590,15 @@ function occursOnDate(plan, targetISO) {
   return false;
 }
 
-function buildSeedPlans(todayISO) {
-  const dObj = parseISODate(todayISO);
-  const y = dObj.getFullYear();
-  const m = dObj.getMonth();
-  const daysInMonth = new Date(y, m + 1, 0).getDate();
-  const clampDay = (day) => toISODate(new Date(y, m, Math.min(Math.max(1, day), daysInMonth)));
-
-  const todayDay = dObj.getDate();
-  const busyDate = addDaysISO(todayISO, 1);
-  const vacStart = clampDay(todayDay + 4 <= daysInMonth ? todayDay + 4 : Math.max(1, todayDay - 4));
-  const vacEnd = addDaysISO(vacStart, 2);
-  const examDate = clampDay(todayDay + 2 <= daysInMonth ? todayDay + 2 : Math.max(1, todayDay - 2));
-  const monStart = clampDay(1);
-
-  return [
-    {
-      id: 'seed_1',
-      category: 'task',
-      title: 'Solve Calculus Integration Worksheet',
-      subject: 'Mathematics',
-      taskType: 'Practice Set',
-      date: todayISO,
-      startTime: '17:00',
-      endTime: '18:30',
-      dateRangeMode: 'none',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Focus on integration by parts and definite integral properties (Questions 1–20).',
-    },
-    {
-      id: 'seed_2',
-      category: 'class',
-      title: 'Physics Mechanics Lecture',
-      subject: 'Physics',
-      teacher: 'Prof. Arvind Sharma',
-      whereMode: 'in_person',
-      room: 'Room 204',
-      building: 'Building A',
-      location: 'Room 204, Building A',
-      date: monStart,
-      startTime: '09:00',
-      endTime: '10:00',
-      dateRangeMode: 'term',
-      termName: 'Term 2 (2026)',
-      recurrence: 'weekly',
-      repeatDays: [1, 3, 5],
-      notes: 'Bring lab notebook and formula sheet for rotational dynamics.',
-    },
-    {
-      id: 'seed_3',
-      category: 'exam',
-      title: 'Organic Chemistry Unit Test',
-      subject: 'Chemistry',
-      examType: 'Unit Test',
-      date: examDate,
-      startTime: '10:00',
-      endTime: '',
-      durationMinutes: 90,
-      duration: '90 min',
-      whereMode: 'in_person',
-      room: 'Hall B',
-      seatNumber: 'B-14',
-      location: 'Hall B, Seat B-14',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Chapters 4 and 5: Hydrocarbons & Reaction Mechanisms.',
-    },
-    {
-      id: 'seed_4',
-      category: 'task',
-      title: 'Revise Biology Diagrams',
-      subject: 'Biology',
-      taskType: 'Revision',
-      date: busyDate,
-      startTime: '08:00',
-      endTime: '09:00',
-      dateRangeMode: 'none',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Practice neat labeling for cellular respiration and mitosis.',
-    },
-    {
-      id: 'seed_5',
-      category: 'class',
-      title: 'Data Structures Lab',
-      subject: 'Computer Science',
-      teacher: 'Ms. Priya Nair',
-      whereMode: 'in_person',
-      room: 'CS Lab 3',
-      building: 'Tech Block',
-      location: 'CS Lab 3, Tech Block',
-      date: busyDate,
-      startTime: '11:00',
-      endTime: '12:30',
-      dateRangeMode: 'none',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Binary search tree insertion and traversal exercises.',
-    },
-    {
-      id: 'seed_6',
-      category: 'activity',
-      title: 'Evening Badminton Practice',
-      activityType: 'Sports & Fitness',
-      date: busyDate,
-      startTime: '16:30',
-      endTime: '17:30',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Warm-up drills and doubles match at campus court.',
-    },
-    {
-      id: 'seed_7',
-      category: 'exam',
-      title: 'English Essay Quiz',
-      subject: 'English Literature',
-      examType: 'Quiz',
-      date: busyDate,
-      startTime: '14:00',
-      endTime: '',
-      durationMinutes: 45,
-      duration: '45 min',
-      whereMode: 'online',
-      onlineLink: 'https://portal.studysakha.app/quiz/eng',
-      location: 'https://portal.studysakha.app/quiz/eng',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Timed 45-minute analytical essay on Modern Poetry.',
-    },
-    {
-      id: 'seed_8',
-      category: 'vacation',
-      title: 'Short Autumn Study Break',
-      date: vacStart,
-      endDate: vacEnd,
-      rangeFrom: vacStart,
-      rangeUntil: vacEnd,
-      dateRangeMode: 'manual',
-      vacationPreset: 'custom',
-      startTime: '09:00',
-      endTime: '10:00',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Rest, recharge, and catch up on light reading.',
-    },
-    {
-      id: 'seed_9',
-      category: 'activity',
-      title: 'Peer Math Study Circle',
-      activityType: 'Study Group',
-      date: todayISO,
-      startTime: '19:00',
-      endTime: '20:00',
-      recurrence: 'none',
-      repeatDays: [],
-      notes: 'Group review session with Rahul and Meera.',
-    },
-  ];
-}
-
 /* ========================================================================= */
 /* SAFE ASYNC STORAGE HELPERS                                                */
 /* ========================================================================= */
 
-async function safeGetStorage(key) {
+async function safeGetStorage(key: string) {
   try {
     return await AsyncStorage.getItem(key);
-  } catch (err) {
+  } catch {
     return null;
-  }
-}
-
-async function safeSetStorage(key, value) {
-  try {
-    await AsyncStorage.setItem(key, value);
-  } catch (err) {
-    // Gracefully ignore storage errors
   }
 }
 
@@ -1132,9 +1002,13 @@ function DatePickerModal({ visible, valueISO, onSelect, onClose, theme }) {
 
 function TimePickerModal({ visible, valueTime, title, onSelect, onClose, theme }) {
   const parseParts = (t) => {
-    const [hStr, mStr] = (t || '09:00').split(':');
-    const h24 = Math.min(23, Math.max(0, parseInt(hStr, 10) || 9));
-    const min = Math.min(59, Math.max(0, parseInt(mStr, 10) || 0));
+    const normalized = normalizePlannerTime(t);
+    const canonical = normalized.ok && normalized.value ? normalized.value : '09:00';
+    const [hStr, mStr] = canonical.split(':');
+    const parsedHour = parseInt(hStr, 10);
+    const parsedMinute = parseInt(mStr, 10);
+    const h24 = Number.isInteger(parsedHour) && parsedHour >= 0 && parsedHour <= 23 ? parsedHour : 9;
+    const min = Number.isInteger(parsedMinute) && parsedMinute >= 0 && parsedMinute <= 59 ? parsedMinute : 0;
     const ampm = h24 >= 12 ? 'PM' : 'AM';
     let h12 = h24 % 12;
     if (h12 === 0) h12 = 12;
@@ -1369,8 +1243,18 @@ function CoverPhotoModal({ visible, currentName, onSelect, onClose, theme }) {
 /* MAIN REACT NATIVE APPLICATION COMPONENT                                   */
 /* ========================================================================= */
 
-export default function App() {
-  const { state, dispatch, plannerRecoveryCount, plannerRecoveryIssues, retryPlannerRecovery } = useStore();
+export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyPlanner'> } = {}) {
+  const {
+    state,
+    dispatch,
+    plannerRecoveryCount = 0,
+    plannerRecoveredCount = 0,
+    plannerRecoveryEntries = [],
+    retryPlannerRecovery,
+    dismissPlannerRecoveredNotice,
+    resolvePlannerRecoveryEntry,
+    discardPlannerRecoveryEntry,
+  } = useStore();
   const navigation = useNavigation<AppNavigation>();
   const { width, height } = useWindowDimensions();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0 };
@@ -1384,6 +1268,7 @@ export default function App() {
   /* CORE STATE (EXACT 1:1 PARITY WITH HTML state OBJECT)                    */
   /* ----------------------------------------------------------------------- */
   const { scheme: appScheme } = useAppTheme();
+  const activeFocus = useOptionalFocusSession();
   const isDark = appScheme === 'dark';
   const theme = isDark ? DARK_THEME : LIGHT_THEME;
 
@@ -1432,6 +1317,9 @@ export default function App() {
   const [formDateRangeMode, setFormDateRangeMode] = useState('none');
   const [formWhereMode, setFormWhereMode] = useState('in_person');
   const [formExamDuration, setFormExamDuration] = useState(60);
+  const [formPlannedDuration, setFormPlannedDuration] = useState<number | null>(60);
+  const [formDurationText, setFormDurationText] = useState('60');
+  const [formDurationTouched, setFormDurationTouched] = useState(false);
   const [formVacationPreset, setFormVacationPreset] = useState('1d');
   const [formCoverPhotoName, setFormCoverPhotoName] = useState('');
   const [formShowActivityTimeEditor, setFormShowActivityTimeEditor] = useState(false);
@@ -1464,6 +1352,18 @@ export default function App() {
   const [datePickerTarget, setDatePickerTarget] = useState(null); // 'date' | 'rangeFrom' | 'rangeUntil'
   const [timePickerTarget, setTimePickerTarget] = useState(null); // { field, title }
   const [coverPhotoModalOpen, setCoverPhotoModalOpen] = useState(false);
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
+  const [editingRecoveryEntry, setEditingRecoveryEntry] = useState<PlannerRecoveryEntry | null>(null);
+  const [recoveryDraft, setRecoveryDraft] = useState({
+    title: '',
+    category: 'Tasks',
+    date: TODAY_ISO,
+    startTime: '',
+    endTime: '',
+    notes: '',
+  });
+  const [recoveryDraftError, setRecoveryDraftError] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
 
   // Toast state & animations
   const [toastMessage, setToastMessage] = useState('');
@@ -1477,7 +1377,7 @@ export default function App() {
   const sheetTranslateY = useRef(new Animated.Value(height)).current;
 
   /* ----------------------------------------------------------------------- */
-  /* HYDRATE PLANS & THEME FROM ASYNC STORAGE                                */
+  /* HYDRATE LEGACY V2 PLANS FROM ASYNC STORAGE (NO AUTOMATIC DEMO SEEDING)  */
   /* ----------------------------------------------------------------------- */
   useEffect(() => {
     if (!state.storageReady || plannerMigrationChecked.current) return;
@@ -1485,35 +1385,30 @@ export default function App() {
 
     (async () => {
       const rawPlans = await safeGetStorage(STORAGE_KEY);
-      if (rawPlans) {
-        try {
-          const parsed: unknown = JSON.parse(rawPlans);
-          if (Array.isArray(parsed)) {
-            const existingIds = new Set(state.plannerScheduleItems.map((item) => item.id));
-            parsed.forEach((value) => {
-              if (!value || typeof value !== 'object') return;
-              const plan = value as StudyPlan;
-              if (!plan.id || !plan.title || !plan.date) return;
-              if (!existingIds.has(plan.id)) {
-                dispatch({ type: 'addPlannerScheduleItem', item: planToScheduleItem(plan) });
-                existingIds.add(plan.id);
+      if (!rawPlans) return;
+      try {
+        const parsed: unknown = JSON.parse(rawPlans);
+        if (Array.isArray(parsed)) {
+          const existingIds = new Set(state.plannerScheduleItems.map((item) => item.id));
+          parsed.forEach((value) => {
+            if (!value || typeof value !== 'object') return;
+            const plan = value as StudyPlan;
+            if (!plan.id || !plan.title || !plan.date) return;
+            if (!existingIds.has(plan.id)) {
+              const candidate = migratePlannerScheduleItem(planToScheduleItem(plan));
+              if (candidate) {
+                dispatch({ type: 'addPlannerScheduleItem', item: candidate });
+                existingIds.add(candidate.id);
               }
-            });
-            await safeSetStorage(STORAGE_KEY, '');
-            return;
-          }
-        } catch {
-          return;
+            }
+          });
+          await AsyncStorage.removeItem(STORAGE_KEY).catch(() => undefined);
         }
-      }
-
-      if (state.plannerScheduleItems.length === 0) {
-        buildSeedPlans(TODAY_ISO).forEach((plan) => {
-          dispatch({ type: 'addPlannerScheduleItem', item: planToScheduleItem(plan as StudyPlan) });
-        });
+      } catch {
+        // Ignore malformed legacy storage and preserve existing empty/user planner state.
       }
     })();
-  }, [TODAY_ISO, dispatch, state.plannerScheduleItems, state.storageReady]);
+  }, [dispatch, state.plannerScheduleItems, state.storageReady]);
 
   /* ----------------------------------------------------------------------- */
   /* TOAST NOTIFICATION                                                      */
@@ -1636,6 +1531,11 @@ export default function App() {
     (isoDate, category = 'task') => {
       const defaultStart = category === 'exam' ? '10:00' : category === 'activity' ? '16:00' : '09:00';
       const defaultEnd = category === 'activity' ? '17:00' : '10:00';
+      const initialDuration = category === 'vacation'
+        ? null
+        : category === 'exam'
+          ? 60
+          : computeMinutesBetween(defaultStart, defaultEnd) ?? 60;
 
       setSelectedDate(isoDate);
       setSheetMode('form');
@@ -1648,6 +1548,9 @@ export default function App() {
       setFormDateRangeMode(category === 'vacation' ? 'manual' : 'none');
       setFormWhereMode('in_person');
       setFormExamDuration(60);
+      setFormPlannedDuration(initialDuration);
+      setFormDurationText(initialDuration !== null ? String(initialDuration) : '');
+      setFormDurationTouched(false);
       setFormVacationPreset('1d');
       setFormCoverPhotoName('');
       setFormShowActivityTimeEditor(false);
@@ -1703,14 +1606,12 @@ export default function App() {
     (planId, occurrenceDate = selectedDate) => {
       const plan = plans.find((p) => p.id === planId);
       if (!plan) return;
-      const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), occurrenceDate, TODAY_ISO);
-      if (occurrence.status === 'completed') {
-        showToast('Completed plans cannot be edited.');
-        return;
-      }
       const defaultStart = plan.category === 'exam' ? '10:00' : plan.category === 'activity' ? '16:00' : '09:00';
       const defaultEnd = plan.category === 'activity' ? '17:00' : '10:00';
       const isRep = plan.recurrence && plan.recurrence !== 'none';
+      const existingDuration = typeof plan.durationMinutes === 'number' && Number.isFinite(plan.durationMinutes)
+        ? plan.durationMinutes
+        : computeMinutesBetween(plan.startTime || plan.time, plan.endTime);
 
       setEditingPlanId(plan.id);
       setViewingPlanId(null);
@@ -1724,6 +1625,9 @@ export default function App() {
       setFormDateRangeMode(plan.dateRangeMode || (plan.category === 'vacation' ? 'manual' : 'none'));
       setFormWhereMode(plan.whereMode || 'in_person');
       setFormExamDuration(plan.durationMinutes || 60);
+      setFormPlannedDuration(plan.category === 'vacation' ? null : (existingDuration ?? null));
+      setFormDurationText(plan.category === 'vacation' || existingDuration == null ? '' : String(existingDuration));
+      setFormDurationTouched(true);
       setFormVacationPreset(plan.vacationPreset || (plan.endDate && plan.endDate !== plan.date ? 'custom' : '1d'));
       setFormCoverPhotoName(plan.coverPhotoName || '');
       setFormShowActivityTimeEditor(false);
@@ -1770,6 +1674,15 @@ export default function App() {
     [openBottomSheet, sheetOpen]
   );
 
+  useEffect(() => {
+    const targetPlanId = route?.params?.openPlanId;
+    if (!targetPlanId || !state.storageReady) return;
+    const matched = plans.find((plan) => plan.id === targetPlanId);
+    if (!matched) return;
+    openPlanDetail(matched.id, route.params?.openDate || matched.date);
+    navigation.setParams?.({ openPlanId: undefined, openDate: undefined });
+  }, [navigation, openPlanDetail, plans, route?.params?.openDate, route?.params?.openPlanId, state.storageReady]);
+
   const handleSwitchFormTab = useCallback(
     (nextCat) => {
       setFormCategory(nextCat);
@@ -1783,10 +1696,15 @@ export default function App() {
         if (nextCat === 'activity') return { ...prev, startTime: '16:00', endTime: '17:00' };
         return prev;
       });
+      if (!formDurationTouched) {
+        const nextMinutes = nextCat === 'vacation' ? null : nextCat === 'exam' ? formExamDuration : 60;
+        setFormPlannedDuration(nextMinutes);
+        setFormDurationText(nextMinutes !== null ? String(nextMinutes) : '');
+      }
       setFormShowActivityTimeEditor(false);
       setFormError('');
     },
-    [editingPlanId, formDateRangeMode]
+    [editingPlanId, formDateRangeMode, formDurationTouched, formExamDuration]
   );
 
   const handleFormSubmit = useCallback(() => {
@@ -1795,8 +1713,21 @@ export default function App() {
       setFormError('Please enter a title before saving.');
       return;
     }
-    if (!v.date) {
+    if (!v.date || !isPlannerDate(v.date)) {
       setFormError('Please select a valid date.');
+      return;
+    }
+
+    const normalizedStart = normalizePlannerTime(v.startTime);
+    if (!normalizedStart.ok) {
+      setFormError('Please select a valid start time.');
+      return;
+    }
+    const normalizedEnd = formCategory === 'exam'
+      ? { ok: true as const, value: undefined }
+      : normalizePlannerTime(v.endTime);
+    if (!normalizedEnd.ok) {
+      setFormError('Please select a valid end time.');
       return;
     }
 
@@ -1804,7 +1735,7 @@ export default function App() {
     const effectiveFrom = isManualRange ? v.rangeFrom || v.date : v.date;
     const effectiveUntil = isManualRange ? v.rangeUntil || effectiveFrom : '';
 
-    if (isManualRange && effectiveUntil < effectiveFrom) {
+    if (isManualRange && (!isPlannerDate(effectiveFrom) || !isPlannerDate(effectiveUntil) || effectiveUntil < effectiveFrom)) {
       setFormError('"Until" date cannot be earlier than the "From" date.');
       return;
     }
@@ -1829,58 +1760,71 @@ export default function App() {
       }
     }
 
-    const existingPlan = editingPlanId ? plans.find((plan) => plan.id === editingPlanId) : undefined;
-    const plannedDurationMinutes = existingPlan
-      ? existingPlan.durationMinutes
-      : formCategory === 'task' ? (state.plannerSettings?.defaultTaskDurationMinutes ?? 25) : 60;
-    const plannedDurationLabel = existingPlan
-      ? existingPlan.duration
-      : `${formCategory === 'task' ? (state.plannerSettings?.defaultTaskDurationMinutes ?? 25) : 60} min`;
+    const parsedDurationInput = formDurationText.trim() ? Number(formDurationText.trim()) : null;
+    if (
+      formCategory !== 'exam' &&
+      formCategory !== 'vacation' &&
+      parsedDurationInput !== null &&
+      (!Number.isFinite(parsedDurationInput) || parsedDurationInput < 0 || parsedDurationInput > 600)
+    ) {
+      setFormError('Please enter a planned duration between 0 and 600 minutes.');
+      return;
+    }
+
+    const computedFromRange = computeMinutesBetween(normalizedStart.value, normalizedEnd.value);
+    const resolvedDurationMinutes = formCategory === 'exam'
+      ? formExamDuration
+      : formCategory === 'vacation'
+        ? null
+        : parsedDurationInput !== null
+          ? Math.round(parsedDurationInput)
+          : formPlannedDuration !== null
+            ? Math.round(formPlannedDuration)
+            : computedFromRange;
+    const plannedDurationLabel = resolvedDurationMinutes !== null && resolvedDurationMinutes >= 0
+      ? `${resolvedDurationMinutes} min`
+      : undefined;
     const planPayload = {
       id: editingPlanId || `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       category: formCategory,
       title: v.title.trim(),
-      subject: v.subject,
-      taskType: v.taskType,
-      teacher: v.teacher.trim(),
-      instructor: v.teacher.trim(),
-      whereMode: formCategory === 'class' || formCategory === 'exam' ? formWhereMode : '',
-      room: v.room.trim(),
-      building: v.building.trim(),
-      seatNumber: v.seatNumber.trim(),
-      onlineLink: v.onlineLink.trim(),
-      location: composedLocation,
-      examType: formCategory === 'exam' ? v.examType : '',
-      durationMinutes: formCategory === 'exam'
-        ? formExamDuration
-        : formCategory === 'vacation'
-          ? null
-          : plannedDurationMinutes,
-      duration: formCategory === 'exam'
-        ? `${formExamDuration} min`
-        : formCategory === 'vacation'
-          ? ''
-          : plannedDurationLabel,
-      vacationPreset: formCategory === 'vacation' ? formVacationPreset : '',
-      coverPhotoName: formCategory === 'vacation' ? formCoverPhotoName : '',
+      subject: v.subject || undefined,
+      taskType: v.taskType || undefined,
+      teacher: v.teacher.trim() || undefined,
+      instructor: v.teacher.trim() || undefined,
+      whereMode: formCategory === 'class' || formCategory === 'exam' ? formWhereMode : undefined,
+      room: v.room.trim() || undefined,
+      building: v.building.trim() || undefined,
+      seatNumber: v.seatNumber.trim() || undefined,
+      onlineLink: v.onlineLink.trim() || undefined,
+      location: composedLocation || undefined,
+      examType: formCategory === 'exam' ? v.examType : undefined,
+      durationMinutes: resolvedDurationMinutes,
+      duration: formCategory === 'vacation' ? undefined : plannedDurationLabel,
+      vacationPreset: formCategory === 'vacation' ? formVacationPreset : undefined,
+      coverPhotoName: formCategory === 'vacation' && formCoverPhotoName ? formCoverPhotoName : undefined,
       dateRangeMode: supportsRepeat ? formDateRangeMode : 'none',
-      termName: supportsRepeat && formDateRangeMode === 'term' ? v.termName : '',
-      rangeFrom: isManualRange ? effectiveFrom : '',
-      rangeUntil: isManualRange ? effectiveUntil : '',
-      endDate: formCategory === 'vacation' && isManualRange ? effectiveUntil : '',
-      activityType: formCategory === 'activity' ? v.activityType : '',
+      termName: supportsRepeat && formDateRangeMode === 'term' ? v.termName : undefined,
+      rangeFrom: isManualRange ? effectiveFrom : undefined,
+      rangeUntil: isManualRange ? effectiveUntil : undefined,
+      endDate: formCategory === 'vacation' && isManualRange ? effectiveUntil : undefined,
+      activityType: formCategory === 'activity' ? v.activityType : undefined,
       date: formCategory === 'vacation' && isManualRange ? effectiveFrom : v.date,
-      time: '',
-      startTime: v.startTime,
-      endTime: formCategory === 'exam' ? '' : v.endTime,
+      time: undefined,
+      startTime: normalizedStart.value,
+      endTime: formCategory === 'exam' ? undefined : normalizedEnd.value,
       recurrence: finalRecurrence,
       repeatDays: finalRepeatDays,
-      repeatUntil: finalRecurrence !== 'none' && isManualRange ? effectiveUntil : '',
-      notes: v.notes.trim(),
+      repeatUntil: finalRecurrence !== 'none' && isManualRange ? effectiveUntil : undefined,
+      notes: v.notes.trim() || undefined,
     };
 
     const wasEditing = Boolean(editingPlanId);
-    const scheduleItem = planToScheduleItem(planPayload as StudyPlan);
+    const scheduleItem = migratePlannerScheduleItem(planToScheduleItem(planPayload as StudyPlan));
+    if (!scheduleItem) {
+      setFormError('Please check the date and time fields before saving.');
+      return;
+    }
     dispatch({
       type: wasEditing ? 'updatePlannerScheduleItem' : 'addPlannerScheduleItem',
       item: scheduleItem,
@@ -1903,13 +1847,14 @@ export default function App() {
     formCoverPhotoName,
     formDateRangeMode,
     formDraft,
+    formDurationText,
     formExamDuration,
+    formPlannedDuration,
     formRecurrence,
     formRecurrenceMode,
     formRepeatDays,
     formVacationPreset,
     formWhereMode,
-    plans,
     showToast,
   ]);
 
@@ -1995,19 +1940,29 @@ export default function App() {
     const item = planToScheduleItem(plan);
     const occurrence = getPlannerScheduleOccurrence(state, item, date, TODAY_ISO);
     if (occurrence.status === 'completed') return;
-    const remainingSeconds = occurrence.plannedSeconds === null
-      ? 25 * 60
-      : Math.max(60, occurrence.plannedSeconds - occurrence.actualSeconds);
+    if (
+      activeFocus?.session &&
+      !activeFocus.session.pendingRecord &&
+      (activeFocus.session.scheduleOccurrenceId === occurrence.id ||
+        activeFocus.session.scheduleId === plan.id ||
+        activeFocus.session.taskId === plan.id)
+    ) {
+      navigation.navigate('FocusCenter');
+      return;
+    }
+    const summary = calculateScheduleFocusDuration(occurrence);
+    const resolvedMinutes = summary.remainingMinutes ?? (state.settings?.focusDurationMinutes ?? 25);
+    if (resolvedMinutes <= 0) return;
     setFocusSetup({
       mode: 'timer',
-      durationMinutes: Math.ceil(remainingSeconds / 60),
+      durationMinutes: resolvedMinutes,
       selection: 'schedule',
       tag: item.subject || item.category || 'Study',
       task: item,
       scheduleOccurrenceId: occurrence.id,
     });
     setFocusSetupVisible(true);
-  }, [state, TODAY_ISO]);
+  }, [activeFocus?.session, navigation, state, TODAY_ISO]);
 
   const markPlanCompleted = useCallback(async (plan, date) => {
     const occurrence = getPlannerScheduleOccurrence(state, planToScheduleItem(plan), date, TODAY_ISO);
@@ -2261,6 +2216,80 @@ export default function App() {
     );
   };
 
+  const renderDurationControl = () => (
+    <View>
+      <Text style={[styles.formLabel, { color: theme.textMuted }]}>DURATION</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            const current = formPlannedDuration ?? 60;
+            const next = Math.max(5, Math.min(600, current - 15));
+            setFormDurationTouched(true);
+            setFormPlannedDuration(next);
+            setFormDurationText(String(next));
+          }}
+          accessibilityLabel="Decrease duration"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: theme.stepperMinusBg,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.stepperMinusText, lineHeight: 22 }}>−</Text>
+        </TouchableOpacity>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TextInput
+            value={formDurationText}
+            onChangeText={(txt) => {
+              const cleaned = txt.replace(/[^0-9]/g, '');
+              setFormDurationTouched(true);
+              setFormDurationText(cleaned);
+              if (cleaned === '') {
+                setFormPlannedDuration(null);
+              } else {
+                const parsed = Number(cleaned);
+                if (Number.isFinite(parsed)) {
+                  setFormPlannedDuration(Math.min(600, Math.max(0, parsed)));
+                }
+              }
+            }}
+            placeholder="60"
+            placeholderTextColor={theme.textFaint}
+            keyboardType="number-pad"
+            accessibilityLabel="Planned duration minutes"
+            style={[styles.inputField, { flex: 1, backgroundColor: theme.bgInput, color: theme.textPrimary, textAlign: 'center', fontWeight: '700' }]}
+          />
+          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textMuted }}>min</Text>
+        </View>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            const current = formPlannedDuration ?? 0;
+            const next = Math.max(5, Math.min(600, current + 15));
+            setFormDurationTouched(true);
+            setFormPlannedDuration(next);
+            setFormDurationText(String(next));
+          }}
+          accessibilityLabel="Increase duration"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: theme.bgSubtle,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: '700', color: theme.textSecondary, lineHeight: 22 }}>+</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   const renderStandardWhenSection = (includeVacationPresets = false) => {
     const isRepeating = formRecurrenceMode === 'repeating';
     const presets = [
@@ -2392,6 +2421,8 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {!includeVacationPresets && renderDurationControl()}
 
         <View>
           <Text style={[styles.formLabel, { color: theme.textMuted }]}>DATE RANGE</Text>
@@ -3252,6 +3283,8 @@ export default function App() {
                   )}
                 </View>
 
+                {renderDurationControl()}
+
                 <View>
                   <Text style={[styles.formLabel, { color: theme.textMuted }]}>NOTES</Text>
                   <TextInput
@@ -3309,6 +3342,22 @@ export default function App() {
     const pillBg = isDark ? cat.pillBgDark : cat.pillBgLight;
     const pillText = isDark ? cat.pillTextDark : cat.pillTextLight;
 
+    const plannedMinutes = occurrence.plannedSeconds !== null
+      ? Math.round(occurrence.plannedSeconds / 60)
+      : typeof plan.durationMinutes === 'number' && Number.isFinite(plan.durationMinutes)
+        ? Math.round(plan.durationMinutes)
+        : null;
+    const durationValue = plannedMinutes !== null ? `${plannedMinutes} min` : (plan.duration || 'Not set');
+    const actualFocusedDisplay = formatFocusedTime(occurrence.actualSeconds);
+    const plannedDisplay = occurrence.plannedSeconds !== null && occurrence.plannedSeconds > 0
+      ? formatFocusedTime(occurrence.plannedSeconds)
+      : plannedMinutes !== null && plannedMinutes > 0
+        ? `${plannedMinutes}m`
+        : null;
+    const focusProgressValue = plannedDisplay
+      ? `${actualFocusedDisplay} focused / ${plannedDisplay} planned · ${occurrence.progressPercent}%`
+      : `${actualFocusedDisplay} focused`;
+
     const rows = [];
     rows.push({ label: 'Date', value: formatFullDate(plan.date) });
     if (plan.category === 'vacation' && plan.endDate && plan.endDate !== plan.date) {
@@ -3326,11 +3375,12 @@ export default function App() {
     if (plan.subject) rows.push({ label: 'Subject', value: plan.subject });
     if (plan.taskType) rows.push({ label: 'Task Type', value: plan.taskType });
     if (plan.examType) rows.push({ label: 'Exam Type', value: plan.examType });
-    if (plan.duration) rows.push({ label: 'Duration', value: plan.duration });
-    rows.push({
-      label: 'Focus Progress',
-      value: `${formatFocusedTime(occurrence.actualSeconds)} focused${occurrence.plannedSeconds === null ? '' : ` / ${formatFocusedTime(occurrence.plannedSeconds)} planned · ${occurrence.progressPercent}%`}`,
-    });
+    if (plan.category !== 'vacation') {
+      rows.push({ label: 'Duration', value: durationValue });
+      rows.push({ label: 'Actual Focused', value: actualFocusedDisplay });
+      rows.push({ label: 'Focus Progress', value: focusProgressValue });
+      rows.push({ label: 'Progress', value: `${occurrence.progressPercent}%` });
+    }
     if (plan.activityType) rows.push({ label: 'Category', value: plan.activityType });
     if (plan.teacher || plan.instructor) rows.push({ label: 'Teacher', value: plan.teacher || plan.instructor });
     if (plan.whereMode) rows.push({ label: 'Mode', value: plan.whereMode === 'online' ? 'Online' : 'In Person' });
@@ -3403,6 +3453,41 @@ export default function App() {
             ))}
           </View>
 
+          {plan.category !== 'vacation' && (
+            <View
+              style={{
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.borderDefault,
+                backgroundColor: theme.bgDetailRows,
+                padding: 16,
+                gap: 10,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textMuted, letterSpacing: 0.5 }}>
+                  FOCUS PROGRESS
+                </Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: occurrence.progressPercent >= 100 ? theme.emerald600 : theme.blueSoftText }}>
+                  {occurrence.progressPercent}%
+                </Text>
+              </View>
+              <View style={{ height: 8, borderRadius: 999, backgroundColor: theme.bgSubtle, overflow: 'hidden' }}>
+                <View
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, occurrence.progressPercent))}%`,
+                    borderRadius: 999,
+                    backgroundColor: occurrence.progressPercent >= 100 ? theme.emerald500 : theme.blue600,
+                  }}
+                />
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary }}>
+                {focusProgressValue}
+              </Text>
+            </View>
+          )}
+
           {!!plan.notes && (
             <View>
               <Text style={[styles.formLabel, { color: theme.textFaint }]}>NOTES</Text>
@@ -3447,21 +3532,19 @@ export default function App() {
           >
             <Text style={{ fontSize: 14, fontWeight: '600', color: theme.roseSoftText }}>Delete</Text>
           </TouchableOpacity>
-          {occurrence.status !== 'completed' && (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => openEditPlanForm(plan.id, occurrence.date)}
-              style={{
-                flex: 1,
-                paddingVertical: 12,
-                borderRadius: 16,
-                alignItems: 'center',
-                backgroundColor: theme.blue600,
-              }}
-            >
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Edit Plan</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => openEditPlanForm(plan.id, occurrence.date)}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 16,
+              alignItems: 'center',
+              backgroundColor: theme.blue600,
+            }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Edit Plan</Text>
+          </TouchableOpacity>
         </View>
       </>
     );
@@ -3478,14 +3561,88 @@ export default function App() {
   return (
     <Shell active="StudyPlanner" title="" scroll={false} contentPadding={0}>
       <View style={[styles.root, { backgroundColor: theme.bgBody }]}>
+      {plannerRecoveredCount > 0 && plannerRecoveryCount === 0 && (
+        <View
+          accessibilityRole="alert"
+          style={{
+            marginHorizontal: 12,
+            marginTop: 10,
+            padding: 14,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: theme.bluePillBorder,
+            backgroundColor: theme.blueSoftBg,
+          }}
+        >
+          <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>Planner entries recovered</Text>
+          <Text style={{ color: theme.textBody, marginTop: 4 }}>
+            {plannerRecoveredCount} saved {plannerRecoveredCount === 1 ? 'entry was' : 'entries were'} automatically restored to your schedule. 0 entries need manual review.
+          </Text>
+          {dismissPlannerRecoveredNotice ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={dismissPlannerRecoveredNotice}
+              style={{ alignSelf: 'flex-start', marginTop: 8 }}
+            >
+              <Text style={{ color: theme.blue600, fontWeight: '700' }}>Dismiss</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )}
       {plannerRecoveryCount > 0 && (
-        <View accessibilityRole="alert" style={{ marginHorizontal: 12, marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: isDark ? '#422006' : '#FEF3C7' }}>
+        <View
+          accessibilityRole="alert"
+          style={{
+            marginHorizontal: 12,
+            marginTop: 10,
+            padding: 14,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: isDark ? '#92400E' : '#FDE68A',
+            backgroundColor: isDark ? '#422006' : '#FEF3C7',
+          }}
+        >
           <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>Some planner entries need review</Text>
-          <Text style={{ color: theme.textBody, marginTop: 4 }}>{plannerRecoveryCount} invalid saved entr{plannerRecoveryCount === 1 ? 'y was' : 'ies were'} preserved in recovery storage. Valid entries are available below.</Text>
-          {plannerRecoveryIssues.map((issue) => <Text key={issue} style={{ color: theme.textBody, marginTop: 4 }}>{issue}</Text>)}
-          <TouchableOpacity accessibilityRole="button" onPress={retryPlannerRecovery} style={{ alignSelf: 'flex-start', marginTop: 8 }}>
-            <Text style={{ color: theme.blue600, fontWeight: '700' }}>Retry planner data recovery</Text>
-          </TouchableOpacity>
+          <Text style={{ color: theme.textBody, marginTop: 4 }}>
+            {plannerRecoveredCount > 0
+              ? `${plannerRecoveredCount} ${plannerRecoveredCount === 1 ? 'entry was' : 'entries were'} automatically recovered. `
+              : ''}
+            {plannerRecoveryCount} saved {plannerRecoveryCount === 1 ? 'entry needs' : 'entries need'} manual review and {plannerRecoveryCount === 1 ? 'is' : 'are'} safely preserved in recovery storage.
+          </Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Your valid entries are available below. Inspect any preserved entry to fix missing or unreadable details without losing your original data.
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => {
+                setEditingRecoveryEntry(null);
+                setRecoveryDraftError('');
+                setRecoveryModalOpen(true);
+              }}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 10,
+                backgroundColor: theme.blue600,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 12 }}>
+                Review entries ({plannerRecoveryCount})
+              </Text>
+            </TouchableOpacity>
+            {retryPlannerRecovery ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={retryPlannerRecovery}
+                style={{ paddingVertical: 7 }}
+              >
+                <Text style={{ color: theme.blue600, fontWeight: '700', fontSize: 12 }}>
+                  Retry auto-recovery
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
       )}
       {/* =================================================================== */}
@@ -3497,7 +3654,7 @@ export default function App() {
           styles.mainScrollContent,
           {
             paddingHorizontal: isSm ? 24 : 12,
-            paddingBottom: isMd ? 40 : 96,
+            paddingBottom: isMd ? 40 : 28,
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -4458,7 +4615,15 @@ export default function App() {
         valueTime={timePickerTarget ? formDraft[timePickerTarget.field] : '09:00'}
         onSelect={(t) => {
           if (timePickerTarget) {
-            setFormDraft((prev) => ({ ...prev, [timePickerTarget.field]: t }));
+            const nextDraft = { ...formDraft, [timePickerTarget.field]: t };
+            setFormDraft(nextDraft);
+            if (!formDurationTouched && formCategory !== 'exam' && formCategory !== 'vacation') {
+              const span = computeMinutesBetween(nextDraft.startTime, nextDraft.endTime);
+              if (span !== null) {
+                setFormPlannedDuration(span);
+                setFormDurationText(String(span));
+              }
+            }
           }
         }}
         onClose={() => setTimePickerTarget(null)}
@@ -4484,6 +4649,382 @@ export default function App() {
         }}
       />
 
+      <Modal
+        visible={recoveryModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setEditingRecoveryEntry(null);
+          setRecoveryModalOpen(false);
+        }}
+      >
+        <Pressable
+          style={[styles.centerModalBackdrop, { backgroundColor: theme.modalBackdrop }]}
+          onPress={() => {
+            setEditingRecoveryEntry(null);
+            setRecoveryModalOpen(false);
+          }}
+        >
+          <Pressable
+            style={[
+              styles.helpCard,
+              {
+                maxHeight: Math.min(height * 0.85, 620),
+                backgroundColor: theme.bgSurface,
+                borderColor: theme.borderDefault,
+              },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: theme.textPrimary }}>
+                {editingRecoveryEntry ? 'Fix & Restore Entry' : 'Review Saved Entries'}
+              </Text>
+              <TouchableOpacity
+                accessibilityLabel="Close recovery review"
+                onPress={() => {
+                  setEditingRecoveryEntry(null);
+                  setRecoveryModalOpen(false);
+                }}
+                style={{ padding: 6, borderRadius: 12 }}
+              >
+                <CloseIcon color={theme.textFaint} size={20} />
+              </TouchableOpacity>
+            </View>
+
+            {editingRecoveryEntry ? (
+              <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+                <View style={{ gap: 12 }}>
+                  <Text style={{ fontSize: 12, color: theme.textSecondary, lineHeight: 18 }}>
+                    {editingRecoveryEntry.guidance}
+                  </Text>
+                  {!!recoveryDraftError && (
+                    <View
+                      style={{
+                        padding: 10,
+                        borderRadius: 10,
+                        backgroundColor: theme.roseSoftBg,
+                        borderWidth: 1,
+                        borderColor: theme.roseSoftBorder,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.roseSoftText }}>
+                        {recoveryDraftError}
+                      </Text>
+                    </View>
+                  )}
+                  <View>
+                    <Text style={[styles.formLabel, { color: theme.textMuted }]}>TITLE</Text>
+                    <TextInput
+                      value={recoveryDraft.title}
+                      onChangeText={(txt) => setRecoveryDraft((d) => ({ ...d, title: txt }))}
+                      placeholder="Plan title"
+                      placeholderTextColor={theme.textFaint}
+                      style={[styles.inputField, { backgroundColor: theme.bgInput, color: theme.textPrimary }]}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.formLabel, { color: theme.textMuted }]}>CATEGORY</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {(['Tasks', 'Classes', 'Exams', 'Vacations', 'Activities'] as const).map((catName) => {
+                        const active = recoveryDraft.category === catName;
+                        return (
+                          <TouchableOpacity
+                            key={catName}
+                            onPress={() => setRecoveryDraft((d) => ({ ...d, category: catName }))}
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 999,
+                              backgroundColor: active ? theme.blue600 : theme.bgSubtle,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#FFFFFF' : theme.textSecondary }}>
+                              {catName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  <View>
+                    <Text style={[styles.formLabel, { color: theme.textMuted }]}>DATE (YYYY-MM-DD)</Text>
+                    <TextInput
+                      value={recoveryDraft.date}
+                      onChangeText={(txt) => setRecoveryDraft((d) => ({ ...d, date: txt }))}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={theme.textFaint}
+                      style={[styles.inputField, { backgroundColor: theme.bgInput, color: theme.textPrimary }]}
+                    />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.formLabel, { color: theme.textMuted }]}>START TIME (OPTIONAL)</Text>
+                      <TextInput
+                        value={recoveryDraft.startTime}
+                        onChangeText={(txt) => setRecoveryDraft((d) => ({ ...d, startTime: txt }))}
+                        placeholder="09:00"
+                        placeholderTextColor={theme.textFaint}
+                        style={[styles.inputField, { backgroundColor: theme.bgInput, color: theme.textPrimary }]}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.formLabel, { color: theme.textMuted }]}>END TIME (OPTIONAL)</Text>
+                      <TextInput
+                        value={recoveryDraft.endTime}
+                        onChangeText={(txt) => setRecoveryDraft((d) => ({ ...d, endTime: txt }))}
+                        placeholder="10:00"
+                        placeholderTextColor={theme.textFaint}
+                        style={[styles.inputField, { backgroundColor: theme.bgInput, color: theme.textPrimary }]}
+                      />
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                    <TouchableOpacity
+                      disabled={recoveryBusy}
+                      onPress={() => {
+                        setEditingRecoveryEntry(null);
+                        setRecoveryDraftError('');
+                      }}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 11,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        backgroundColor: theme.bgSubtle,
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textBody }}>Back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={recoveryBusy}
+                      onPress={async () => {
+                        if (!resolvePlannerRecoveryEntry) return;
+                        if (!recoveryDraft.title.trim()) {
+                          setRecoveryDraftError('Please enter a title before restoring.');
+                          return;
+                        }
+                        if (recoveryDraft.date.trim() && !isPlannerDate(recoveryDraft.date.trim())) {
+                          setRecoveryDraftError('Enter a valid date in YYYY-MM-DD format (e.g. 2026-11-26).');
+                          return;
+                        }
+                        const startRes = normalizePlannerTime(recoveryDraft.startTime);
+                        if (!startRes.ok) {
+                          setRecoveryDraftError('Start time must be a valid time like 09:00 or 9:00 AM (or leave blank).');
+                          return;
+                        }
+                        const endRes = normalizePlannerTime(recoveryDraft.endTime);
+                        if (!endRes.ok) {
+                          setRecoveryDraftError('End time must be a valid time like 10:30 or 10:30 AM (or leave blank).');
+                          return;
+                        }
+                        setRecoveryBusy(true);
+                        const raw =
+                          editingRecoveryEntry.record && typeof editingRecoveryEntry.record === 'object'
+                            ? { ...(editingRecoveryEntry.record as Record<string, unknown>) }
+                            : {};
+                        const nextId =
+                          editingRecoveryEntry.fieldHint === 'conflict'
+                            ? `${editingRecoveryEntry.id}_restored_${Date.now()}`
+                            : editingRecoveryEntry.id;
+                        delete raw.time;
+                        delete raw.startTime;
+                        delete raw.endTime;
+                        const candidate = migratePlannerScheduleItem({
+                          ...raw,
+                          id: nextId,
+                          title: recoveryDraft.title.trim(),
+                          category: normalizePlannerCategory(recoveryDraft.category) ?? 'Tasks',
+                          ...(recoveryDraft.date.trim() ? { date: recoveryDraft.date.trim() } : {}),
+                          ...(startRes.value ? { startTime: startRes.value } : {}),
+                          ...(endRes.value ? { endTime: endRes.value } : {}),
+                          ...(recoveryDraft.notes.trim() ? { notes: recoveryDraft.notes.trim() } : {}),
+                        });
+                        if (!candidate) {
+                          setRecoveryBusy(false);
+                          setRecoveryDraftError('Please verify the title, category, date, and times.');
+                          return;
+                        }
+                        const result = await resolvePlannerRecoveryEntry(editingRecoveryEntry.fingerprint, candidate);
+                        setRecoveryBusy(false);
+                        if (!result.ok) {
+                          setRecoveryDraftError(result.error ?? 'Could not restore this entry.');
+                          return;
+                        }
+                        setEditingRecoveryEntry(null);
+                        setRecoveryDraftError('');
+                        if (plannerRecoveryEntries.length <= 1) {
+                          setRecoveryModalOpen(false);
+                        }
+                        showToast('Entry restored to your planner');
+                      }}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 11,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        backgroundColor: theme.blue600,
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#FFFFFF' }}>
+                        {recoveryBusy ? 'Restoring...' : 'Save & Restore'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            ) : (
+              <ScrollView style={{ maxHeight: 460 }}>
+                <View style={{ gap: 12 }}>
+                  {plannerRecoveryEntries.length === 0 ? (
+                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                      All preserved entries have been reviewed.
+                    </Text>
+                  ) : (
+                    plannerRecoveryEntries.map((entry) => {
+                      const raw = entry.record && typeof entry.record === 'object'
+                        ? (entry.record as Record<string, unknown>)
+                        : {};
+                      return (
+                        <View
+                          key={entry.fingerprint}
+                          style={{
+                            padding: 12,
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: theme.borderDefault,
+                            backgroundColor: theme.bgDetailRows,
+                            gap: 6,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary, flex: 1 }} numberOfLines={1}>
+                              {entry.title}
+                            </Text>
+                            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.bgSubtle }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: theme.textSecondary }}>
+                                {entry.categoryLabel}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={{ fontSize: 12, color: theme.textMuted }}>
+                            {entry.dateLabel} · {entry.timeLabel}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: theme.textBody, lineHeight: 18 }}>
+                            {entry.guidance}
+                          </Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                            <TouchableOpacity
+                              disabled={recoveryBusy}
+                              onPress={() => {
+                                const startNorm = normalizePlannerTime(raw.startTime ?? raw.time);
+                                const endNorm = normalizePlannerTime(raw.endTime);
+                                setEditingRecoveryEntry(entry);
+                                setRecoveryDraftError('');
+                                setRecoveryDraft({
+                                  title: typeof raw.title === 'string' ? raw.title : '',
+                                  category: normalizePlannerCategory(raw.category) ?? 'Tasks',
+                                  date: typeof raw.date === 'string' && isPlannerDate(raw.date) ? raw.date : TODAY_ISO,
+                                  startTime: startNorm.ok && startNorm.value ? startNorm.value : '',
+                                  endTime: endNorm.ok && endNorm.value ? endNorm.value : '',
+                                  notes: typeof raw.notes === 'string' ? raw.notes : '',
+                                });
+                              }}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 8,
+                                backgroundColor: theme.blue600,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#FFFFFF' }}>Edit & Restore</Text>
+                            </TouchableOpacity>
+                            {entry.canClearInvalidTime && (entry.fieldHint === 'time' || entry.fieldHint === 'startTime' || entry.fieldHint === 'endTime') && resolvePlannerRecoveryEntry ? (
+                              <TouchableOpacity
+                                disabled={recoveryBusy}
+                                onPress={async () => {
+                                  const patched = stripInvalidTimeFromRecord(entry.record, entry.fieldHint as 'time' | 'startTime' | 'endTime');
+                                  if (!patched) return;
+                                  setRecoveryBusy(true);
+                                  const res = await resolvePlannerRecoveryEntry(entry.fingerprint, patched);
+                                  setRecoveryBusy(false);
+                                  if (res.ok) {
+                                    if (plannerRecoveryEntries.length <= 1) setRecoveryModalOpen(false);
+                                    showToast('Entry restored without invalid time');
+                                  }
+                                }}
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
+                                  borderRadius: 8,
+                                  backgroundColor: theme.blueSoftBg,
+                                }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.blueSoftText }}>
+                                  {entry.fieldHint === 'endTime' ? 'Restore without end time' : 'Restore as all-day'}
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {entry.canDuplicateOnConflict && resolvePlannerRecoveryEntry ? (
+                              <TouchableOpacity
+                                disabled={recoveryBusy}
+                                onPress={async () => {
+                                  const candidate = migratePlannerScheduleItem({
+                                    ...raw,
+                                    id: `${entry.id}_restored_${Date.now()}`,
+                                  });
+                                  if (!candidate) return;
+                                  setRecoveryBusy(true);
+                                  const res = await resolvePlannerRecoveryEntry(entry.fingerprint, candidate);
+                                  setRecoveryBusy(false);
+                                  if (res.ok) {
+                                    if (plannerRecoveryEntries.length <= 1) setRecoveryModalOpen(false);
+                                    showToast('Restored as a separate entry');
+                                  }
+                                }}
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
+                                  borderRadius: 8,
+                                  backgroundColor: theme.blueSoftBg,
+                                }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.blueSoftText }}>
+                                  Restore as copy
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {discardPlannerRecoveryEntry ? (
+                              <TouchableOpacity
+                                disabled={recoveryBusy}
+                                onPress={async () => {
+                                  setRecoveryBusy(true);
+                                  await discardPlannerRecoveryEntry(entry.fingerprint);
+                                  setRecoveryBusy(false);
+                                  if (plannerRecoveryEntries.length <= 1) setRecoveryModalOpen(false);
+                                }}
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
+                                  borderRadius: 8,
+                                  backgroundColor: theme.roseSoftBg,
+                                }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.roseSoftText }}>Remove</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* =================================================================== */}
       {/* TOAST NOTIFICATION                                                  */}
       {/* =================================================================== */}
@@ -4492,7 +5033,7 @@ export default function App() {
           pointerEvents="none"
           style={[
             styles.toastWrap,
-            { bottom: isMd ? 24 : 80 },
+            { bottom: isMd ? 24 : 20 },
           ]}
         >
           <Animated.View

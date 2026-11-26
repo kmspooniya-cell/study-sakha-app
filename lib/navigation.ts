@@ -44,7 +44,7 @@ export type AppStackParamList = {
   Notifications: OptionalScreenParams;
   Statistics: OptionalScreenParams;
   TaskPerformance: (HeaderParams & { startDate?: string; endDate?: string }) | undefined;
-  StudyPlanner: OptionalScreenParams;
+  StudyPlanner: (HeaderParams & { openPlanId?: string; openDate?: string }) | undefined;
   FocusCenter: (HeaderParams & {
     focusSession?: FocusSessionSetup;
     roomFocus?: { groupId: string; roomId: GroupRoomId; roomSessionId: string };
@@ -146,5 +146,14 @@ export function getNotificationNavigationRoute(response: unknown): 'Notification
   if (!content || typeof content !== 'object') return null;
   const data = (content as { data?: unknown }).data;
   if (!data || typeof data !== 'object') return null;
-  return (data as { route?: unknown }).route === 'Notifications' ? 'Notifications' : null;
+  const route = (data as { route?: unknown }).route;
+  if (route === 'Notifications') return 'Notifications';
+  const hasKnownPayload =
+    typeof (data as { plannerItemId?: unknown }).plannerItemId === 'string' ||
+    typeof (data as { taskId?: unknown }).taskId === 'string' ||
+    typeof (data as { groupId?: unknown }).groupId === 'string' ||
+    typeof (data as { testId?: unknown }).testId === 'string' ||
+    typeof (data as { resultId?: unknown }).resultId === 'string' ||
+    typeof (data as { kind?: unknown }).kind === 'string';
+  return hasKnownPayload ? 'Notifications' : null;
 }

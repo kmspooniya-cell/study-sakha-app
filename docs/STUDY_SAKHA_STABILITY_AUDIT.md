@@ -189,3 +189,37 @@ Code-level and concurrency verification completed across all 12 native areas (li
 2. **Missing `EXPO_PUBLIC_API_BASE_URL` (`BLOCKER`):** Configure an absolute `https://` backend URL (without embedded credentials) in EAS environment variables and verify `node scripts/validate-release-config.cjs production-apk` exits `0`.
 3. **On-Device FocusLock & Logcat QA (`BLOCKER`):** Execute the 14-step Android device test plan on physical hardware/emulator, including `AccessibilityService`, `FocusLockBlockingActivity`, `AlarmManager`, and `BOOT_COMPLETED` behavior.
 
+---
+
+## 8. Study Planner Invalid Saved Entries: Root Cause & Data Recovery (2026-11-26)
+
+### 8.1 Root Cause & Affected Records
+Investigation of the Android warning (`"Some planner entries need review"` — 5 invalid saved entries preserved in recovery storage with `Saved item 10..11: endTime is not a valid 24-hour time` and `Saved item 12..14: time is not a valid 24-hour time`) traced the exact causes across `screens/StudyPlannerScreen.tsx` and `lib/store.tsx`:
+1. **Seed exams emitted empty `endTime: ''` (`screens/StudyPlannerScreen.tsx`):** `buildSeedPlans()` set `endTime: ''` on `seed_3` (*Organic Chemistry Unit Test*) and `seed_7` (*English Essay Quiz*), and `planToScheduleItem()` forwarded empty strings verbatim. Because exams use `startTime` + `durationMinutes` instead of `endTime`, `migratePlannerScheduleItem()` rejected `endTime: ''` against `/^(?:[01]\d|2[0-3]):[0-5]\d$/`, producing `Saved item 10..11: endTime is not a valid 24-hour time`.
+2. **Form submissions emitted empty `time: ''` and empty optional fields (`screens/StudyPlannerScreen.tsx`):** `handleFormSubmit()` wrote `time: ''` on every created/edited item (and `endTime: ''` on exams, `whereMode: ''` on tasks/vacations/activities, and `''` for `endDate`/`rangeFrom`/`rangeUntil`/`repeatUntil` when not using a manual range). Because `plannerScheduleIssue()` checked `time` before `endDate`/`whereMode`, all user-created items failed first with `time is not a valid 24-hour time` (`Saved item 12..14`).
+3. **Validator rejected legacy/nullable optional fields (`lib/store.tsx`):** `migratePlannerScheduleItem()` rejected `null`, `''`, single-digit 24h hours (`9:00`), `HH:mm:ss`, `a.m.`/`p.m.`, and failed to normalize `timeSlots[].startTime`/`endTime`. In addition, `TimePickerModal.parseParts()` in `screens/StudyPlannerScreen.tsx` used `parseInt(hStr, 10) || 9`, shifting `00:xx` (midnight) to `09:xx`.
+4. **Non-atomic quarantine clearing (`lib/store.tsx`):** `readRecoverySnapshot()` previously overwrote `sakha-planner-quarantine-v2` before `StoreProvider` persisted the recovered items to `sakha-store-v1`.
+
+### 8.2 Migration & Safe Recovery Strategy
+- **Canonical Normalization & Validation (`lib/plannerSchedule.ts`):** Extracted `normalizePlannerTime()`, `normalizePlannerDate()`, `normalizePlannerCategory()`, `migratePlannerScheduleItem()`, `plannerScheduleIssue()`, `describePlannerRecoveryIssue()`, `buildPlannerRecoveryEntry()`, and `stripInvalidTimeFromRecord()`.
+  - Treats `undefined`, `null`, and empty/whitespace strings on optional fields as absent (`undefined`) without inventing missing times.
+  - Normalizes unambiguous legacy 12-hour (`9:30 AM`, `12:00 PM`, `12:15 AM`, `9:30 p.m.`, `9 PM`) and 24-hour (`9:00`, `0:45`, `17:00:00`) values to canonical `HH:mm`; preserves valid canonical records unchanged; strictly rejects malformed/ambiguous values (`24:00`, `25:10`, `09:60`, `13:00 PM`, `09:5`, non-string primitives).
+  - Normalizes `timeSlots` start/end times and supports legacy singular category aliases (`Task`, `Class`, `Exam`, `Vacation`, `Activity`).
+- **Canonical Writes Everywhere (`screens/StudyPlannerScreen.tsx`, `screens/StudyPlanner.tsx`, `components/NativeSchedulePickers.tsx`, `lib/store.tsx`):**
+  - Removed `endTime: ''` from `buildSeedPlans()` and `time: ''` / empty-string optional fields from `handleFormSubmit()` and `planToScheduleItem()`.
+  - Fixed `TimePickerModal.parseParts()` (`00:xx` midnight preservation), `formatTime12h()`, `toClockParts()`, `getTimeParts()`, and `parsePickerTime()`.
+  - Enforced `migratePlannerScheduleItem()` in `reducer` (`hydrate`, `addPlannerScheduleItem`, `updatePlannerScheduleItem`, `importLegacyLearningData`) and `accountSyncStateFromDocument()`.
+- **Lossless, Idempotent, Crash-Safe Recovery (`lib/store.tsx`):**
+  - Quarantine recovery only commits removal from `sakha-planner-quarantine-v2` inside `writeQueue` *after* `AsyncStorage.setItem(storageKey, serialized)` succeeds, and `resolvePlannerRecoveryEntry()` persists to `sakha-store-v1` before removing the resolved entry from quarantine.
+  - Deduplication by ID and normalized fingerprint ensures repeated recovery attempts are idempotent without creating duplicates.
+- **Recovery Review UI (`screens/StudyPlannerScreen.tsx`):**
+  - Displays counts for both automatically recovered entries (`plannerRecoveredCount`) and entries still requiring manual review (`plannerRecoveryCount`).
+  - Replaces raw validation jargon with plain-English actionable guidance and an inspection modal (`Review entries`) offering `Edit & Restore`, one-tap `Restore without end time` / `Restore as all-day` / `Restore as copy` where safe, and explicit `Remove`.
+
+### 8.3 Regression Tests & Verification Results
+- Added [plannerRecovery.test.tsx](file:///workspaces/study-sakha-app/test/plannerRecovery.test.tsx) (11 new tests covering canonical `HH:mm`, 12h & single-digit 24h migration, invalid hour/minute rejection, `null`/empty/missing optional `endTime`, all 5 categories + `timeSlots`, reducer/form canonicalization, automatic recovery of the 5 quarantined records, repeated idempotent recovery, duplicate prevention, mixed valid/invalid recovery preserving originals, and `StudyPlannerScreen` review/edit/midnight `00:30` UI flow).
+- **Post-edit Verification:**
+  - `npx tsc --noEmit` -> **PASS** (0 errors)
+  - `EXPO_NO_TELEMETRY=1 npx expo lint` -> **PASS** (0 errors, 0 warnings)
+  - `pnpm test -- --runInBand --forceExit` -> **PASS** (**36/36 suites, 167/167 tests**)
+

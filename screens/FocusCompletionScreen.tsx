@@ -385,14 +385,25 @@ function FocusCompletionContent() {
     const durationMinutes = remainingSeconds === null
       ? 25
       : Math.max(1, Math.ceil(remainingSeconds / 60));
+    const linkedScheduleId = session.scheduleId ?? session.taskId;
+    const matchedSchedule = linkedScheduleId && Array.isArray(state.plannerScheduleItems)
+      ? state.plannerScheduleItems.find((item) => item.id === linkedScheduleId) ?? null
+      : null;
+    const matchedPlannerTask = !matchedSchedule && session.taskId && Array.isArray(state.plannerTasks)
+      ? state.plannerTasks.find((item) => item.id === session.taskId) ?? null
+      : null;
+    const matchedTask = matchedSchedule ?? matchedPlannerTask;
     showToast(`Opening ${subject} focus session`);
     navigation.navigate('FocusCenter', {
       focusSession: {
         mode: session.mode,
         durationMinutes,
-        selection: 'manual',
+        selection: matchedTask ? 'schedule' : 'manual',
         tag: subject,
-        task: null,
+        task: matchedTask,
+        ...(matchedSchedule && session.scheduleOccurrenceId
+          ? { scheduleOccurrenceId: session.scheduleOccurrenceId }
+          : {}),
       },
     });
   };

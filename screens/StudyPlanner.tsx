@@ -26,6 +26,7 @@ import {
 } from '../components/UnifiedSchedulePicker';
 import { useStore } from '../lib/store';
 import type { PlannerScheduleCategory, PlannerScheduleItem } from '../lib/store';
+import { migratePlannerScheduleItem, normalizePlannerTime } from '../lib/plannerSchedule';
 import { useTheme } from '../lib/theme';
 
 export type PlannerCategory = PlannerScheduleCategory;
@@ -278,7 +279,9 @@ function to24HourTime(hourText: string, minuteText: string, period: 'AM' | 'PM')
 }
 
 function getTimeParts(value: string) {
-  const [hourText = '09', minuteText = '00'] = value.split(':');
+  const normalized = normalizePlannerTime(value);
+  const canonical = normalized.ok && normalized.value ? normalized.value : '09:00';
+  const [hourText = '09', minuteText = '00'] = canonical.split(':');
   const hour24 = Number(hourText);
   return {
     hour: String(hour24 % 12 || 12).padStart(2, '0'),
@@ -288,7 +291,9 @@ function getTimeParts(value: string) {
 }
 
 function parsePickerTime(value: string): Date {
-  const [hours = '09', minutes = '00'] = value.split(':');
+  const normalized = normalizePlannerTime(value);
+  const canonical = normalized.ok && normalized.value ? normalized.value : '09:00';
+  const [hours = '09', minutes = '00'] = canonical.split(':');
   const date = new Date();
   date.setHours(Number(hours), Number(minutes), 0, 0);
   return date;
@@ -1004,7 +1009,12 @@ export default function StudyPlanner({ embedded = false }: { embedded?: boolean 
       successMessage = 'Activity saved successfully.';
     }
 
-    dispatch({ type: 'addPlannerScheduleItem', item });
+    const normalizedItem = migratePlannerScheduleItem(item);
+    if (!normalizedItem) {
+      showStatus('Please check the schedule date and time before saving.');
+      return;
+    }
+    dispatch({ type: 'addPlannerScheduleItem', item: normalizedItem });
     if (activeTab === 'Tasks' && !isPremium) {
       setFreeTasksRemaining((remaining) => Math.max(0, remaining - 1));
     }
@@ -1899,7 +1909,7 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 36,
+    paddingBottom: 24,
     alignItems: 'center',
   },
   desktopPage: {

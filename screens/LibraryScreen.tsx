@@ -89,7 +89,7 @@ export default function LibraryScreen() {
         keyExtractor={(section) => section.route}
         numColumns={2}
         columnWrapperStyle={{ gap: 10 }}
-        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 48, gap: 12, maxWidth: 920, width: '100%', alignSelf: 'center' }}
+        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 24, gap: 12, maxWidth: 920, width: '100%', alignSelf: 'center' }}
         renderItem={({ item: section }) => (
           <StitchCard style={{ flex: 1, padding: 0 }} tone="glass">
             <Pressable
@@ -480,7 +480,7 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
           keyExtractor={(resource) => resource.id}
           numColumns={columns}
           ListHeaderComponent={header}
-          contentContainerStyle={{ padding: isMobile ? 6 : 14, paddingBottom: 40 }}
+          contentContainerStyle={{ padding: isMobile ? 6 : 14, paddingBottom: 24 }}
           columnWrapperStyle={columns > 1 ? { alignItems: 'stretch' } : undefined}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.blue} colors={[colors.blue]} />}
@@ -619,7 +619,7 @@ export function LibraryDownloadsScreen() {
         <FlatList
           data={downloads}
           keyExtractor={(item) => item.resourceId}
-          contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12, flexGrow: 1 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 12, flexGrow: 1 }}
           ListHeaderComponent={
             <View style={{ gap: 10, marginBottom: 8 }}>
               {error ? (

@@ -17,7 +17,6 @@ import {
   Platform,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import type { AppNavigation } from '../lib/navigation';
 import { Shell } from '../components/Shell';
 import {
@@ -1744,7 +1743,7 @@ class DashboardErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaView style={styles.errorContainer}>
+        <View style={styles.errorContainer}>
           <View style={styles.errorCard}>
             <AlertCircle size={40} color="#F59E0B" />
             <Text style={styles.errorTitle}>Unable to load Learning Analytics</Text>
@@ -1757,7 +1756,7 @@ class DashboardErrorBoundary extends React.Component<
               <Text style={styles.errorBtnText}>Retry Dashboard</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       );
     }
     return this.props.children;
@@ -2053,7 +2052,7 @@ function StudySakhaStatisticsScreen() {
   if (historyStatus !== 'ready') {
     return (
       <Shell active="Statistics" title="" scroll={false} contentPadding={0}>
-        <SafeAreaView style={styles.errorContainer}>
+        <View style={styles.errorContainer}>
           <View style={styles.errorCard}>
             {historyStatus === 'error' ? (
               <>
@@ -2072,7 +2071,7 @@ function StudySakhaStatisticsScreen() {
               <Text style={styles.errorMsg}>Loading Learning Analytics…</Text>
             )}
           </View>
-        </SafeAreaView>
+        </View>
       </Shell>
     );
   }
@@ -3972,7 +3971,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 18,
-    paddingBottom: 92,
+    paddingBottom: 24,
   },
   maxContainer: {
     width: '100%',

@@ -6,7 +6,18 @@ import { BADGES, LEARNERS, PENDING_CONTENT } from './data';
 import { STUDENT_CONTENT_BUCKET, supabase, supabaseConfigured } from './supabase';
 import { AccountSyncEngine } from './sync/syncEngine';
 import type { AccountSyncDocument, SyncStatus } from './sync/syncTypes';
-import type { FocusHistoryRecord } from './focusHistory';
+import type { FocusHistoryRecord, FocusSessionCategory } from './focusHistory';
+import { getSchedulePlanDurationSeconds } from './planner';
+import {
+  buildPlannerRecoveryEntry,
+  describePlannerRecoveryIssue,
+  isPlannerDate,
+  migratePlannerScheduleItem,
+  plannerScheduleIssue,
+  type PlannerRecoveryEntry,
+  type PlannerScheduleCategory,
+  type PlannerScheduleItem,
+} from './plannerSchedule';
 import { ThemeMode } from './theme';
 import { AppNotification, ChatMsg, ExamId, Learner, ManagedContent, ManagedContentType, PendingContent, TestQuestion, TestResult, UserNote } from './types';
 
@@ -76,60 +87,7 @@ export type PlannerSettings = {
   breakIntervalMinutes: number;
 };
 
-export type PlannerScheduleCategory = 'Tasks' | 'Classes' | 'Exams' | 'Vacations' | 'Activities';
-
-export type PlannerScheduleItem = {
-  id: string;
-  category: PlannerScheduleCategory;
-  title: string;
-  subject?: string;
-  type?: string;
-  teacher?: string;
-  date?: string;
-  time?: string;
-  endDate?: string;
-  startTime?: string;
-  endTime?: string;
-  duration?: number;
-  occurs?: 'Once' | 'Repeating';
-  days?: string[];
-  dateRange?: 'None' | 'Term' | 'Manual';
-  whereType?: 'In Person' | 'Online';
-  room?: string;
-  building?: string;
-  seat?: string;
-  notes?: string;
-  daysCount?: number;
-  hasCoverPhoto?: boolean;
-  completed?: boolean;
-  timeSlots?: {
-    id: string;
-    days: string[];
-    startTime: string;
-    endTime: string;
-  }[];
-  fromDate?: string;
-  untilDate?: string;
-  taskType?: string;
-  instructor?: string;
-  whereMode?: 'in_person' | 'online';
-  seatNumber?: string;
-  onlineLink?: string;
-  location?: string;
-  examType?: string;
-  durationMinutes?: number;
-  durationLabel?: string;
-  vacationPreset?: string;
-  coverPhotoName?: string;
-  dateRangeMode?: 'none' | 'term' | 'manual';
-  termName?: string;
-  rangeFrom?: string;
-  rangeUntil?: string;
-  activityType?: string;
-  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
-  repeatDays?: number[];
-  repeatUntil?: string;
-};
+export type { PlannerRecoveryEntry, PlannerScheduleCategory, PlannerScheduleItem };
 
 export type State = {
   plannerDataVersion?: number;
@@ -251,196 +209,6 @@ const LEGACY_HISTORY_STORAGE_KEYS = new Set([
   'study-sakha-hobby-history-v1',
 ]);
 const LEGACY_TEST_ATTEMPT_PREFIX = 'study-sakha-test-attempt-v1-';
-
-function isPlannerDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function isPlannerScheduleCategory(value: unknown): value is PlannerScheduleCategory {
-  return value === 'Tasks' || value === 'Classes' || value === 'Exams' || value === 'Vacations' || value === 'Activities';
-}
-
-function migratePlannerScheduleItem(value: unknown): PlannerScheduleItem | null {
-  if (!isRecord(value)) return null;
-  const normalized = { ...value };
-  for (const field of ['date', 'endDate', 'fromDate', 'untilDate', 'rangeFrom', 'rangeUntil', 'repeatUntil']) {
-    const candidate = normalized[field];
-    if (typeof candidate === 'string') {
-      const isoDate = candidate.match(/^(\d{4}-\d{2}-\d{2})(?:T.*)?$/)?.[1];
-      if (isoDate && isPlannerDate(isoDate)) normalized[field] = isoDate;
-    }
-  }
-  for (const field of ['time', 'startTime', 'endTime']) {
-    const candidate = normalized[field];
-    if (typeof candidate === 'string') {
-      const twelveHour = candidate.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-      if (twelveHour) {
-        const hour = Number(twelveHour[1]);
-        const minute = Number(twelveHour[2]);
-        if (hour >= 1 && hour <= 12 && minute <= 59) {
-          const normalizedHour = (hour % 12) + (twelveHour[3].toUpperCase() === 'PM' ? 12 : 0);
-          normalized[field] = `${String(normalizedHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-        }
-      }
-    }
-  }
-  if (typeof normalized.id !== 'string' || !normalized.id.trim() ||
-    (!isPlannerScheduleCategory(normalized.category) && !['Task', 'Class', 'Exam', 'Vacation', 'Activity'].includes(String(normalized.category))) || typeof normalized.title !== 'string') return null;
-  const category = isPlannerScheduleCategory(normalized.category) ? normalized.category : ({ Task: 'Tasks', Class: 'Classes', Exam: 'Exams', Vacation: 'Vacations', Activity: 'Activities' } as const)[normalized.category as 'Task' | 'Class' | 'Exam' | 'Vacation' | 'Activity'];
-
-  const optionalStrings = [
-    normalized.subject,
-    normalized.type,
-    normalized.teacher,
-    normalized.date,
-    normalized.time,
-    normalized.endDate,
-    normalized.startTime,
-    normalized.endTime,
-    normalized.fromDate,
-    normalized.untilDate,
-    normalized.room,
-    normalized.building,
-    normalized.seat,
-    normalized.notes,
-    normalized.taskType,
-    normalized.instructor,
-    normalized.seatNumber,
-    normalized.onlineLink,
-    normalized.location,
-    normalized.examType,
-    normalized.durationLabel,
-    normalized.vacationPreset,
-    normalized.coverPhotoName,
-    normalized.termName,
-    normalized.rangeFrom,
-    normalized.rangeUntil,
-    normalized.activityType,
-    normalized.repeatUntil,
-  ];
-  if (optionalStrings.some((field) => field !== undefined && typeof field !== 'string')) return null;
-  if (
-    (normalized.date !== undefined && !isPlannerDate(normalized.date)) ||
-    (normalized.endDate !== undefined && !isPlannerDate(normalized.endDate)) ||
-    (normalized.fromDate !== undefined && !isPlannerDate(normalized.fromDate)) ||
-    (normalized.untilDate !== undefined && !isPlannerDate(normalized.untilDate)) ||
-    (normalized.rangeFrom !== undefined && !isPlannerDate(normalized.rangeFrom)) ||
-    (normalized.rangeUntil !== undefined && !isPlannerDate(normalized.rangeUntil)) ||
-    (normalized.repeatUntil !== undefined && !isPlannerDate(normalized.repeatUntil)) ||
-    ([normalized.time, normalized.startTime, normalized.endTime].some((time) => time !== undefined && (typeof time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)))) ||
-    (normalized.duration !== undefined &&
-      (typeof normalized.duration !== 'number' || !Number.isFinite(normalized.duration) || normalized.duration <= 0)) ||
-    (normalized.daysCount !== undefined &&
-      (typeof normalized.daysCount !== 'number' || !Number.isInteger(normalized.daysCount) || normalized.daysCount < 1)) ||
-    (normalized.occurs !== undefined && normalized.occurs !== 'Once' && normalized.occurs !== 'Repeating') ||
-    (normalized.dateRange !== undefined && normalized.dateRange !== 'None' && normalized.dateRange !== 'Term' && normalized.dateRange !== 'Manual') ||
-    (normalized.whereType !== undefined && normalized.whereType !== 'In Person' && normalized.whereType !== 'Online') ||
-    (normalized.hasCoverPhoto !== undefined && typeof normalized.hasCoverPhoto !== 'boolean') ||
-    (normalized.completed !== undefined && typeof normalized.completed !== 'boolean') ||
-    (normalized.durationMinutes !== undefined &&
-      (typeof normalized.durationMinutes !== 'number' || !Number.isFinite(normalized.durationMinutes) || normalized.durationMinutes < 0)) ||
-    (normalized.whereMode !== undefined && normalized.whereMode !== 'in_person' && normalized.whereMode !== 'online') ||
-    (normalized.dateRangeMode !== undefined && normalized.dateRangeMode !== 'none' && normalized.dateRangeMode !== 'term' && normalized.dateRangeMode !== 'manual') ||
-    (normalized.recurrence !== undefined && !['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(String(normalized.recurrence))) ||
-    (normalized.repeatDays !== undefined && (!Array.isArray(normalized.repeatDays) || !normalized.repeatDays.every((day) => typeof day === 'number' && day >= 0 && day <= 6))) ||
-    (normalized.days !== undefined &&
-      (!Array.isArray(normalized.days) || !normalized.days.every((day) => typeof day === 'string'))) ||
-    (normalized.timeSlots !== undefined &&
-      (!Array.isArray(normalized.timeSlots) ||
-        !normalized.timeSlots.every((slot) =>
-          isRecord(slot) &&
-          typeof slot.id === 'string' &&
-          Array.isArray(slot.days) &&
-          slot.days.every((day) => typeof day === 'string') &&
-          typeof slot.startTime === 'string' &&
-          typeof slot.endTime === 'string'
-        )))
-  ) return null;
-
-  return {
-    id: normalized.id,
-    category,
-    title: normalized.title,
-    ...(typeof normalized.subject === 'string' ? { subject: normalized.subject } : {}),
-    ...(typeof normalized.type === 'string' ? { type: normalized.type } : {}),
-    ...(typeof normalized.teacher === 'string' ? { teacher: normalized.teacher } : {}),
-    ...(typeof normalized.date === 'string' ? { date: normalized.date } : {}),
-    ...(typeof normalized.time === 'string' ? { time: normalized.time } : {}),
-    ...(typeof normalized.endDate === 'string' ? { endDate: normalized.endDate } : {}),
-    ...(typeof normalized.startTime === 'string' ? { startTime: normalized.startTime } : {}),
-    ...(typeof normalized.endTime === 'string' ? { endTime: normalized.endTime } : {}),
-    ...(typeof normalized.duration === 'number' ? { duration: normalized.duration } : {}),
-    ...(normalized.occurs === 'Once' || normalized.occurs === 'Repeating' ? { occurs: normalized.occurs } : {}),
-    ...(Array.isArray(normalized.days) ? { days: normalized.days } : {}),
-    ...(Array.isArray(normalized.timeSlots)
-      ? {
-          timeSlots: normalized.timeSlots.map((slot) => ({
-            id: slot.id,
-            days: slot.days,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-          })),
-        }
-      : {}),
-    ...(normalized.dateRange === 'None' || normalized.dateRange === 'Term' || normalized.dateRange === 'Manual'
-      ? { dateRange: normalized.dateRange }
-      : {}),
-    ...(typeof normalized.fromDate === 'string' ? { fromDate: normalized.fromDate } : {}),
-    ...(typeof normalized.untilDate === 'string' ? { untilDate: normalized.untilDate } : {}),
-    ...(normalized.whereType === 'In Person' || normalized.whereType === 'Online' ? { whereType: normalized.whereType } : {}),
-    ...(typeof normalized.room === 'string' ? { room: normalized.room } : {}),
-    ...(typeof normalized.building === 'string' ? { building: normalized.building } : {}),
-    ...(typeof normalized.seat === 'string' ? { seat: normalized.seat } : {}),
-    ...(typeof normalized.notes === 'string' ? { notes: normalized.notes } : {}),
-    ...(typeof normalized.daysCount === 'number' ? { daysCount: normalized.daysCount } : {}),
-    ...(typeof normalized.hasCoverPhoto === 'boolean' ? { hasCoverPhoto: normalized.hasCoverPhoto } : {}),
-    ...(typeof normalized.completed === 'boolean' ? { completed: normalized.completed } : {}),
-    ...(typeof normalized.taskType === 'string' ? { taskType: normalized.taskType } : {}),
-    ...(typeof normalized.instructor === 'string' ? { instructor: normalized.instructor } : {}),
-    ...(normalized.whereMode === 'in_person' || normalized.whereMode === 'online' ? { whereMode: normalized.whereMode } : {}),
-    ...(typeof normalized.seatNumber === 'string' ? { seatNumber: normalized.seatNumber } : {}),
-    ...(typeof normalized.onlineLink === 'string' ? { onlineLink: normalized.onlineLink } : {}),
-    ...(typeof normalized.location === 'string' ? { location: normalized.location } : {}),
-    ...(typeof normalized.examType === 'string' ? { examType: normalized.examType } : {}),
-    ...(typeof normalized.durationMinutes === 'number' ? { durationMinutes: normalized.durationMinutes } : {}),
-    ...(typeof normalized.durationLabel === 'string' ? { durationLabel: normalized.durationLabel } : {}),
-    ...(typeof normalized.vacationPreset === 'string' ? { vacationPreset: normalized.vacationPreset } : {}),
-    ...(typeof normalized.coverPhotoName === 'string' ? { coverPhotoName: normalized.coverPhotoName } : {}),
-    ...(normalized.dateRangeMode === 'none' || normalized.dateRangeMode === 'term' || normalized.dateRangeMode === 'manual' ? { dateRangeMode: normalized.dateRangeMode } : {}),
-    ...(typeof normalized.termName === 'string' ? { termName: normalized.termName } : {}),
-    ...(typeof normalized.rangeFrom === 'string' ? { rangeFrom: normalized.rangeFrom } : {}),
-    ...(typeof normalized.rangeUntil === 'string' ? { rangeUntil: normalized.rangeUntil } : {}),
-    ...(typeof normalized.activityType === 'string' ? { activityType: normalized.activityType } : {}),
-    ...(typeof normalized.recurrence === 'string' && ['none', 'daily', 'weekly', 'monthly', 'yearly'].includes(normalized.recurrence)
-      ? { recurrence: normalized.recurrence as PlannerScheduleItem['recurrence'] }
-      : {}),
-    ...(Array.isArray(normalized.repeatDays) ? { repeatDays: normalized.repeatDays } : {}),
-    ...(typeof normalized.repeatUntil === 'string' ? { repeatUntil: normalized.repeatUntil } : {}),
-  };
-}
-
-function plannerScheduleIssue(value: unknown): string {
-  if (!isRecord(value)) return 'record must be an object';
-  if (typeof value.id !== 'string' || !value.id.trim()) return 'id is missing or invalid';
-  if (!isPlannerScheduleCategory(value.category) && !['Task', 'Class', 'Exam', 'Vacation', 'Activity'].includes(String(value.category))) return 'category is unsupported or invalid';
-  if (typeof value.title !== 'string') return 'title is missing or invalid';
-  const optionalStrings = ['subject', 'type', 'teacher', 'date', 'time', 'endDate', 'startTime', 'endTime', 'fromDate', 'untilDate', 'room', 'building', 'seat', 'notes', 'taskType', 'instructor', 'seatNumber', 'onlineLink', 'location', 'examType', 'durationLabel', 'vacationPreset', 'coverPhotoName', 'termName', 'rangeFrom', 'rangeUntil', 'activityType', 'repeatUntil'];
-  for (const field of optionalStrings) {
-    if (value[field] !== undefined && typeof value[field] !== 'string') return `${field} must be text`;
-    if (['date', 'endDate', 'fromDate', 'untilDate', 'repeatUntil', 'rangeFrom', 'rangeUntil'].includes(field) && typeof value[field] === 'string' && !isPlannerDate(value[field])) return `${field} is not a valid YYYY-MM-DD date`;
-    if (['time', 'startTime', 'endTime'].includes(field) && typeof value[field] === 'string' && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value[field] as string)) return `${field} is not a valid 24-hour time`;
-  }
-  if (value.timeSlots !== undefined && (!Array.isArray(value.timeSlots) || value.timeSlots.some((slot) => !isRecord(slot) || typeof slot.id !== 'string' || !Array.isArray(slot.days) || typeof slot.startTime !== 'string' || typeof slot.endTime !== 'string'))) return 'timeSlots contains an invalid entry';
-  for (const field of ['duration', 'daysCount', 'occurs', 'dateRange', 'whereType', 'hasCoverPhoto', 'completed', 'durationMinutes', 'whereMode', 'dateRangeMode', 'recurrence', 'repeatDays', 'days']) {
-    if (value[field] === undefined) continue;
-    const candidate = { ...value };
-    delete candidate[field];
-    if (!migratePlannerScheduleItem(candidate)) return `${field} has an invalid value`;
-  }
-  return 'schedule record has an invalid value';
-}
 
 function migratePlannerTask(value: unknown): PlannerTask | null {
   if (!value || typeof value !== 'object') return null;
@@ -757,7 +525,8 @@ export type Action =
       plannedMinutes?: number;
       scheduleOccurrenceId?: string;
       schedulePlannedSeconds?: number;
-      status?: 'completed' | 'interrupted' | 'abandoned';
+      status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
+      sessionType?: FocusSessionCategory;
     }
   | { type: 'upsertFocusHistory'; record: FocusHistoryRecord }
   | { type: 'updateFocusHistory'; id: string; patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'focusQuality'>> }
@@ -768,7 +537,8 @@ export type Action =
   | { type: 'chatEphemeral'; msg: ChatMsg }
   | { type: 'clearChat' }
   | { type: 'readNotif'; id?: string }
-  | { type: 'notify'; notif: AppNotification }
+  | { type: 'notify'; notif: AppNotification; fromSystem?: boolean }
+  | { type: 'deleteNotif'; id: string }
   | { type: 'learnerStatus'; id: string; status: 'active' | 'suspended' }
   | { type: 'reviewContent'; id: string; status: 'pending' | 'approved' | 'rejected' }
   | { type: 'saveManagedContent'; content: ManagedContent }
@@ -806,6 +576,7 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'importLegacyLearningData',
   'readNotif',
   'notify',
+  'deleteNotif',
   'learnerStatus',
   'reviewContent',
   'announce',
@@ -823,8 +594,33 @@ function isPersistedAction(action: Action) {
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case 'hydrate':
-      return { ...state, ...action.payload, user: state.user, authReady: state.authReady, hydrated: true };
+    case 'hydrate': {
+      const nextSchedule = Array.isArray(action.payload.plannerScheduleItems)
+        ? action.payload.plannerScheduleItems
+            .map(migratePlannerScheduleItem)
+            .filter((item): item is PlannerScheduleItem => item !== null)
+        : undefined;
+      const nextNotifications = Array.isArray(action.payload.notifications)
+        ? Array.from(
+            new Map(
+              action.payload.notifications
+                .filter((item): item is AppNotification =>
+                  Boolean(item && typeof item === 'object' && typeof item.id === 'string' && item.id && typeof item.title === 'string')
+                )
+                .map((item) => [item.id, item])
+            ).values()
+          )
+        : undefined;
+      return {
+        ...state,
+        ...action.payload,
+        ...(nextSchedule !== undefined ? { plannerScheduleItems: nextSchedule } : {}),
+        ...(nextNotifications !== undefined ? { notifications: nextNotifications } : {}),
+        user: state.user,
+        authReady: state.authReady,
+        hydrated: true,
+      };
+    }
     case 'restore': {
       let restored = reducer(state, {
         type: 'hydrate',
@@ -890,7 +686,12 @@ export function reducer(state: State, action: Action): State {
           ])
         ),
         plannerTasks: mergeById(state.plannerTasks, imported.plannerTasks),
-        plannerScheduleItems: mergeById(state.plannerScheduleItems, imported.plannerScheduleItems),
+        plannerScheduleItems: mergeById(
+          state.plannerScheduleItems,
+          imported.plannerScheduleItems
+            .map(migratePlannerScheduleItem)
+            .filter((item): item is PlannerScheduleItem => item !== null),
+        ),
         plannerScheduleCompletions: { ...imported.plannerScheduleCompletions, ...state.plannerScheduleCompletions },
         plannerDefaultOverrides: { ...imported.plannerDefaultOverrides, ...state.plannerDefaultOverrides },
         plannerDeletedDefaults: Array.from(new Set([...state.plannerDeletedDefaults, ...imported.plannerDeletedDefaults])),
@@ -1132,22 +933,58 @@ export function reducer(state: State, action: Action): State {
           : { ...state.settings, dailyGoalMin: Math.round(plannerSettings.dailyTargetHours * 60) },
       };
     }
-    case 'addPlannerScheduleItem':
-      return state.plannerScheduleItems.some((item) => item.id === action.item.id)
+    case 'addPlannerScheduleItem': {
+      const normalizedItem = migratePlannerScheduleItem(action.item);
+      if (!normalizedItem) return state;
+      return state.plannerScheduleItems.some((item) => item.id === normalizedItem.id)
         ? state
-        : { ...state, plannerScheduleItems: [action.item, ...state.plannerScheduleItems] };
-    case 'updatePlannerScheduleItem':
+        : { ...state, plannerScheduleItems: [normalizedItem, ...state.plannerScheduleItems] };
+    }
+    case 'updatePlannerScheduleItem': {
+      const normalizedItem = migratePlannerScheduleItem(action.item);
+      if (!normalizedItem) return state;
+      const nextScheduleItems = state.plannerScheduleItems.map((item) =>
+        item.id === normalizedItem.id ? normalizedItem : item
+      );
+      const nextPlannedSeconds = getSchedulePlanDurationSeconds(normalizedItem);
+      const nextCompletions = { ...state.plannerScheduleCompletions };
+      if (nextPlannedSeconds !== null && nextPlannedSeconds > 0) {
+        const prefix = `${normalizedItem.id}::`;
+        Object.keys(nextCompletions).forEach((occurrenceId) => {
+          if (occurrenceId !== normalizedItem.id && !occurrenceId.startsWith(prefix)) return;
+          const date = occurrenceId.startsWith(prefix) ? occurrenceId.slice(prefix.length) : normalizedItem.date;
+          const recordedSeconds = state.plannerTaskStudySeconds[occurrenceId] ??
+            state.plannerTaskStudySeconds[normalizedItem.id] ?? 0;
+          if (date && recordedSeconds > 0 && recordedSeconds < nextPlannedSeconds) {
+            delete nextCompletions[occurrenceId];
+          }
+        });
+      }
       return {
         ...state,
-        plannerScheduleItems: state.plannerScheduleItems.map((item) =>
-          item.id === action.item.id ? action.item : item
-        ),
+        plannerScheduleItems: nextScheduleItems,
+        plannerScheduleCompletions: nextCompletions,
       };
-    case 'deletePlannerScheduleItem':
+    }
+    case 'deletePlannerScheduleItem': {
+      const prefix = `${action.id}::`;
+      const plannerTaskStudySeconds = Object.fromEntries(
+        Object.entries(state.plannerTaskStudySeconds).filter(
+          ([key]) => key !== action.id && !key.startsWith(prefix)
+        )
+      );
+      const plannerScheduleCompletions = Object.fromEntries(
+        Object.entries(state.plannerScheduleCompletions).filter(
+          ([key]) => key !== action.id && !key.startsWith(prefix)
+        )
+      );
       return {
         ...state,
         plannerScheduleItems: state.plannerScheduleItems.filter((item) => item.id !== action.id),
+        plannerTaskStudySeconds,
+        plannerScheduleCompletions,
       };
+    }
     case 'setPlannerScheduleCompletion':
       if (!action.occurrenceId || !isPlannerDate(action.date)) return state;
       return {
@@ -1180,6 +1017,11 @@ export function reducer(state: State, action: Action): State {
         !isPlannerDate(action.date) ||
         !Number.isFinite(action.seconds) ||
         action.seconds <= 0 ||
+        action.status === 'interrupted' ||
+        action.status === 'abandoned' ||
+        action.sessionType === 'break' ||
+        action.sessionType === 'meditation' ||
+        action.sessionType === 'ambient' ||
         state.recordedFocusSessionIds.includes(action.id)
       ) return state;
       const studySeconds = { ...state.plannerTaskStudySeconds };
@@ -1265,8 +1107,14 @@ export function reducer(state: State, action: Action): State {
         notifications: state.notifications.map((n) => (!action.id || n.id === action.id ? { ...n, read: true } : n)),
       };
     case 'notify':
-      if (!state.settings.notifications) return state;
+      if (!state.settings.notifications && !action.fromSystem) return state;
+      if (state.notifications.some((n) => n.id === action.notif.id)) return state;
       return { ...state, notifications: [action.notif, ...state.notifications] };
+    case 'deleteNotif':
+      return {
+        ...state,
+        notifications: state.notifications.filter((n) => n.id !== action.id),
+      };
     case 'learnerStatus':
       return { ...state, learners: state.learners.map((l) => (l.id === action.id ? { ...l, status: action.status } : l)) };
     case 'reviewContent':
@@ -1302,8 +1150,16 @@ type Ctx = {
   hydrationError: string | null;
   retryHydration: () => void;
   plannerRecoveryCount: number;
+  plannerRecoveredCount: number;
   plannerRecoveryIssues: string[];
+  plannerRecoveryEntries: PlannerRecoveryEntry[];
   retryPlannerRecovery: () => void;
+  dismissPlannerRecoveredNotice: () => void;
+  resolvePlannerRecoveryEntry: (
+    fingerprint: string,
+    updatedItem: PlannerScheduleItem,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  discardPlannerRecoveryEntry: (fingerprint: string) => Promise<{ ok: boolean; error?: string }>;
   legacyMigrationAvailable: boolean;
   legacyMigrationError: string | null;
   importingLegacyData: boolean;
@@ -1428,7 +1284,14 @@ type RecoverySnapshot = {
   tasks: PlannerTask[];
   profile?: Partial<User>;
   plannerRecoveryCount: number;
+  plannerRecoveredCount: number;
   plannerRecoveryIssues: string[];
+  plannerRecoveryEntries: PlannerRecoveryEntry[];
+  pendingArchiveCommit: {
+    storageKey: string;
+    archiveKey: string;
+    serializedQuarantine: string;
+  } | null;
 };
 
 async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnapshot> {
@@ -1502,16 +1365,26 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
       ])
     );
   const rawSchedule = saved.plannerScheduleItems;
+  const storageKey = getUserScopedStorageKey(KEY, userId);
   const archiveKey = getUserScopedStorageKey(PLANNER_QUARANTINE_KEY, userId);
   const previousRaw = await AsyncStorage.getItem(archiveKey);
-  const previousParsed: unknown = previousRaw ? JSON.parse(previousRaw) : [];
-  const previousArchive = Array.isArray(previousParsed) ? previousParsed.filter(isRecord) : [];
+  let previousArchive: Record<string, unknown>[] = [];
+  if (previousRaw) {
+    try {
+      const previousParsed: unknown = JSON.parse(previousRaw);
+      if (Array.isArray(previousParsed)) previousArchive = previousParsed.filter(isRecord);
+    } catch {
+      previousArchive = [];
+    }
+  }
   const rawRecords = Array.isArray(rawSchedule) ? rawSchedule : rawSchedule === undefined ? [] : [rawSchedule];
   const retryRecords = previousArchive.map((entry) => entry.record);
   const candidates = [...rawRecords, ...retryRecords];
   const validCandidates: PlannerScheduleItem[] = [];
   const acceptedById = new Map<string, string>();
   const conflictingDuplicateIndexes = new Set<number>();
+  let recoveredFromArchiveCount = 0;
+
   candidates.forEach((record, index) => {
     const migrated = migratePlannerScheduleItem(record);
     if (!migrated) return;
@@ -1523,6 +1396,9 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
     }
     acceptedById.set(migrated.id, normalizedFingerprint);
     validCandidates.push(migrated);
+    if (index >= rawRecords.length) {
+      recoveredFromArchiveCount += 1;
+    }
   });
   const plannerScheduleItems = validCandidates;
   const validFingerprints = new Set(validCandidates.map((item) => JSON.stringify(item)));
@@ -1533,15 +1409,24 @@ async function readRecoverySnapshot(userId: string | null): Promise<RecoverySnap
     return [{ index, reason, record, fingerprint: JSON.stringify(record), archivedAt: Date.now() }];
   });
   const uniqueQuarantine = Array.from(new Map(invalidCandidates.map((entry) => [entry.fingerprint, entry])).values());
-  if (uniqueQuarantine.length || previousArchive.length) {
-    await AsyncStorage.setItem(archiveKey, JSON.stringify(uniqueQuarantine));
+  const serializedQuarantine = JSON.stringify(uniqueQuarantine);
+  const pendingArchiveCommit =
+    recoveredFromArchiveCount > 0
+      ? { storageKey, archiveKey, serializedQuarantine }
+      : null;
+  if (!pendingArchiveCommit && (uniqueQuarantine.length || previousArchive.length)) {
+    await AsyncStorage.setItem(archiveKey, serializedQuarantine);
   }
+  const plannerRecoveryEntries = uniqueQuarantine.map((entry) => buildPlannerRecoveryEntry(entry));
 
   return {
     tasks,
     profile,
     plannerRecoveryCount: uniqueQuarantine.length,
+    plannerRecoveredCount: recoveredFromArchiveCount,
     plannerRecoveryIssues: uniqueQuarantine.map((entry) => `Saved item ${entry.index + 1}: ${entry.reason}`),
+    plannerRecoveryEntries,
+    pendingArchiveCommit,
     payload: {
       ...saved,
       plannerDataVersion: PLANNER_DATA_VERSION,
@@ -1838,7 +1723,14 @@ export function accountSyncStateFromDocument(document: AccountSyncDocument): Par
     'recordedFocusSessionIds', 'focusHistory', 'studyLog', 'results', 'chat', 'notifications',
   ];
   for (const key of accountKeys) {
-    if (document[key] !== undefined) (state as Record<string, unknown>)[key] = document[key];
+    if (document[key] === undefined) continue;
+    if (key === 'plannerScheduleItems' && Array.isArray(document[key])) {
+      state.plannerScheduleItems = document[key]
+        .map(migratePlannerScheduleItem)
+        .filter((item): item is PlannerScheduleItem => item !== null);
+    } else {
+      (state as Record<string, unknown>)[key] = document[key];
+    }
   }
   return state;
 }
@@ -1887,7 +1779,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [hydrationStatus, setHydrationStatus] = useState<'loading' | 'ready' | 'failed' | 'recovering'>('loading');
   const [hydrationError, setHydrationError] = useState<string | null>(null);
   const [plannerRecoveryCount, setPlannerRecoveryCount] = useState(0);
+  const [plannerRecoveredCount, setPlannerRecoveredCount] = useState(0);
   const [plannerRecoveryIssues, setPlannerRecoveryIssues] = useState<string[]>([]);
+  const [plannerRecoveryEntries, setPlannerRecoveryEntries] = useState<PlannerRecoveryEntry[]>([]);
   const [legacyMigrationUserId, setLegacyMigrationUserId] = useState<string | null>(null);
   const [legacyMigrationError, setLegacyMigrationError] = useState<string | null>(null);
   const [importingLegacyData, setImportingLegacyData] = useState(false);
@@ -1900,6 +1794,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const recoveryGeneration = React.useRef(0);
   const pendingActions = React.useRef(new Map<string, Action[]>());
   const pendingPlannerTasks = React.useRef(new Map<string, PlannerTask[]>());
+  const pendingArchiveCommitRef = React.useRef<{
+    storageKey: string;
+    archiveKey: string;
+    serializedQuarantine: string;
+  } | null>(null);
   const writeQueue = React.useRef<Promise<void>>(Promise.resolve());
   const lastEnqueuedSnapshot = React.useRef<string | null>(null);
   const themeWriteQueue = React.useRef<Promise<void>>(Promise.resolve());
@@ -2129,11 +2028,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     activeRecoveryScope.current = scope;
     setPlannerRecoveryCount(0);
     setPlannerRecoveryIssues([]);
+    setPlannerRecoveryEntries([]);
     hydrationStatusRef.current = hydrationAttempted.current ? 'recovering' : 'loading';
     setHydrationStatus(hydrationStatusRef.current);
     try {
       const snapshot = await readRecoverySnapshot(userId);
       if (generation !== recoveryGeneration.current) return;
+      pendingArchiveCommitRef.current = snapshot.pendingArchiveCommit;
       const actions = [...(pendingActions.current.get(scope) ?? [])];
       hydrationStatusRef.current = 'ready';
       dispatch({
@@ -2147,7 +2048,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       pendingPlannerTasks.current.delete(scope);
       setHydrationError(null);
       setPlannerRecoveryCount(snapshot.plannerRecoveryCount);
+      setPlannerRecoveredCount((previous) => snapshot.plannerRecoveredCount > 0 ? snapshot.plannerRecoveredCount : previous);
       setPlannerRecoveryIssues(snapshot.plannerRecoveryIssues);
+      setPlannerRecoveryEntries(snapshot.plannerRecoveryEntries);
       setHydrationStatus('ready');
     } catch (error) {
       if (generation !== recoveryGeneration.current) return;
@@ -2156,6 +2059,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setHydrationError(errorMessage(error, 'Saved data could not be loaded. Your changes are being held until recovery succeeds.'));
       setPlannerRecoveryCount(0);
       setPlannerRecoveryIssues([]);
+      setPlannerRecoveryEntries([]);
       hydrationStatusRef.current = 'failed';
       setHydrationStatus('failed');
     } finally {
@@ -2173,6 +2077,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const retryPlannerRecovery = useCallback(() => {
     void recoverSnapshot(state.user?.id ?? null);
   }, [recoverSnapshot, state.user?.id]);
+  const dismissPlannerRecoveredNotice = useCallback(() => {
+    setPlannerRecoveredCount(0);
+  }, []);
+
+  const resolvePlannerRecoveryEntry = useCallback(async (
+    fingerprint: string,
+    updatedItem: PlannerScheduleItem,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const migrated = migratePlannerScheduleItem(updatedItem);
+    if (!migrated) {
+      return {
+        ok: false,
+        error: describePlannerRecoveryIssue(plannerScheduleIssue(updatedItem), updatedItem),
+      };
+    }
+    const current = stateRef.current;
+    const existingSameId = current.plannerScheduleItems.find((item) => item.id === migrated.id);
+    if (existingSameId && JSON.stringify(existingSameId) !== JSON.stringify(migrated)) {
+      return {
+        ok: false,
+        error: 'An entry with this ID already exists in your schedule. Restore it as a separate copy instead.',
+      };
+    }
+    const userId = current.user?.id ?? null;
+    const storageKey = getUserScopedStorageKey(KEY, userId);
+    const archiveKey = getUserScopedStorageKey(PLANNER_QUARANTINE_KEY, userId);
+    const nextState = existingSameId
+      ? current
+      : reducer(current, { type: 'addPlannerScheduleItem', item: migrated });
+    const serialized = serializePersistentState(nextState);
+    const keyedSnapshot = `${storageKey}:${serialized}`;
+
+    try {
+      const write = writeQueue.current
+        .catch(() => undefined)
+        .then(() => AsyncStorage.setItem(storageKey, serialized));
+      writeQueue.current = write.then(() => undefined, () => undefined);
+      lastEnqueuedSnapshot.current = keyedSnapshot;
+      await write;
+
+      const previousRaw = await AsyncStorage.getItem(archiveKey);
+      const previousParsed: unknown = previousRaw ? JSON.parse(previousRaw) : [];
+      const remaining = Array.isArray(previousParsed)
+        ? previousParsed.filter((entry) => isRecord(entry) && entry.fingerprint !== fingerprint)
+        : [];
+      await AsyncStorage.setItem(archiveKey, JSON.stringify(remaining));
+
+      if (!existingSameId) {
+        dispatch({ type: 'addPlannerScheduleItem', item: migrated });
+      }
+      const entries = remaining.map((entry, idx) =>
+        buildPlannerRecoveryEntry({
+          index: typeof entry.index === 'number' ? entry.index : idx,
+          reason: typeof entry.reason === 'string' ? entry.reason : plannerScheduleIssue(entry.record),
+          record: entry.record,
+          fingerprint: typeof entry.fingerprint === 'string' ? entry.fingerprint : JSON.stringify(entry.record),
+        }),
+      );
+      setPlannerRecoveryEntries(entries);
+      setPlannerRecoveryCount(entries.length);
+      setPlannerRecoveryIssues(entries.map((entry) => `Saved item ${entry.index + 1}: ${entry.reason}`));
+      setPlannerRecoveredCount((count) => count + 1);
+      return { ok: true };
+    } catch (error) {
+      lastEnqueuedSnapshot.current = null;
+      return {
+        ok: false,
+        error: errorMessage(error, 'Could not restore the planner entry. Your original data is still safe.'),
+      };
+    }
+  }, []);
+
+  const discardPlannerRecoveryEntry = useCallback(async (
+    fingerprint: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const userId = stateRef.current.user?.id ?? null;
+    const archiveKey = getUserScopedStorageKey(PLANNER_QUARANTINE_KEY, userId);
+    try {
+      const previousRaw = await AsyncStorage.getItem(archiveKey);
+      const previousParsed: unknown = previousRaw ? JSON.parse(previousRaw) : [];
+      const remaining = Array.isArray(previousParsed)
+        ? previousParsed.filter((entry) => isRecord(entry) && entry.fingerprint !== fingerprint)
+        : [];
+      await AsyncStorage.setItem(archiveKey, JSON.stringify(remaining));
+      const entries = remaining.map((entry, idx) =>
+        buildPlannerRecoveryEntry({
+          index: typeof entry.index === 'number' ? entry.index : idx,
+          reason: typeof entry.reason === 'string' ? entry.reason : plannerScheduleIssue(entry.record),
+          record: entry.record,
+          fingerprint: typeof entry.fingerprint === 'string' ? entry.fingerprint : JSON.stringify(entry.record),
+        }),
+      );
+      setPlannerRecoveryEntries(entries);
+      setPlannerRecoveryCount(entries.length);
+      setPlannerRecoveryIssues(entries.map((entry) => `Saved item ${entry.index + 1}: ${entry.reason}`));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: errorMessage(error, 'Could not remove the recovery entry.') };
+    }
+  }, []);
 
   useEffect(() => {
     if (state.authReady) void recoverSnapshot(state.user?.id ?? null);
@@ -2353,6 +2357,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     writeQueue.current = writeQueue.current.then(async () => {
       try {
         await AsyncStorage.setItem(storageKey, serialized);
+        const pendingArchive = pendingArchiveCommitRef.current;
+        if (pendingArchive && pendingArchive.storageKey === storageKey) {
+          await AsyncStorage.setItem(pendingArchive.archiveKey, pendingArchive.serializedQuarantine);
+          pendingArchiveCommitRef.current = null;
+        }
         if (previousPersistenceError) dispatch({ type: 'plannerPersistence', error: null });
       } catch (error) {
         if (lastEnqueuedSnapshot.current === keyedSnapshot) lastEnqueuedSnapshot.current = null;
@@ -2630,8 +2639,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       hydrationError,
       retryHydration,
       plannerRecoveryCount,
+      plannerRecoveredCount,
       plannerRecoveryIssues,
+      plannerRecoveryEntries,
       retryPlannerRecovery,
+      dismissPlannerRecoveredNotice,
+      resolvePlannerRecoveryEntry,
+      discardPlannerRecoveryEntry,
       legacyMigrationAvailable,
       legacyMigrationError,
       importingLegacyData,
@@ -2657,8 +2671,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       hydrationError,
       retryHydration,
       plannerRecoveryCount,
+      plannerRecoveredCount,
       plannerRecoveryIssues,
+      plannerRecoveryEntries,
       retryPlannerRecovery,
+      dismissPlannerRecoveredNotice,
+      resolvePlannerRecoveryEntry,
+      discardPlannerRecoveryEntry,
       legacyMigrationAvailable,
       legacyMigrationError,
       importingLegacyData,

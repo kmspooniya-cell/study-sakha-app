@@ -256,7 +256,7 @@ export default function PYQScreen() {
         keyExtractor={(p) => p.id}
         ListHeaderComponent={header}
         renderItem={({ item }) => renderItem(item)}
-        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 48, maxWidth: 980, width: '100%', alignSelf: 'center' }}
+        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 24, maxWidth: 980, width: '100%', alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

@@ -28,6 +28,23 @@ import { useProceduralPicture } from '../hooks/useProceduralPicture';
 import { themeById } from '../themes';
 import type { ThemeDefinition, ThemeId } from '../types';
 import { useStore } from '../lib/store';
+import type { AppStackRouteName } from '../lib/navigation';
+
+const QUICK_NAV_DESTINATIONS: { route: AppStackRouteName; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
+  { route: 'DashboardRoot', label: 'Dashboard', icon: 'home-outline' },
+  { route: 'StudyPlanner', label: 'Study Planner', icon: 'calendar-outline' },
+  { route: 'Library', label: 'Library', icon: 'library-outline' },
+  { route: 'LibraryNotes', label: 'Notes', icon: 'document-text-outline' },
+  { route: 'LibraryBooks', label: 'Books', icon: 'book-outline' },
+  { route: 'PYQ', label: 'PYQ Bank', icon: 'albums-outline' },
+  { route: 'Tests', label: 'Tests', icon: 'timer-outline' },
+  { route: 'CurrentAffairs', label: 'Current Affairs', icon: 'newspaper-outline' },
+  { route: 'Groups', label: 'Groups', icon: 'people-outline' },
+  { route: 'SakhaAI', label: 'Sakha AI', icon: 'sparkles-outline' },
+  { route: 'Notifications', label: 'Notifications', icon: 'notifications-outline' },
+  { route: 'Profile', label: 'Profile', icon: 'person-outline' },
+  { route: 'Settings', label: 'Settings', icon: 'settings-outline' },
+];
 
 const SUBJECTS = ['No subject selected', 'Mathematics', 'Physics', 'Computer Science', 'Design & Art', 'Reading'];
 
@@ -54,6 +71,7 @@ type Props = {
   onMusicPress: () => void;
   blockedAppsCount: number;
   onManageBlockedApps: () => void;
+  onNavigateApp?: (route?: AppStackRouteName) => void;
 };
 
 function formatTime(seconds: number) {
@@ -191,6 +209,7 @@ export default function GeminiFocusTimer({
   onMusicPress,
   blockedAppsCount,
   onManageBlockedApps,
+  onNavigateApp,
 }: Props) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -200,6 +219,7 @@ export default function GeminiFocusTimer({
     ? focusSettings.focusThemeId as ThemeId
     : 'obsidian';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [navSheetOpen, setNavSheetOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const motionEnabled = !focusSettings.reduceFocusMotion && focusSettings.focusAnimationIntensity !== 'minimal';
   const [dropdown, setDropdown] = useState<'session' | 'subject' | null>(null);
@@ -264,13 +284,39 @@ export default function GeminiFocusTimer({
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <View style={[styles.shell, { maxWidth: 430, paddingTop: Math.max(8, Math.min(insets.top, 20)), paddingBottom: 12 }]}>
             <View style={styles.header}>
-              <View style={styles.headerSpacer} />
+              {onNavigateApp ? (
+                <Pressable
+                  onPress={() => setNavSheetOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Explore Study Sakha"
+                  style={[styles.groupPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}
+                >
+                  <GlassLayer target={blurTarget} tint={theme.pill} />
+                  <Ionicons name="apps-outline" size={15} color="#fff" />
+                  <Text numberOfLines={1} style={styles.groupText}>App</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.headerSpacer} />
+              )}
               <Pressable onPress={onGroupPress} accessibilityRole="button" accessibilityLabel="Select study group" style={[styles.groupPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}> 
                 <GlassLayer target={blurTarget} tint={theme.pill} />
                 <Ionicons name="people-outline" size={15} color="#fff" />
                 <Text numberOfLines={1} style={styles.groupText}>Group</Text>
               </Pressable>
-              <View style={styles.headerSpacer} />
+              {onNavigateApp ? (
+                <Pressable
+                  onPress={() => onNavigateApp()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Minimize Focus Centre"
+                  style={[styles.groupPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}
+                >
+                  <GlassLayer target={blurTarget} tint={theme.pill} />
+                  <Ionicons name="chevron-down" size={15} color="#fff" />
+                  <Text numberOfLines={1} style={styles.groupText}>Hide</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.headerSpacer} />
+              )}
             </View>
 
             <View style={styles.centerSection}>
@@ -378,6 +424,45 @@ export default function GeminiFocusTimer({
               <Text style={styles.settingTitle}>Blocked Apps ({blockedAppsCount})</Text>
               <Text style={styles.resetText}>Manage</Text>
             </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={navSheetOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setNavSheetOpen(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setNavSheetOpen(false)} />
+          <View style={[styles.settingsSheet, { width: Math.min(width - 32, 420), maxHeight: height * 0.82, marginBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.settingsHeader}>
+              <View>
+                <Text style={styles.settingsTitle}>Explore Study Sakha</Text>
+                <Text style={styles.sheetSubtitle}>Your focus session will stay active in the background.</Text>
+              </View>
+              <Pressable onPress={() => setNavSheetOpen(false)} accessibilityLabel="Close navigation menu" style={styles.closeButton}>
+                <Ionicons name="close" size={19} color="rgba(255,255,255,0.85)" />
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {QUICK_NAV_DESTINATIONS.map((dest) => (
+                  <Pressable
+                    key={dest.route}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Go to ${dest.label}`}
+                    onPress={() => {
+                      setNavSheetOpen(false);
+                      onNavigateApp?.(dest.route);
+                    }}
+                    style={[styles.menuRow, { width: '48%', marginBottom: 0 }]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 }}>
+                      <Ionicons name={dest.icon} size={18} color={theme.accent} />
+                      <Text numberOfLines={1} style={styles.settingTitle}>{dest.label}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
             </ScrollView>
           </View>
         </View>

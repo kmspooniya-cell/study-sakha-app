@@ -43,7 +43,8 @@ export function getSchedulePlanDurationSeconds(
 ): number | null {
   const numericDuration = item.durationMinutes ??
     (typeof item.duration === 'number' ? item.duration : null);
-  if (typeof numericDuration === 'number' && Number.isFinite(numericDuration) && numericDuration > 0) {
+  if (typeof numericDuration === 'number' && Number.isFinite(numericDuration)) {
+    if (numericDuration <= 0) return 0;
     return Math.round(numericDuration * 60);
   }
 
@@ -51,6 +52,7 @@ export function getSchedulePlanDurationSeconds(
   const labeledDuration = durationLabel?.match(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)/i);
   if (labeledDuration) {
     const amount = Number(labeledDuration[1]);
+    if (amount <= 0) return 0;
     return Math.round(amount * (/^h/i.test(labeledDuration[2]) ? 3600 : 60));
   }
 
@@ -61,6 +63,80 @@ export function getSchedulePlanDurationSeconds(
   if (startMinutes === null || endMinutes === null) return null;
   const durationMinutes = (endMinutes - startMinutes + 1440) % 1440;
   return durationMinutes > 0 ? durationMinutes * 60 : null;
+}
+
+export function isEligibleTaskFocusSession(
+  record: State['focusHistory'][number] | null | undefined,
+): boolean {
+  if (!record || typeof record !== 'object') return false;
+  if (record.status === 'interrupted' || record.status === 'abandoned') return false;
+  if (record.status !== 'completed' && record.status !== 'saved_early') return false;
+  if (
+    record.sessionType === 'meditation' ||
+    record.sessionType === 'break' ||
+    record.sessionType === 'ambient'
+  ) {
+    return false;
+  }
+  const seconds = record.focusedSeconds ?? record.actualSeconds ?? (
+    typeof record.minutes === 'number' ? Math.round(record.minutes * 60) : 0
+  );
+  return Number.isFinite(seconds) && seconds > 0;
+}
+
+function getRecordFocusedSeconds(record: State['focusHistory'][number]): number {
+  const raw = record.focusedSeconds ?? record.actualSeconds ?? (
+    typeof record.minutes === 'number' ? Math.round(record.minutes * 60) : 0
+  );
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+}
+
+export function getScheduleOccurrenceFocusedSeconds(
+  state: State,
+  item: State['plannerScheduleItems'][number],
+  date: string,
+): number {
+  const occurrenceId = getScheduleOccurrenceId(item.id, date);
+  const isRecurring = Boolean(item.recurrence && item.recurrence !== 'none');
+  const history = Array.isArray(state.focusHistory) ? state.focusHistory : [];
+
+  const seenSessionIds = new Set<string>();
+  let historyTotal = 0;
+  let hasMatchingHistory = false;
+
+  for (const record of history) {
+    if (!isEligibleTaskFocusSession(record)) continue;
+    const dedupeKey = record.sessionId || record.id;
+    if (!dedupeKey || seenSessionIds.has(dedupeKey)) continue;
+
+    const matchesOccurrence = record.scheduleOccurrenceId === occurrenceId ||
+      record.taskId === occurrenceId;
+    const matchesTask = record.scheduleId === item.id || record.taskId === item.id;
+
+    let matches = false;
+    if (matchesOccurrence) {
+      matches = true;
+    } else if (matchesTask && !record.scheduleOccurrenceId) {
+      if (!isRecurring) {
+        matches = true;
+      } else {
+        const recordDate = record.date ?? (record.completedAt ? record.completedAt.slice(0, 10) : undefined);
+        matches = recordDate === date;
+      }
+    }
+
+    if (!matches) continue;
+    seenSessionIds.add(dedupeKey);
+    hasMatchingHistory = true;
+    historyTotal += getRecordFocusedSeconds(record);
+  }
+
+  if (hasMatchingHistory) {
+    return historyTotal;
+  }
+
+  const storedMap = state.plannerTaskStudySeconds ?? {};
+  return storedMap[occurrenceId] ?? (!isRecurring ? storedMap[item.id] ?? 0 : 0);
 }
 
 function timeToMinutes(value: string) {
@@ -117,17 +193,14 @@ export function getPlannerScheduleOccurrence(
   today: string,
 ): PlannerScheduleOccurrence {
   const id = getScheduleOccurrenceId(item.id, date);
-  const actualSeconds = state.plannerTaskStudySeconds[id] ??
-    (!item.recurrence || item.recurrence === 'none'
-      ? state.plannerTaskStudySeconds[item.id] ?? 0
-      : 0);
+  const actualSeconds = getScheduleOccurrenceFocusedSeconds(state, item, date);
   const plannedSeconds = getSchedulePlanDurationSeconds(item);
-  const progressPercent = plannedSeconds
+  const progressPercent = plannedSeconds && plannedSeconds > 0
     ? Math.min(100, Math.round((actualSeconds / plannedSeconds) * 100))
     : 0;
   const completed = Boolean(state.plannerScheduleCompletions[id]) ||
     (item.completed === true && (!item.recurrence || item.recurrence === 'none')) ||
-    (plannedSeconds !== null && actualSeconds >= plannedSeconds);
+    (plannedSeconds !== null && plannedSeconds > 0 && actualSeconds >= plannedSeconds);
 
   return {
     id,

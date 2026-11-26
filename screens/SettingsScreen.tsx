@@ -471,6 +471,13 @@ export function SettingsScreen() {
 
   // 3-Level Navigation State
   const [navLevel, setNavLevel] = useState<1 | 2 | 3>(1);
+  const navLevelRef = useRef<1 | 2 | 3>(1);
+  const bypassBeforeRemoveRef = useRef(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    navLevelRef.current = navLevel;
+  }, [navLevel]);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -676,10 +683,15 @@ export function SettingsScreen() {
   }, [accountStorageKey]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToast((prev) => (prev && prev.msg === msg ? null : prev));
     }, 2800);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   }, []);
 
   // Bilingual Helper
@@ -857,14 +869,15 @@ export function SettingsScreen() {
     }
   }, [settings.appearance.reduceMotion]);
 
-  const goHome = () => {
-    animateNavigation();
+  const goHome = useCallback(() => {
+    bypassBeforeRemoveRef.current = true;
+    navLevelRef.current = 1;
     setNavLevel(1);
     setCategoryId(null);
     setDetailId(null);
     setSearchQuery('');
     navigation.popTo('DashboardRoot');
-  };
+  }, [navigation]);
 
   const shareExport = useCallback(async (label: string, value: unknown) => {
     try {
@@ -902,16 +915,18 @@ export function SettingsScreen() {
     setSearchQuery('');
   };
 
-  const goBack = () => {
+  const goBack = useCallback(() => {
     animateNavigation();
-    if (navLevel === 3) {
+    if (navLevelRef.current === 3) {
+      navLevelRef.current = 2;
       setNavLevel(2);
       setDetailId(null);
     } else {
+      navLevelRef.current = 1;
       setNavLevel(1);
       setCategoryId(null);
     }
-  };
+  }, [animateNavigation]);
 
   useEffect(() => {
     const handler = () => {
@@ -927,7 +942,7 @@ export function SettingsScreen() {
         setFeedbackModal((current) => ({ ...current, visible: false }));
         return true;
       }
-      if (navLevel > 1) {
+      if (navLevelRef.current > 1) {
         goBack();
         return true;
       }
@@ -936,17 +951,20 @@ export function SettingsScreen() {
     if (Platform.OS !== 'android') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
     return () => subscription.remove();
-  }, [feedbackModal.visible, goBack, modalConfig.visible, navLevel, pickerModal.visible]);
+  }, [feedbackModal.visible, goBack, modalConfig.visible, pickerModal.visible]);
 
   useEffect(() => {
     const addListener = (navigation as any).addListener as ((event: string, listener: (event: any) => void) => () => void) | undefined;
     if (!addListener) return undefined;
     return addListener('beforeRemove', (event) => {
-      if (navLevel === 1) return;
+      if (bypassBeforeRemoveRef.current || navLevelRef.current === 1) {
+        bypassBeforeRemoveRef.current = false;
+        return;
+      }
       event.preventDefault();
       goBack();
     });
-  }, [goBack, navLevel, navigation]);
+  }, [goBack, navigation]);
 
   // Modals & Interactive Actions
   const openPremiumModal = (featureName = '') => {

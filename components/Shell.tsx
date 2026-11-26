@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DrawerActions, StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
-import { BackHandler, Modal, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
@@ -470,7 +470,7 @@ popToRoute(nav, routeName);
 const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
 const inactive = colors.textMuted;
 return (
-<View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: insets.bottom, ...shadow(colors, 2) }}>
+<View testID="app-bottom-nav" style={{ backgroundColor: glassBackground, borderTopWidth: 1, borderTopColor: `${colors.border}CC`, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 6), ...shadow(colors, 2) }}>
 <View style={{ width: '92%', maxWidth: width < 768 ? 383 : 545, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24 }}>
 {MOBILE_TABS.map((t) => {
 const on = t.key === active;
@@ -527,8 +527,21 @@ const { isMobile, isTablet, isDesktop } = useLayout();
 const { state, unread } = useStore();
 const language = state.settings.language;
 const [collapsed, setCollapsed] = useState(false);
+const [keyboardVisible, setKeyboardVisible] = useState(false);
 
 useSmartAndroidBack();
+
+useEffect(() => {
+if (Platform.OS === 'web') return undefined;
+const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+return () => {
+showSub.remove();
+hideSub.remove();
+};
+}, []);
 
 const isAdmin = state.user?.role === 'admin';
 const sidebarCollapsed = isTablet ? !collapsed : collapsed;
@@ -741,9 +754,9 @@ if (isMobile) {
 return (
 <View style={{ flex: 1, backgroundColor: colors.bg }}>
 <AppHeader appHeaderActions={appHeaderActions} />
-<View style={{ flex: 1 }}>
+<View style={{ flex: 1, minHeight: 0 }}>
 {scroll ? (
-<ScrollView contentContainerStyle={{ padding: layoutDensity === 'compact' ? 12 : 16, paddingBottom: 112 }} showsVerticalScrollIndicator={false}>
+<ScrollView contentContainerStyle={{ padding: layoutDensity === 'compact' ? 12 : 16, paddingBottom: layoutDensity === 'compact' ? 20 : 24 }} showsVerticalScrollIndicator={false}>
 {hasPageHeading ? (
 <View style={{ marginBottom: 14 }}>
 <View style={{ marginBottom: 16 }}>
@@ -763,7 +776,7 @@ return (
 {children}
 </ScrollView>
 ) : (
-<View style={{ flex: 1, paddingBottom: 0 }}>
+<View style={{ flex: 1, minHeight: 0, paddingBottom: 0 }}>
 {hasPageHeading ? (
 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
 <Txt size={21} weight="800" display>
@@ -780,7 +793,7 @@ return (
 </View>
 )}
 </View>
-<AppBottomNav active={active} />
+{!keyboardVisible ? <AppBottomNav active={active} /> : null}
 </View>
 );
 }

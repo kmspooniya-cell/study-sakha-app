@@ -189,11 +189,38 @@ export type PendingContent = {
   status: 'pending' | 'approved' | 'rejected';
 };
 
+export type AppNotificationKind =
+  | 'planner'
+  | 'focus'
+  | 'test'
+  | 'content'
+  | 'group'
+  | 'streak'
+  | 'announcement';
+
+export type AppNotificationTargetRoute =
+  | 'StudyPlanner'
+  | 'FocusCenter'
+  | 'Groups'
+  | 'Tests'
+  | 'TestPlayer'
+  | 'TestResult'
+  | 'Library'
+  | 'Profile'
+  | 'Notifications';
+
 export type AppNotification = {
   id: string;
   title: string;
   body: string;
   at: number;
-  kind: 'test' | 'content' | 'streak' | 'announcement';
+  kind: AppNotificationKind;
   read: boolean;
+  targetRoute?: AppNotificationTargetRoute;
+  plannerItemId?: string;
+  taskId?: string;
+  groupId?: string;
+  testId?: string;
+  resultId?: string;
+  data?: Record<string, unknown>;
 };

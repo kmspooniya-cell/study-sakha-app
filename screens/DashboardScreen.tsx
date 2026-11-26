@@ -149,17 +149,6 @@ export default function DashboardScreen() {
 
             <View style={[styles.layoutFlex, isTabletOrLarger && styles.tabletLayout]}>
               <View style={styles.layoutCol}>
-
-                <Pressable onPress={() => nav.navigate('FocusLock')} accessibilityRole="button" accessibilityLabel="Open Focus Lock" style={({ pressed }) => [styles.focusLockCard, { borderColor: colors.border, backgroundColor: pressed ? colors.surfaceAlt : colors.surface }]}>
-                  <View style={styles.focusLockCardHeader}>
-                    <View style={styles.focusLockCardTitleRow}>
-                      <Ionicons name="lock-closed-outline" size={18} color={colors.teal} />
-                      <Text style={[styles.focusLockCardTitle, { color: colors.text }]}>{translateLabel('Focus Lock', language)}</Text>
-                    </View>
-                    <Ionicons name="arrow-forward" size={17} color={colors.blue} />
-                  </View>
-                </Pressable>
-                
                 <View style={styles.plannerWrap}>
                   <CustomStudyPlan 
                     plan={TODAY_PLAN.filter((task) => task.id !== 'tp4')} 
@@ -220,7 +209,7 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
   };
   return StyleSheet.create({
     mainContainer: { flex: 1, backgroundColor: palette.bg },
-    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 84 },
+    scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 },
     contentWidth: { width: '100%', maxWidth: 1180, alignSelf: 'center' },
     mobileContentWidth: { maxWidth: 448 },
     card: { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1, borderRadius: 20, ...shadow(colors, 1) },
@@ -250,16 +239,6 @@ function makeStyles(colors: ReturnType<typeof useTheme>['colors'], scheme: 'ligh
     layoutFlex: { flexDirection: 'column', gap: 0 },
     tabletLayout: { flexDirection: 'row', alignItems: 'flex-start' },
     layoutCol: { flex: 1, minWidth: 0 },
-    focusLockCard: { borderWidth: 1, borderRadius: 18, padding: 14, marginBottom: 14 },
-    focusLockCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    focusLockCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    focusLockCardTitle: { fontSize: 15, fontWeight: '800' },
-    focusLockCardStatus: { fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
-    focusLockCardMetrics: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
-    focusLockMetricValue: { fontSize: 18, fontWeight: '800' },
-    focusLockMetricLabel: { fontSize: 10, marginTop: 2 },
-    focusLockCardButton: { marginTop: 14, minHeight: 38, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-    focusLockCardButtonText: { fontSize: 12, fontWeight: '800' },
     plannerWrap: { marginBottom: 14 },
     testsSection: { marginBottom: 0 },
     sectionCard: { padding: 16, marginBottom: 14 },

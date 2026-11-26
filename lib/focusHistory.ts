@@ -1,14 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+export type FocusSessionCategory = 'study' | 'meditation' | 'break' | 'ambient';
+
 export type FocusHistoryRecord = {
   id: string;
   completedAt: string;
   startedAt?: string;
   endedAt?: string;
   sessionId?: string;
+  date?: string;
   minutes?: number;
   actualSeconds?: number;
+  focusedSeconds?: number;
+  plannedSeconds?: number | null;
   plannedMinutes?: number;
+  mode?: 'timer' | 'stopwatch' | 'pomodoro';
+  sessionType?: FocusSessionCategory;
+  taskId?: string;
+  scheduleId?: string;
+  scheduleOccurrenceId?: string;
+  groupId?: string;
   subject?: string;
   topic?: string;
   focusQuality?: 'distracted' | 'steady' | 'flow';
