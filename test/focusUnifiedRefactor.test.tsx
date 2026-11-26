@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Pressable, Text, View } from 'react-native';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -291,6 +291,24 @@ describe('Part 3: Focus Centre Top Controls', () => {
 });
 
 describe('Part 4 & 5: Unified ActiveSessionBar & Group Hall Exit', () => {
+  it('coalesces repeated route reports without re-rendering the focus provider forever', async () => {
+    let renderCount = 0;
+    function Harness() {
+      const { setCurrentRouteName } = useFocusSession();
+      renderCount += 1;
+      React.useEffect(() => {
+        setCurrentRouteName('DashboardRoot');
+        setCurrentRouteName('DashboardRoot');
+      }, [setCurrentRouteName]);
+      return <Text testID="route-render-count">{renderCount}</Text>;
+    }
+
+    const view = render(<FocusSessionProvider><Harness /></FocusSessionProvider>);
+    await waitFor(() => expect(Number(view.getByTestId('route-render-count').props.children)).toBeLessThan(4));
+    expect(renderCount).toBeLessThan(4);
+    view.unmount();
+  });
+
   it('switches ActiveSessionBar cleanly between FocusCentre, GroupHall, and external screens without duplicates', async () => {
     const onBackToFocus = jest.fn();
     const onReturnToHall = jest.fn();

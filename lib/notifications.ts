@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import type { AppStackNavigationTarget } from './navigation';
 import type { PlannerScheduleItem } from './store';
@@ -183,15 +184,63 @@ Notifications.setNotificationHandler({
   }),
 });
 
+let androidChannelInitialized = false;
+let androidChannelUnsupported = false;
+let loggedChannelUnsupportedWarning = false;
+let androidChannelInitialization: Promise<void> | null = null;
+let lastPlannerReminderSyncKey: string | null = null;
+
+export function isExpoGoNotificationRuntime(): boolean {
+  return Platform.OS === 'android' && (
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+    Constants.appOwnership === 'expo'
+  );
+}
+
+function isNotificationsChannelUnsupportedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('NotificationsChannelsProvider') ||
+    message.includes('NotificationChannelsProvider') ||
+    message.includes('ExpoNotificationChannelManager')
+  );
+}
+
+async function ensureAndroidNotificationChannel(): Promise<void> {
+  if (Platform.OS !== 'android' || isExpoGoNotificationRuntime() || androidChannelInitialized || androidChannelUnsupported) {
+    return;
+  }
+  if (androidChannelInitialization) return androidChannelInitialization;
+  androidChannelInitialization = (async () => {
+    try {
+      await Notifications.setNotificationChannelAsync(STUDY_REMINDER_CHANNEL_ID, {
+        name: 'Study reminders',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#243B80',
+      });
+      androidChannelInitialized = true;
+    } catch (error) {
+      if (isNotificationsChannelUnsupportedError(error)) {
+        androidChannelUnsupported = true;
+        if (!loggedChannelUnsupportedWarning) {
+          loggedChannelUnsupportedWarning = true;
+          console.warn('Android notification channel management is unavailable in this runtime (e.g. Expo Go):', error);
+        }
+        return;
+      }
+      throw error;
+    }
+  })().finally(() => {
+    androidChannelInitialization = null;
+  });
+  return androidChannelInitialization;
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync(STUDY_REMINDER_CHANNEL_ID, {
-      name: 'Study reminders',
-      importance: Notifications.AndroidImportance.DEFAULT,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#243B80',
-    });
+    await ensureAndroidNotificationChannel();
   }
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
@@ -228,7 +277,7 @@ async function syncLegacyPlannerReminder(enabled: boolean, items: PlannerSchedul
   if (!upcoming) return;
   await Notifications.scheduleNotificationAsync({
     identifier: LEGACY_UPCOMING_REMINDER_ID,
-    content: { title: 'Study Sakha reminder', body: upcoming.item.title, data: { route: 'Notifications', plannerItemId: upcoming.item.id }, ...(Platform.OS === 'android' ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}) },
+    content: { title: 'Study Sakha reminder', body: upcoming.item.title, data: { route: 'Notifications', plannerItemId: upcoming.item.id }, ...(Platform.OS === 'android' && !isExpoGoNotificationRuntime() ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}) },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: upcoming.date },
   });
 }
@@ -238,11 +287,14 @@ export async function syncUpcomingPlannerReminder(
   items: PlannerScheduleItem[],
 ): Promise<void> {
   if (Platform.OS === 'web') return;
+  const syncKey = `${enabled ? 'enabled' : 'disabled'}:${JSON.stringify(items)}`;
+  if (lastPlannerReminderSyncKey === syncKey) return;
   const getScheduled = Notifications.getAllScheduledNotificationsAsync;
   // Keep compatibility with older Expo test clients/builds that do not expose
   // the scheduled-list API. Production SDK 57 uses the per-task identifiers.
   if (typeof getScheduled !== 'function') {
     await syncLegacyPlannerReminder(enabled, items);
+    lastPlannerReminderSyncKey = syncKey;
     return;
   }
   let scheduled: Notifications.NotificationRequest[];
@@ -250,6 +302,7 @@ export async function syncUpcomingPlannerReminder(
     scheduled = await getScheduled();
   } catch {
     await syncLegacyPlannerReminder(enabled, items);
+    lastPlannerReminderSyncKey = syncKey;
     return;
   }
   await Promise.all(
@@ -257,8 +310,14 @@ export async function syncUpcomingPlannerReminder(
       .filter(({ identifier }) => identifier.startsWith(PLANNER_REMINDER_PREFIX))
       .map(({ identifier }) => Notifications.cancelScheduledNotificationAsync(identifier)),
   );
-  if (!enabled) return;
-  if (!(await requestNotificationPermission())) return;
+  if (!enabled) {
+    lastPlannerReminderSyncKey = syncKey;
+    return;
+  }
+  if (!(await requestNotificationPermission())) {
+    lastPlannerReminderSyncKey = syncKey;
+    return;
+  }
 
   const now = Date.now();
   const upcoming = items
@@ -274,11 +333,12 @@ export async function syncUpcomingPlannerReminder(
       title: 'Study Sakha reminder',
       body: item.title,
       data: { route: 'Notifications', plannerItemId: item.id, kind: 'planner' },
-      ...(Platform.OS === 'android' ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}),
+      ...(Platform.OS === 'android' && !isExpoGoNotificationRuntime() ? { channelId: STUDY_REMINDER_CHANNEL_ID } : {}),
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date,
     },
   })));
+  lastPlannerReminderSyncKey = syncKey;
 }

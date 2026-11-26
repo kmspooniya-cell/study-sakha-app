@@ -85,9 +85,17 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
     isOnBreak,
   } = focus;
 
+  const navigatingToCompletionRef = useRef(false);
+
   const navigateToCompletion = useCallback((payload: FocusCompletionPayload) => {
+    if (navigatingToCompletionRef.current) return;
+    navigatingToCompletionRef.current = true;
+    returningToOrigin.current = true;
+    if (route.params?.roomFocus) {
+      navigation.setParams({ roomFocus: undefined });
+    }
     navigation.replace('FocusCompletion', payload);
-  }, [navigation]);
+  }, [navigation, route.params?.roomFocus]);
 
   useEffect(() => {
     registerCompletionHandler(navigateToCompletion);

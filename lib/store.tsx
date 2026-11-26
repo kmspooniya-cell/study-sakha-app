@@ -7,6 +7,11 @@ import { STUDENT_CONTENT_BUCKET, supabase, supabaseConfigured } from './supabase
 import { AccountSyncEngine } from './sync/syncEngine';
 import type { AccountSyncDocument, SyncStatus } from './sync/syncTypes';
 import type { FocusHistoryRecord, FocusSessionCategory } from './focusHistory';
+import {
+  type CustomSubjectPackage,
+  normalizeCustomPackages,
+  normalizeSubjectList,
+} from './subjectRegistry';
 import { getSchedulePlanDurationSeconds } from './planner';
 import {
   buildPlannerRecoveryEntry,
@@ -134,6 +139,9 @@ export type State = {
     aiDetailLevel: string;
     aiLearningMode: string;
     aiSaveChatHistory: boolean;
+    preferredSubjects: string[];
+    customSubjectPackages: CustomSubjectPackage[];
+    activeSubjectPackageId: string | null;
   };
   notes: UserNote[];
   starred: string[];
@@ -371,6 +379,11 @@ function normalizeSettings(value: unknown): State['settings'] {
     aiDetailLevel: typeof saved.aiDetailLevel === 'string' ? saved.aiDetailLevel : initialState.settings.aiDetailLevel,
     aiLearningMode: typeof saved.aiLearningMode === 'string' ? saved.aiLearningMode : initialState.settings.aiLearningMode,
     aiSaveChatHistory: saved.aiSaveChatHistory !== false,
+    preferredSubjects: normalizeSubjectList(saved.preferredSubjects),
+    customSubjectPackages: normalizeCustomPackages(saved.customSubjectPackages),
+    activeSubjectPackageId: typeof saved.activeSubjectPackageId === 'string' && saved.activeSubjectPackageId.trim()
+      ? saved.activeSubjectPackageId.trim()
+      : null,
   };
 }
 
@@ -404,6 +417,7 @@ const initialState: State = {
     focusMusicId: 'pure_cosmic_waves', focusMusicVolume: 0.65,
     aiResponseLanguage: 'Bilingual (Hinglish)', aiResponseLength: 'Balanced', aiDetailLevel: 'Exam-Ready',
     aiLearningMode: 'Teacher Mode', aiSaveChatHistory: true,
+    preferredSubjects: [], customSubjectPackages: [], activeSubjectPackageId: null,
   },
   notes: [
     {
@@ -799,7 +813,7 @@ export function reducer(state: State, action: Action): State {
     case 'signOut':
       return { ...state, user: null };
     case 'settings':
-      return { ...state, settings: { ...state.settings, ...action.patch } };
+      return { ...state, settings: normalizeSettings({ ...state.settings, ...action.patch }) };
     case 'saveNote': {
       const exists = state.notes.some((n) => n.id === action.note.id);
       return {

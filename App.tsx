@@ -488,12 +488,14 @@ function Navigation() {
   const lastDispatchedInviteKeyRef = useRef<string | null>(null);
   const finishBrandIntro = useCallback(() => setShowBrandIntro(false), []);
 
+  const setFocusRouteName = focus?.setCurrentRouteName;
+
   const syncCurrentRoute = useCallback(() => {
     if (!navigationRef.isReady()) return;
     const nextName = navigationRef.getCurrentRoute()?.name;
-    setActiveRouteName(nextName);
-    focus?.setCurrentRouteName(nextName);
-  }, [focus]);
+    setActiveRouteName((prev) => (prev === nextName ? prev : nextName));
+    setFocusRouteName?.(nextName);
+  }, [setFocusRouteName]);
 
   const openPendingInviteRoute = useCallback(() => {
     const pending = pendingInviteRef.current;
@@ -529,7 +531,6 @@ function Navigation() {
   }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
 
   const openNotificationRoute = useCallback(() => {
-    syncCurrentRoute();
     if (
       pendingNotificationRoute.current !== 'Notifications' ||
       !navigationRef.isReady() ||
@@ -543,7 +544,7 @@ function Navigation() {
     void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
       console.error('Notification response could not be cleared:', error);
     });
-  }, [showBrandIntro, state.authReady, state.hydrated, state.user, syncCurrentRoute]);
+  }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
 
   const handleBackToFocus = useCallback(() => {
     if (!navigationRef.isReady() || !state.user) return;

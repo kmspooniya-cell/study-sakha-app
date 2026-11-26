@@ -1,5 +1,33 @@
 # Development Log — Study Sakha
 
+## 2026-11-26 — Runtime loop and Expo Go notification hardening
+- Made `FocusSessionProvider.setCurrentRouteName` idempotent so repeated React Navigation route callbacks cannot update focus context for the same route.
+- Added Expo Go detection using Expo SDK 57 `Constants.executionEnvironment`; Android channel creation and `channelId` are skipped in Expo Go while local scheduling remains enabled through the fallback channel.
+- Added channel initialization serialization, repeated planner-sync deduplication, and regression coverage for repeated route reports and notification synchronization.
+- Focused Jest validation passed: 2 suites, 12 tests. Full suite currently has unrelated pre-existing failures; physical Expo Go verification is blocked because this workspace has no connected Android device/adb.
+
+## 2026-11-26 — Focus Completion Navigation Priority from Group Hall
+- **Focus Completion Direct Navigation (`screens/FocusCenterScreen.tsx`, `screens/GroupsScreen.tsx`):**
+  - Guarded `navigateToCompletion` with `navigatingToCompletionRef` to prevent duplicate `FocusCompletion` navigation, set `returningToOrigin.current = true`, and cleared stale `roomFocus` route params before calling `navigation.replace('FocusCompletion', payload)`.
+  - Ensured `GroupsScreen.handleStartFocusSessionInRoom` calls `setRoomMinimized(true)` when re-entering `FocusCenter` for an active room focus session so the Group Hall modal does not remain open behind/over `FocusCompletion`.
+  - Preserved the 2-minute (`120s`) completion eligibility rule (`shouldPromptToSaveFocusSession`) and `< 2 minute` early-exit discard behavior.
+- **Verification:**
+  - Added `test/focusCompletionNavigation.test.tsx`. Ran `pnpm test -- test/focusCompletionNavigation.test.tsx test/focusUnifiedRefactor.test.tsx test/groupChatAndFocusDecoupling.test.tsx --runInBand`.
+
+## 2026-11-26 — Preferred Subjects & Custom Package Management + Study Planner Integration
+- **Centralized Subject & Package Registry (`lib/subjectRegistry.ts`):**
+  - Replaced flat subject list with 11 organized categories (`Rajasthan Studies`, `Indian History`, `Indian Geography`, `Indian Polity`, `Indian Economy`, `Science & Technology`, `Environment`, `Current Affairs`, `Reasoning & Aptitude`, `Languages`, `Ethics & Administration`).
+  - Added `CustomSubjectPackage` model and helpers (`normalizeSubjectList`, `normalizeCustomPackages`, `toggleCategorySubjects`, `isPackageFullySelected`, `getPreferredSubjectOptions`).
+- **Global Store & Sync (`lib/store.tsx`):**
+  - Added `preferredSubjects`, `customSubjectPackages`, and `activeSubjectPackageId` to `State['settings']`, `initialState.settings`, and `normalizeSettings` (automatically persisted to user-scoped `AsyncStorage` and synced via `account_sync_documents`).
+- **Reusable Subject & Package Manager UI (`components/PreferredSubjectsManager.tsx`, `screens/SettingsScreen.tsx`):**
+  - Built expandable category accordions with per-category `Select All` / `Clear All`, selected subject count & chips, and full Custom Package CRUD (create, rename, add/edit/remove unlimited subjects, delete, select/deselect entire package).
+  - Integrated into `SettingsScreen` (`preferred_subjects` detail view) and synced `applyStudyPreset` to `state.settings.preferredSubjects`.
+- **Dynamic Study Planner Integration (`screens/StudyPlannerScreen.tsx`):**
+  - Removed hardcoded `SUBJECT_OPTIONS` and connected Task, Class, and Exam subject dropdowns dynamically to `state.settings.preferredSubjects` via `getPreferredSubjectOptions`, preserving existing saved planner entries.
+- **Verification:**
+  - Added `test/preferredSubjects.test.tsx`. Ran `pnpm test -- test/preferredSubjects.test.tsx test/settingsScreen.test.tsx test/studyPlannerFilters.test.tsx --runInBand` (3/3 suites, 10/10 tests passed).
+
 ## 2026-11-26 — Group Hall Bottom Banner Removal, Direct Entry, Focus Decoupling & Group Chat Realtime Sync
 - **1. Remove Group Hall-Specific Banner While Preserving Personal ActiveSessionBar (`components/ActiveSessionBar.tsx`):**
   - Restored personal Focus Mode `ActiveSessionBar` functionality (timer, status, task/subject, pause/resume, `Back to Focus` navigation) across all screens except `FocusCenter` and `FocusCompletion`.

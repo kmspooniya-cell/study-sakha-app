@@ -1,5 +1,12 @@
 # Bug Tracker — Study Sakha
 
+## 2026-11-26 Runtime Error Investigation
+
+| ID | Summary | Root Cause | Fix | Verification |
+|---|---|---|---|---|
+| BUG-010 | Maximum update depth in navigation/focus integration | Navigation reported the same route through the FocusSession context setter repeatedly; the provider accepted unchanged values and republished context state. | Idempotent `setCurrentRouteName` callback in `lib/focusSession.tsx`. | Focused Jest PASS; Expo Go device runtime BLOCKED (no adb/device). |
+| BUG-011 | Expo Go Android `NotificationsChannelsProvider` NPE | Previous guard called `setNotificationChannelAsync` first and only classified the rejection afterward; Expo Go's unsupported native provider was still invoked. | Detect SDK 57 StoreClient/Expo Go before native channel call; omit `channelId` there; cache/serialize initialization and dedupe identical syncs. | Focused Jest PASS; Expo Go device runtime BLOCKED (no adb/device). |
+
 ## 2026-11-25 Deployment Fix
 
 BUG-005: Account Sync RPC first insert failed with ambiguous version column because RETURNS TABLE output variables conflicted with unqualified RETURNING version. Forward-only migration 202611250003 qualified returned columns. Live owner versioning, stale/retry rejection, and rollback-safe isolation now pass.

@@ -20,6 +20,7 @@ import Svg, { Path, Circle, Rect, Ellipse } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { PlannerScheduleItem, useStore } from '../lib/store';
+import { getPreferredSubjectOptions } from '../lib/subjectRegistry';
 import { submitStudyMemberActivityToJoinedGroups } from '../lib/groupRooms';
 import { useTheme as useAppTheme } from '../lib/theme';
 import { Shell } from '../components/Shell';
@@ -231,18 +232,6 @@ const CATEGORIES = {
 };
 
 const CATEGORY_ORDER = ['task', 'class', 'exam', 'vacation', 'activity'];
-
-const SUBJECT_OPTIONS = [
-  'Mathematics',
-  'Physics',
-  'Chemistry',
-  'Biology',
-  'Computer Science',
-  'English Literature',
-  'History',
-  'Economics',
-  'General Studies',
-];
 
 const TASK_TYPES = ['Assignment', 'Revision', 'Practice Set', 'Reading', 'Project', 'Lab Work'];
 const EXAM_TYPES = ['Exam', 'Quiz', 'Unit Test', 'Midterm Exam', 'Final Exam', 'Practical', 'Mock Test'];
@@ -1345,6 +1334,10 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
     resolvePlannerRecoveryEntry,
     discardPlannerRecoveryEntry,
   } = useStore();
+  const subjectOptions = useMemo(
+    () => getPreferredSubjectOptions(state.settings?.preferredSubjects ?? []),
+    [state.settings?.preferredSubjects]
+  );
   const navigation = useNavigation<AppNavigation>();
   const { width, height } = useWindowDimensions();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0 };
@@ -2882,7 +2875,7 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
                     onPress={() =>
                       setSelectPicker({
                         title: 'Subject',
-                        options: [{ value: '', label: 'Select subject' }, ...SUBJECT_OPTIONS.map((s) => ({ value: s, label: s }))],
+                        options: [{ value: '', label: 'Select subject' }, ...subjectOptions.map((s) => ({ value: s, label: s }))],
                         field: 'subject',
                       })
                     }
@@ -2955,7 +2948,7 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
                       onPress={() =>
                         setSelectPicker({
                           title: 'Subject',
-                          options: [{ value: '', label: 'Select subject' }, ...SUBJECT_OPTIONS.map((s) => ({ value: s, label: s }))],
+                          options: [{ value: '', label: 'Select subject' }, ...subjectOptions.map((s) => ({ value: s, label: s }))],
                           field: 'subject',
                         })
                       }
@@ -3021,7 +3014,7 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
                       onPress={() =>
                         setSelectPicker({
                           title: 'Subject',
-                          options: [{ value: '', label: 'Select subject' }, ...SUBJECT_OPTIONS.map((s) => ({ value: s, label: s }))],
+                          options: [{ value: '', label: 'Select subject' }, ...subjectOptions.map((s) => ({ value: s, label: s }))],
                           field: 'subject',
                         })
                       }

@@ -28,6 +28,7 @@ import { EXAMS } from '../lib/data';
 import { focusLockNative } from '../lib/focusLockNative';
 import { readFocusLockSnapshot } from '../lib/focusLockSnapshot';
 import { requestNotificationPermission } from '../lib/notifications';
+import { PreferredSubjectsManager } from '../components/PreferredSubjectsManager';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import appConfig from '../app.json';
 
@@ -448,6 +449,35 @@ function deepMerge(target: any, source: any): any {
   return output;
 }
 
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function normalizeSettingsState(raw: SettingsState): SettingsState {
+  return {
+    ...raw,
+    learning: {
+      ...raw.learning,
+      preferredSubjects: normalizeStringArray(raw.learning?.preferredSubjects),
+    },
+    focuslock: {
+      ...raw.focuslock,
+      blockedApps: normalizeStringArray(raw.focuslock?.blockedApps),
+      allowedApps: normalizeStringArray(raw.focuslock?.allowedApps),
+    },
+    account: {
+      ...raw.account,
+      activeSessions: Array.isArray(raw.account?.activeSessions) ? raw.account.activeSessions : [],
+    },
+    community: {
+      ...raw.community,
+      joinedGroups: Array.isArray(raw.community?.joinedGroups) ? raw.community.joinedGroups : [],
+      blockedUsers: Array.isArray(raw.community?.blockedUsers) ? raw.community.blockedUsers : [],
+    },
+  };
+}
+
 /* --------------------------------------------------------------------------
    3. MAIN APPLICATION COMPONENT
    -------------------------------------------------------------------------- */
@@ -526,7 +556,8 @@ export function SettingsScreen() {
       try {
         const stored = await AsyncStorage.getItem(accountStorageKey);
         if (stored && mounted) {
-          const merged = deepMerge(getDefaultSettings(state.user), JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          const merged = normalizeSettingsState(deepMerge(getDefaultSettings(state.user), parsed));
           setSettings(merged);
           setHexDraft(merged.appearance.customBrandHex || '#4f46e5');
         }
@@ -854,8 +885,9 @@ export function SettingsScreen() {
       setSettings((prev) => {
         const copy: SettingsState = JSON.parse(JSON.stringify(prev));
         updater(copy);
-        persistSettings(copy);
-        return copy;
+        const normalized = normalizeSettingsState(copy);
+        persistSettings(normalized);
+        return normalized;
       });
       if (toastMsg) showToast(toastMsg, toastType);
     },
@@ -1027,6 +1059,7 @@ export function SettingsScreen() {
   };
 
   const applyStudyPreset = (preset: string) => {
+    let nextSubjects: string[] | null = null;
     mutateSettings(
       (d) => {
         d.learning.activePreset = preset;
@@ -1047,9 +1080,13 @@ export function SettingsScreen() {
           d.learning.preferredSubjects = ['Reasoning & Mental Ability', 'Current Affairs'];
           d.library.pyqExamFilter = 'NET/JRF';
         }
+        nextSubjects = [...d.learning.preferredSubjects];
       },
       t(`Applied ${preset}`, `${preset} लागू किया गया`)
     );
+    if (nextSubjects) {
+      dispatch({ type: 'settings', patch: { preferredSubjects: nextSubjects } });
+    }
   };
 
   const simulateExport = (filename: string) => {
@@ -2305,8 +2342,8 @@ export function SettingsScreen() {
               />
               <NavRow
                 label={t('Preferred Subjects', 'पसंदीदा विषय')}
-                desc={l.preferredSubjects.join(', ')}
-                valueText={`${l.preferredSubjects.length} ${t('selected', 'चयनित')}`}
+                desc={(Array.isArray(l.preferredSubjects) ? l.preferredSubjects : []).join(', ')}
+                valueText={`${Array.isArray(l.preferredSubjects) ? l.preferredSubjects.length : 0} ${t('selected', 'चयनित')}`}
                 icon="📚"
                 onPress={() => openDetail('learning', 'preferred_subjects')}
               />
@@ -3784,48 +3821,42 @@ export function SettingsScreen() {
         </Section>
       );
     } else if (detailId === 'preferred_subjects') {
-      const allSubjects = [
-        'Rajasthan History & Culture',
-        'Rajasthan Geography',
-        'Indian Polity',
-        'Indian Economy',
-        'Current Affairs',
-        'Science & Tech',
-        'Reasoning & Mental Ability',
-        'Hindi & English Grammar',
-        'Ethics & Public Admin',
-      ];
+      const storePreferred = Array.isArray(state.settings?.preferredSubjects)
+        ? state.settings.preferredSubjects
+        : [];
+      const localPreferred = Array.isArray(settings.learning?.preferredSubjects)
+        ? settings.learning.preferredSubjects
+        : [];
+      const currentPreferred =
+        storePreferred.length > 0 ? storePreferred : localPreferred;
+      const customPackages = Array.isArray(state.settings?.customSubjectPackages)
+        ? state.settings.customSubjectPackages
+        : [];
       title = t('Preferred Subjects', 'पसंदीदा विषय');
-      subtitle = t('Select subjects to prioritize in Library, PYQ, and Planner suggestions.', 'लाइब्रेरी और PYQ के लिए प्राथमिकता वाले विषय चुनें।');
+      subtitle = t(
+        'Organize subjects by category, create custom packages, and sync with Study Planner.',
+        'श्रेणी के अनुसार विषय चुनें, कस्टम पैकेज बनाएं और स्टडी प्लानर से सिंक करें।'
+      );
       body = (
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }]}>
-          {allSubjects.map((sub) => {
-            const selected = settings.learning.preferredSubjects.includes(sub);
-            return (
-              <TouchableOpacity
-                key={sub}
-                onPress={() =>
-                  mutateSettings((d) => {
-                    const idx = d.learning.preferredSubjects.indexOf(sub);
-                    if (idx > -1) d.learning.preferredSubjects.splice(idx, 1);
-                    else d.learning.preferredSubjects.push(sub);
-                  })
-                }
-                style={[
-                  styles.chipBtn,
-                  {
-                    backgroundColor: selected ? activeAccent[600] : colors.surfaceAlt,
-                    borderColor: selected ? activeAccent[600] : colors.border,
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: selected ? '#fff' : colors.text }}>
-                  {selected ? `✓ ${sub}` : `+ ${sub}`}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <PreferredSubjectsManager
+          preferredSubjects={currentPreferred}
+          customPackages={customPackages}
+          activePackageId={state.settings?.activeSubjectPackageId ?? null}
+          t={t}
+          onChange={(next) => {
+            mutateSettings((d) => {
+              d.learning.preferredSubjects = next.preferredSubjects;
+            });
+            dispatch({
+              type: 'settings',
+              patch: {
+                preferredSubjects: next.preferredSubjects,
+                customSubjectPackages: next.customPackages,
+                activeSubjectPackageId: next.activePackageId,
+              },
+            });
+          }}
+        />
       );
     } else if (detailId === 'study_timetable') {
       const templates = [

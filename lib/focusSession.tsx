@@ -307,7 +307,10 @@ export function FocusSessionProvider({
     setActiveRoomContextState(ctx);
   }, []);
   const [activeHallContext, setActiveHallContext] = useState<ActiveHallContext | null>(null);
-  const [currentRouteName, setCurrentRouteName] = useState<string | undefined>(undefined);
+  const [currentRouteName, setCurrentRouteNameState] = useState<string | undefined>(undefined);
+  const setCurrentRouteName = useCallback((name: string | undefined) => {
+    setCurrentRouteNameState((previous) => previous === name ? previous : name);
+  }, []);
   const hallOpenerRef = useRef<(() => void) | null>(null);
   const registerHallOpener = useCallback((handler: (() => void) | null) => {
     hallOpenerRef.current = handler;

@@ -1,5 +1,10 @@
 # Next Task — Study Sakha
 
+## Runtime error follow-up — 2026-11-26
+- Code fixes and host regressions for route updates and Expo Go notification channels are complete.
+- Exact next action: open the fresh tunnel URL in Android Expo Go, cold start and navigate repeatedly, then capture Metro/device logs while enabling Planner reminders and running repeated planner syncs.
+- Blocker: this Codespace has no `adb` or connected Android device, so actual Expo Go runtime status is currently BLOCKED.
+
 ## Deployment Update — 2026-11-25
 
 Production Supabase deployment and live schema verification are complete. Continue with release/runtime validation; a second authenticated client/device is still needed for end-to-end Realtime delivery.

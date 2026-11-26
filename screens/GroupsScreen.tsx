@@ -2524,6 +2524,7 @@ export default function StudySakhaGroupsRN() {
     if (!activeRoom || activeRoom.id !== 'silent-focus' || !activeRoomGroupId || !roomSessionId) return;
     if (focusLaunchRef.current) return;
     if (currentRoomFocusActivity) {
+      setRoomMinimized(true);
       navigation.navigate('FocusCenter', {
         roomFocus: {
           groupId: activeRoomGroupId,

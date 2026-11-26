@@ -1,5 +1,9 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-011 — 2026-11-26
+
+Treat Expo Go Android as a local-notification fallback runtime: do not invoke Android channel management or attach a channel ID when `Constants.executionEnvironment` is `StoreClient`. Retain channel setup for standalone/development builds where the native provider exists, and retain local scheduling in Expo Go without claiming remote push support.
+
 ## DEC-008 — 2026-11-25
 
 Reconcile Supabase history only after catalog verification, then deploy forward-only migrations. This preserved existing data and avoided re-executing non-idempotent history or using --include-all blindly. Later defects receive new forward-only migrations.

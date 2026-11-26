@@ -1,5 +1,10 @@
 # Testing Status — Study Sakha
 
+## Preferred Subjects & Study Planner Integration — 2026-11-26
+
+- Focused Jest suites (`test/preferredSubjects.test.tsx`, `test/settingsScreen.test.tsx`, `test/studyPlannerFilters.test.tsx`): **PASS** — **3/3 suites passed, 10/10 tests passed**.
+- TypeScript (`pnpm run lint` / `tsc --noEmit`): **0 errors** in all modified/created files (`lib/subjectRegistry.ts`, `lib/store.tsx`, `components/PreferredSubjectsManager.tsx`, `screens/SettingsScreen.tsx`, `screens/StudyPlannerScreen.tsx`, `test/preferredSubjects.test.tsx`); overall `tsc` fails only on pre-existing uncommitted `test/notifications.test.tsx`.
+
 ## Group Hall Banner Removal, Direct Entry, Focus Decoupling & Group Chat Realtime Sync — 2026-11-26
 
 - Focused Jest suites (`test/groupChatAndFocusDecoupling.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/globalFocusBar.test.tsx`, `test/fourFixesRegression.test.tsx`, `test/groupInvitesAndSync.test.tsx`) & ESLint (`components/ActiveSessionBar.tsx`): **PASS** — **5/5 suites passed, 25/25 tests passed**, 0 lint errors.
@@ -59,6 +64,17 @@
 - Expo config validation: PASS with pnpm exec expo config --type public --json. expo-doctor is unavailable in this workspace.
 
 Last verified: 2026-11-25
+
+## Executed & Verified in Current Session (2026-11-26)
+
+| Check | Command | Result | Scope / Notes |
+|---|---|---|---|
+| Focus/notification regressions | `pnpm test -- test/notifications.test.tsx test/focusUnifiedRefactor.test.tsx --runInBand` | **PASS** — 2 suites, 12 tests | Covers repeated route reports, Expo Go channel omission, local scheduling, supported channel creation, and repeated identical sync. |
+| Full Jest suite | `pnpm run test:ci` | **FAIL** — 44/49 suites passed, 218/228 tests passed | Existing failures in focus session setup, planner focus integration, and missing `shouldPromptToSaveFocusSession` export; no failure in the focused suites. |
+| Fresh Expo tunnel | `npx expo start --tunnel --clear` | **PASS (Metro/tunnel)** | Tunnel connected and QR/URL emitted. Device runtime logs unavailable: no `adb` or connected Android device. React Native DevTools optional binary also lacks `libgtk-3.so.0`. |
+| TypeScript | `pnpm run lint` | **FAIL / existing workspace errors** | Existing unrelated errors in preferred-subject UI, GroupsScreen, and test typing; no runtime conclusion inferred. |
+
+Physical Android notification and render-loop verification remains **BLOCKED**, not claimed as PASS.
 
 ## Executed & Verified in Current Session (2026-11-25)
 
