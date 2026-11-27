@@ -1,7 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,15 +19,18 @@ import { askGemini, GEMINI_MODEL_OPTIONS, GeminiModelId } from '../lib/geminiCha
 import { useStore } from '../lib/store';
 import { fonts, radii, spacing, useTheme } from '../lib/theme';
 import { ChatMsg } from '../lib/types';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SakhaAIScreen() {
-  const { colors, scheme } = useTheme();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'SakhaAI'>>();
   const { state, streak, todayMinutes, dispatch } = useStore();
-  const { isMobile, isTablet, isDesktop } = useLayout();
+  const { isMobile } = useLayout();
 
   const [input, setInput] = useState('');
+  const [inputHeight, setInputHeight] = useState(46);
   const [typing, setTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState<GeminiModelId>(GEMINI_MODEL_OPTIONS[0].id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -134,6 +136,7 @@ export default function SakhaAIScreen() {
       });
       if (!isRetry) {
         setInput('');
+        setInputHeight(46);
       } else {
         dispatchChat({
           id: responseId,
@@ -178,6 +181,7 @@ export default function SakhaAIScreen() {
           text: reply.text,
           at: Date.now(),
           action: reply.action || undefined,
+          actions: reply.actions?.length ? reply.actions : reply.action ? [reply.action] : [],
           sources: reply.sources && reply.sources.length > 0 ? reply.sources : undefined,
           chips: reply.chips,
           modelUsed: reply.modelUsed,
@@ -253,13 +257,56 @@ export default function SakhaAIScreen() {
 
   const renderMarkdownText = (text: string) => {
     const lines = text.split('\n');
+    let inCodeBlock = false;
+
+    const renderInline = (value: string, keyPrefix: string) => value
+      .split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*)/g)
+      .filter(Boolean)
+      .map((part, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (part.startsWith('`') && part.endsWith('`')) {
+          return <Txt key={key} size={14} color={colors.blue} style={{ fontFamily: fonts.body }}>{part.slice(1, -1)}</Txt>;
+        }
+        if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) {
+          return <Txt key={key} size={14} weight="700" color={colors.textPrimary}>{part.slice(2, -2)}</Txt>;
+        }
+        if (part.startsWith('*') && part.endsWith('*')) {
+          return <Txt key={key} size={14} color={colors.textPrimary} style={{ fontStyle: 'italic' }}>{part.slice(1, -1)}</Txt>;
+        }
+        return <Txt key={key} size={14} color={colors.text}>{part}</Txt>;
+      });
 
     return (
       <View style={{ gap: 6 }}>
         {lines.map((line, lineIndex) => {
           const trimmed = line.trim();
+          if (trimmed.startsWith('```')) {
+            inCodeBlock = !inCodeBlock;
+            return null;
+          }
+          if (inCodeBlock) {
+            return (
+              <View key={lineIndex} style={{ backgroundColor: colors.bg, borderRadius: radii.sm, paddingHorizontal: 10, paddingVertical: 7 }}>
+                <Txt size={13} color={colors.text} style={{ fontFamily: fonts.body, lineHeight: 19 }}>{line}</Txt>
+              </View>
+            );
+          }
           if (!trimmed) {
             return <View key={lineIndex} style={{ height: 4 }} />;
+          }
+
+          if (trimmed.includes('|') && trimmed.split('|').filter(Boolean).length >= 2) {
+            const cells = trimmed.replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+            if (cells.every((cell) => /^:?-{2,}:?$/.test(cell))) return null;
+            return (
+              <View key={lineIndex} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
+                {cells.map((cell, cellIndex) => (
+                  <View key={`${lineIndex}-${cellIndex}`} style={{ flex: 1, paddingHorizontal: 7, paddingVertical: 6 }}>
+                    <Txt size={13} color={colors.text}>{renderInline(cell, `${lineIndex}-${cellIndex}`)}</Txt>
+                  </View>
+                ))}
+              </View>
+            );
           }
 
           // Header level 3 or 2
@@ -283,7 +330,6 @@ export default function SakhaAIScreen() {
           const isBullet = /^[-*•]\s+/.test(trimmed);
           if (isBullet) {
             const bulletBody = trimmed.replace(/^[-*•]\s+/, '');
-            const parts = bulletBody.split(/\*\*(.+?)\*\*/g);
             return (
               <View key={lineIndex} style={{ flexDirection: 'row', gap: 7, paddingLeft: 4 }}>
                 <Txt size={14} color={colors.blue} weight="800">
@@ -291,17 +337,7 @@ export default function SakhaAIScreen() {
                 </Txt>
                 <View style={{ flex: 1 }}>
                   <Txt size={14} style={{ lineHeight: 21 }}>
-                    {parts.map((p, i) =>
-                      i % 2 === 1 ? (
-                        <Txt key={i} size={14} weight="700" color={colors.textPrimary}>
-                          {p}
-                        </Txt>
-                      ) : (
-                        <Txt key={i} size={14} color={colors.text}>
-                          {p}
-                        </Txt>
-                      )
-                    )}
+                    {renderInline(bulletBody, `${lineIndex}-bullet`)}
                   </Txt>
                 </View>
               </View>
@@ -313,7 +349,6 @@ export default function SakhaAIScreen() {
           if (numberMatch) {
             const num = numberMatch[1];
             const itemBody = numberMatch[2];
-            const parts = itemBody.split(/\*\*(.+?)\*\*/g);
             return (
               <View key={lineIndex} style={{ flexDirection: 'row', gap: 7, paddingLeft: 4 }}>
                 <View
@@ -333,17 +368,7 @@ export default function SakhaAIScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Txt size={14} style={{ lineHeight: 21 }}>
-                    {parts.map((p, i) =>
-                      i % 2 === 1 ? (
-                        <Txt key={i} size={14} weight="700" color={colors.textPrimary}>
-                          {p}
-                        </Txt>
-                      ) : (
-                        <Txt key={i} size={14} color={colors.text}>
-                          {p}
-                        </Txt>
-                      )
-                    )}
+                    {renderInline(itemBody, `${lineIndex}-numbered`)}
                   </Txt>
                 </View>
               </View>
@@ -351,20 +376,9 @@ export default function SakhaAIScreen() {
           }
 
           // Standard paragraph with bold parts
-          const parts = line.split(/\*\*(.+?)\*\*/g);
           return (
             <Txt key={lineIndex} size={14} style={{ lineHeight: 21 }}>
-              {parts.map((p, i) =>
-                i % 2 === 1 ? (
-                  <Txt key={i} size={14} weight="700" color={colors.textPrimary}>
-                    {p}
-                  </Txt>
-                ) : (
-                  <Txt key={i} size={14} color={colors.text}>
-                    {p}
-                  </Txt>
-                )
-              )}
+              {renderInline(line, `${lineIndex}-paragraph`)}
             </Txt>
           );
         })}
@@ -377,78 +391,10 @@ export default function SakhaAIScreen() {
   return (
     <Shell active="SakhaAI" title="" scroll={false}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         style={{ flex: 1 }}
       >
-        {/* Model Selection and Status Header */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: isMobile ? 14 : 20,
-            paddingVertical: 10,
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.borderSubtle,
-            gap: 8,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <Txt size={12} weight="700" color={colors.textMuted}>
-              Model:
-            </Txt>
-            {GEMINI_MODEL_OPTIONS.map((m) => {
-              const active = selectedModel === m.id;
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => setSelectedModel(m.id)}
-                  style={({ pressed }) => ({
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    borderRadius: radii.pill,
-                    backgroundColor: active ? colors.tint : pressed ? colors.surfaceAlt : 'transparent',
-                    borderWidth: 1,
-                    borderColor: active ? colors.blue : colors.borderSubtle,
-                  })}
-                >
-                  <Txt
-                    size={11.5}
-                    weight={active ? '800' : '600'}
-                    color={active ? colors.blue : colors.textMuted}
-                  >
-                    {m.label}
-                  </Txt>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {state.chat.length > 0 && (
-            <Pressable
-              onPress={() => setClearDialogOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Clear chat conversation"
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: radii.sm,
-                backgroundColor: pressed ? colors.surfaceAlt : 'transparent',
-              })}
-            >
-              <Ionicons name="trash-outline" size={15} color={colors.textMuted} />
-              <Txt size={12} weight="600" color={colors.textMuted}>
-                Clear
-              </Txt>
-            </Pressable>
-          )}
-        </View>
-
         {needsKey && (
           <View style={{ margin: 14, marginBottom: 0 }}>
             <InlineBanner
@@ -459,13 +405,11 @@ export default function SakhaAIScreen() {
           </View>
         )}
 
-        <Txt size={11} color={colors.textFaint} style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-          Chat history is saved on this device until you clear it. Up to 12 recent messages are sent with each request.
-        </Txt>
-
         {/* Message Thread */}
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             padding: isMobile ? 14 : 22,
             paddingBottom: isMobile ? 32 : 24,
@@ -475,67 +419,6 @@ export default function SakhaAIScreen() {
         >
           {empty ? (
             <View style={{ gap: 16 }}>
-              {/* Hero Banner */}
-              <LinearGradient
-                colors={scheme === 'dark' ? [colors.surfaceAlt, colors.surface] : [colors.navy, colors.blue]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{
-                  borderRadius: radii.xl,
-                  padding: isMobile ? 18 : 26,
-                  gap: 12,
-                  borderWidth: scheme === 'dark' ? 1 : 0,
-                  borderColor: colors.borderSubtle,
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View
-                    style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 16,
-                      backgroundColor: 'rgba(255,255,255,0.18)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Ionicons name="sparkles" size={24} color="#fff" />
-                  </View>
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: radii.pill,
-                      backgroundColor: 'rgba(255,255,255,0.15)',
-                    }}
-                  >
-                    <Txt size={11.5} weight="700" color="#fff">
-                      Gemini 3.8 / Flash
-                    </Txt>
-                  </View>
-                </View>
-
-                <Txt size={isMobile ? 22 : 26} weight="800" display color="#fff" style={{ letterSpacing: -0.6 }}>
-                  Sakha AI Mentor
-                </Txt>
-                <Txt size={13.5} color="rgba(255,255,255,0.88)" style={{ maxWidth: 600, lineHeight: 20 }}>
-                  Your personal syllabus-aware AI tutor. Ask questions on concepts, previous year questions (PYQs), mock analysis, or how to navigate and use Study Sakha tools.
-                </Txt>
-
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.sm, backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                    <Txt size={11.5} weight="700" color="#fff">
-                      🎯 {examContext.exam ? examContext.exam.toUpperCase() : 'All Exams'}
-                    </Txt>
-                  </View>
-                  <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.sm, backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                    <Txt size={11.5} weight="700" color="#fff">
-                      🔥 {streak}-day streak
-                    </Txt>
-                  </View>
-                </View>
-              </LinearGradient>
-
               {/* Starter Prompts */}
               <Card>
                 <Txt size={12.5} weight="800" color={colors.textMuted} style={{ marginBottom: 12, letterSpacing: 0.5 }}>
@@ -579,36 +462,6 @@ export default function SakhaAIScreen() {
                 </View>
               </Card>
 
-              {/* Capabilities Highlights */}
-              <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 12 }}>
-                {[
-                  {
-                    icon: 'book-outline',
-                    t: 'Concept Explanations',
-                    b: 'Simplifies complex articles, science mechanisms, and economic models with clear analogies.',
-                  },
-                  {
-                    icon: 'albums-outline',
-                    t: 'PYQ Trends & Bank',
-                    b: 'Pinpoints high-yield topics and repeated questions from past decade papers.',
-                  },
-                  {
-                    icon: 'analytics-outline',
-                    t: 'Mock Strategy & Analysis',
-                    b: 'Diagnoses accuracy, negative mark pitfalls, and generates customized revision routines.',
-                  },
-                ].map((f) => (
-                  <Card key={f.t} style={{ flex: 1, gap: 8 }}>
-                    <Ionicons name={f.icon as any} size={22} color={colors.blue} />
-                    <Txt size={14} weight="800">
-                      {f.t}
-                    </Txt>
-                    <Txt size={12.5} color={colors.textMuted} style={{ lineHeight: 18 }}>
-                      {f.b}
-                    </Txt>
-                  </Card>
-                ))}
-              </View>
             </View>
           ) : null}
 
@@ -856,22 +709,43 @@ export default function SakhaAIScreen() {
                   </View>
 
                   {/* Navigation Action Button */}
-                  {m.action ? (
-                    <Button
-                      label={m.action.label}
-                      icon="arrow-forward"
-                      size="sm"
-                      variant="soft"
+                  {(m.actions?.length ? m.actions : m.action ? [m.action] : []).map((action, actionIndex) => (
+                    <Pressable
+                      key={`${action.route}-${action.label}-${actionIndex}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={action.label}
                       onPress={() =>
                         nav.dispatch(
                           CommonActions.navigate({
-                            name: m.action!.route,
-                            params: { ...(m.action!.params ?? {}), headerBrand: 'SakhaAI' },
+                            name: action.route,
+                            params: { ...(action.params ?? {}), headerBrand: 'SakhaAI' },
                           })
                         )
                       }
-                    />
-                  ) : null}
+                      style={({ pressed }) => ({
+                        minHeight: 48,
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: radii.md,
+                        borderWidth: 1,
+                        borderColor: colors.blue,
+                        backgroundColor: pressed ? colors.tint : colors.surface,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      })}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 }}>
+                        <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
+                          <Ionicons name="arrow-forward" size={15} color={colors.blue} />
+                        </View>
+                        <Txt size={13.5} weight="700" color={colors.textPrimary} numberOfLines={2} style={{ flex: 1 }}>
+                          {action.label}
+                        </Txt>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.blue} />
+                    </Pressable>
+                  ))}
 
                   {/* Follow-up Interactive Chips */}
                   {m.chips && m.chips.length > 0 && (
@@ -952,7 +826,8 @@ export default function SakhaAIScreen() {
             borderTopColor: colors.borderSubtle,
             backgroundColor: colors.surface,
             paddingHorizontal: isMobile ? 12 : 20,
-            paddingVertical: 12,
+            paddingTop: 10,
+            paddingBottom: Math.max(10, insets.bottom + 8),
             flexDirection: 'row',
             alignItems: 'flex-end',
             gap: 8,
@@ -962,6 +837,7 @@ export default function SakhaAIScreen() {
             style={{
               flex: 1,
               minHeight: 46,
+              height: Math.min(128, Math.max(46, inputHeight)),
               borderRadius: radii.lg,
               borderWidth: 1.4,
               borderColor: colors.borderSubtle,
@@ -973,6 +849,7 @@ export default function SakhaAIScreen() {
             <TextInput
               value={input}
               onChangeText={setInput}
+              onContentSizeChange={(event) => setInputHeight(Math.min(128, Math.max(46, event.nativeEvent.contentSize.height + 20)))}
               placeholder="Ask Sakha anything (e.g. explain a concept, pull PYQs, mock analysis)…"
               placeholderTextColor={colors.textFaint}
               onSubmitEditing={() => send(input)}
@@ -986,7 +863,9 @@ export default function SakhaAIScreen() {
                   fontSize: 14.5,
                   color: colors.text,
                   paddingVertical: 10,
-                  maxHeight: 120,
+                  minHeight: 46,
+                  maxHeight: 108,
+                  textAlignVertical: 'top',
                   outlineStyle: 'none',
                 } as any
               }
@@ -1018,6 +897,24 @@ export default function SakhaAIScreen() {
               />
             )}
           </Pressable>
+
+          {state.chat.length > 0 && (
+            <Pressable
+              onPress={() => setClearDialogOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Clear chat conversation"
+              style={({ pressed }) => ({
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: pressed ? colors.surfaceAlt : 'transparent',
+              })}
+            >
+              <Ionicons name="trash-outline" size={17} color={colors.textMuted} />
+            </Pressable>
+          )}
         </View>
 
         {/* Clear Chat Confirmation Dialog */}

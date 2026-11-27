@@ -2,16 +2,13 @@ import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import type { AppDrawerContentProps } from '../lib/navigation';
+import { Platform, Share } from 'react-native';
 
-const stubScreen = () => null;
-const capturedDrawerProps: {
-  drawerContent?: (props: AppDrawerContentProps) => React.ReactNode;
-  screenListeners?: {
-    transitionStart?: (e: { data: { closing: boolean } }) => void;
-    transitionEnd?: (e: { data: { closing: boolean } }) => void;
-  };
-} = {};
+const mockNavigate = jest.fn();
+const mockDispatch = jest.fn();
+let mockStackRoutes: { key: string; name: string }[] = [{ key: 'dash-1', name: 'DashboardRoot' }];
+let mockStackIndex = 0;
+let mockBlurListeners: (() => void)[] = [];
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
@@ -42,73 +39,22 @@ jest.mock('react-native-gesture-handler', () => {
   const { View } = require('react-native');
   return { GestureHandlerRootView: ({ children }: { children?: React.ReactNode }) => React.createElement(View, null, children) };
 });
-jest.mock('@react-navigation/native-stack', () => ({
-  createNativeStackNavigator: () => ({ Navigator: stubScreen, Screen: stubScreen }),
-}));
-jest.mock('@react-navigation/drawer', () => {
-  const React = require('react');
-  const { ScrollView, View } = require('react-native');
-  return {
-    createDrawerNavigator: () => ({
-      Navigator: (props: {
-        drawerContent: (props: AppDrawerContentProps) => React.ReactNode;
-        screenListeners?: typeof capturedDrawerProps.screenListeners;
-      }) => {
-        capturedDrawerProps.drawerContent = props.drawerContent;
-        capturedDrawerProps.screenListeners = props.screenListeners;
-        return React.createElement(View, null);
-      },
-      Screen: stubScreen,
-    }),
-    DrawerContentScrollView: ({ children, ...rest }: { children?: React.ReactNode }) =>
-      React.createElement(ScrollView, rest, children),
-    getDrawerStatusFromState: (state: { history?: { type: string; status?: string }[]; default?: string }) => {
-      const entry = state.history?.findLast((item) => item.type === 'drawer');
-      return (entry?.status ?? state.default ?? 'closed') as 'open' | 'closed';
+jest.mock('@react-navigation/native', () => ({
+  StackActions: { popTo: (name: string) => ({ type: 'POP_TO', payload: { name } }) },
+  useNavigation: () => ({
+    navigate: mockNavigate,
+    dispatch: mockDispatch,
+    getState: () => ({ index: mockStackIndex, routes: mockStackRoutes }),
+    getParent: () => ({ getState: () => ({ history: [], routes: [] }) }),
+    addListener: (event: string, listener: () => void) => {
+      if (event === 'blur') mockBlurListeners.push(listener);
+      return () => {
+        mockBlurListeners = mockBlurListeners.filter((item) => item !== listener);
+      };
     },
-  };
-});
-
-jest.mock('../screens/LibraryScreen', () => ({
-  __esModule: true,
-  default: stubScreen,
-  LibraryBooksScreen: stubScreen,
-  LibraryDownloadsScreen: stubScreen,
-  LibraryNotesScreen: stubScreen,
-  LibraryPYQSetsScreen: stubScreen,
-  LibraryStarredScreen: stubScreen,
-}));
-jest.mock('../screens/AdminScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/AppGuideScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/BookReaderScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/CurrentAffairsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/DashboardScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/FocusCenterScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/FocusCompletionScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/FocusLockScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/GroupsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/MoreScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/NoteEditorScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/NotificationsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/ProfileScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/PYQScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/SakhaAIScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/SearchScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/SettingsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/SignInScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/SignUpScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/StatisticsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/TaskPerformanceScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/StudyPlannerScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/TestPlayerScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/TestResultScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../screens/TestsScreen', () => ({ __esModule: true, default: stubScreen }));
-jest.mock('../components/FloatingFocusBar', () => ({ FloatingFocusBar: () => null }));
-jest.mock('../lib/notifications', () => ({
-  capturePresentedNotifications: jest.fn(async () => undefined),
-  notificationFromExpoNotification: jest.fn(() => null),
-  notificationFromExpoResponse: jest.fn(() => null),
-  syncUpcomingPlannerReminder: jest.fn(async () => undefined),
+  }),
+  useRoute: () => ({ name: mockStackRoutes[mockStackIndex]?.name ?? 'DashboardRoot', params: undefined }),
+  useFocusEffect: () => undefined,
 }));
 jest.mock('../lib/store', () => ({
   StoreProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -117,80 +63,17 @@ jest.mock('../lib/store', () => ({
       user: { id: 'u1', name: 'Asha Learner', email: 'asha@example.test', role: 'learner' },
       settings: { language: 'en' },
     },
+    unread: 0,
+    syncStatus: 'synced',
     dispatch: jest.fn(),
   }),
   getDisplayName: (user: { name?: string } | null) => user?.name ?? 'Aspirant',
 }));
 
-const { MainDrawerNavigator } = require('../App') as typeof import('../App');
+const { AppHeader } = require('../components/Shell') as typeof import('../components/Shell');
 const { ThemeProvider } = require('../lib/theme') as typeof import('../lib/theme');
 
-function createMockDrawerProps(options?: {
-  drawerStatus?: 'open' | 'closed';
-  stackRoutes?: { key: string; name: string }[];
-  stackIndex?: number;
-}) {
-  const stackRoutes = options?.stackRoutes ?? [{ key: 'dash-1', name: 'DashboardRoot' }];
-  const stackIndex = options?.stackIndex ?? 0;
-  const drawerStatus = options?.drawerStatus ?? 'open';
-
-  const navigate = jest.fn();
-  const dispatch = jest.fn();
-  const closeDrawer = jest.fn();
-
-  const state = {
-    type: 'drawer',
-    key: 'drawer-1',
-    index: 0,
-    routeNames: ['MainStack'],
-    default: 'closed',
-    history: drawerStatus === 'open'
-      ? [{ type: 'route', key: 'main-1' }, { type: 'drawer', status: 'open' }]
-      : [{ type: 'route', key: 'main-1' }],
-    routes: [
-      {
-        key: 'main-1',
-        name: 'MainStack',
-        state: {
-          type: 'stack',
-          key: 'stack-1',
-          index: stackIndex,
-          routeNames: ['DashboardRoot', 'Settings', 'AppGuide', 'LibraryDownloads', 'Profile'],
-          routes: stackRoutes,
-        },
-      },
-    ],
-  };
-
-  const navigation = {
-    navigate,
-    dispatch,
-    closeDrawer,
-  };
-
-  return {
-    props: { state, navigation, descriptors: {} } as unknown as AppDrawerContentProps,
-    navigate,
-    dispatch,
-    closeDrawer,
-  };
-}
-
-function renderMainDrawerWithMock(mockProps: AppDrawerContentProps) {
-  render(
-    <SafeAreaProvider
-      initialMetrics={{
-        frame: { x: 0, y: 0, width: 390, height: 844 },
-        insets: { top: 24, right: 0, bottom: 20, left: 0 },
-      }}
-    >
-      <ThemeProvider mode="light" reduceMotion>
-        <MainDrawerNavigator />
-      </ThemeProvider>
-    </SafeAreaProvider>
-  );
-
-  const drawerElement = capturedDrawerProps.drawerContent?.(mockProps);
+function renderHeader(mode: 'light' | 'dark' = 'light') {
   return render(
     <SafeAreaProvider
       initialMetrics={{
@@ -198,140 +81,107 @@ function renderMainDrawerWithMock(mockProps: AppDrawerContentProps) {
         insets: { top: 24, right: 0, bottom: 20, left: 0 },
       }}
     >
-      <ThemeProvider mode="light" reduceMotion>
-        {drawerElement}
+      <ThemeProvider mode={mode} reduceMotion>
+        <AppHeader />
       </ThemeProvider>
     </SafeAreaProvider>
   );
 }
 
-describe('MainDrawerNavigator Settings navigation reliability', () => {
+describe('Header three-dot overflow menu and repeated Settings navigation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    capturedDrawerProps.drawerContent = undefined;
-    capturedDrawerProps.screenListeners = undefined;
+    mockStackRoutes = [{ key: 'dash-1', name: 'DashboardRoot' }];
+    mockStackIndex = 0;
+    mockBlurListeners = [];
   });
 
-  it('opens Settings reliably across 12 consecutive open/close cycles after transitionEnd', () => {
-    const mock = createMockDrawerProps({ drawerStatus: 'open' });
-    const view = renderMainDrawerWithMock(mock.props);
+  it('removes the hamburger drawer button and old circular Help button from the header', () => {
+    const view = renderHeader();
+    expect(view.queryByLabelText('Open menu')).toBeNull();
+    expect(view.queryByLabelText('Open Help Menu')).toBeNull();
+    expect(view.getByTestId('header-more-button')).toBeTruthy();
+  });
 
-    for (let cycle = 0; cycle < 12; cycle += 1) {
-      fireEvent.press(view.getByText('Settings'));
-      expect(mock.closeDrawer).toHaveBeenCalledTimes(cycle + 1);
-      // Should wait for drawer close transitionEnd before pushing Settings
-      expect(mock.navigate).toHaveBeenCalledTimes(cycle);
+  it('opens the overflow menu with the exact four options in order', () => {
+    const view = renderHeader();
+    fireEvent.press(view.getByTestId('header-more-button'));
 
-      act(() => {
-        capturedDrawerProps.screenListeners?.transitionEnd?.({ data: { closing: true } });
-      });
+    const menu = view.getByTestId('header-overflow-menu');
+    expect(menu).toBeTruthy();
+    expect(view.getByTestId('header-menu-guide')).toBeTruthy();
+    expect(view.getByTestId('header-menu-settings')).toBeTruthy();
+    expect(view.getByTestId('header-menu-help')).toBeTruthy();
+    expect(view.getByTestId('header-menu-share')).toBeTruthy();
+    expect(view.getByText('How to use the app')).toBeTruthy();
+    expect(view.getByText('Settings')).toBeTruthy();
+    expect(view.getByText('Help')).toBeTruthy();
+    expect(view.getByText('Share with friends')).toBeTruthy();
+  });
 
-      expect(mock.navigate).toHaveBeenCalledTimes(cycle + 1);
-      expect(mock.navigate).toHaveBeenLastCalledWith('MainStack', { screen: 'Settings' });
+  it('navigates to Settings reliably across 12 consecutive open/return cycles on Android', () => {
+    const originalOS = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    try {
+      const view = renderHeader();
+
+      for (let cycle = 0; cycle < 12; cycle += 1) {
+        fireEvent.press(view.getByTestId('header-more-button'));
+        expect(view.getByTestId('header-overflow-menu')).toBeTruthy();
+
+        fireEvent.press(view.getByTestId('header-menu-settings'));
+        expect(view.queryByTestId('header-overflow-menu')).toBeNull();
+        expect(mockNavigate).toHaveBeenCalledTimes(cycle + 1);
+        expect(mockNavigate).toHaveBeenLastCalledWith('Settings');
+
+        // Simulate returning from Settings back to DashboardRoot
+        act(() => {
+          mockBlurListeners.forEach((cb) => cb());
+        });
+      }
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: originalOS, configurable: true });
     }
-  });
-
-  it('deduplicates rapid repeated taps on Settings while drawer is closing', () => {
-    const mock = createMockDrawerProps({ drawerStatus: 'open' });
-    const view = renderMainDrawerWithMock(mock.props);
-
-    fireEvent.press(view.getByText('Settings'));
-    fireEvent.press(view.getByText('Settings'));
-    fireEvent.press(view.getByText('Settings'));
-
-    expect(mock.navigate).not.toHaveBeenCalled();
-
-    act(() => {
-      capturedDrawerProps.screenListeners?.transitionEnd?.({ data: { closing: true } });
-    });
-
-    expect(mock.navigate).toHaveBeenCalledTimes(1);
-    expect(mock.navigate).toHaveBeenCalledWith('MainStack', { screen: 'Settings' });
-  });
-
-  it('clears pending navigation when drawer is reopened mid-close and works on next tap', () => {
-    const mock = createMockDrawerProps({ drawerStatus: 'open' });
-    const view = renderMainDrawerWithMock(mock.props);
-
-    fireEvent.press(view.getByText('Settings'));
-
-    // User swipes drawer back open before close finishes
-    act(() => {
-      capturedDrawerProps.screenListeners?.transitionStart?.({ data: { closing: false } });
-      capturedDrawerProps.screenListeners?.transitionEnd?.({ data: { closing: true } });
-    });
-
-    expect(mock.navigate).not.toHaveBeenCalled();
-
-    // Tapping Settings again still works on next close
-    fireEvent.press(view.getByText('Settings'));
-    act(() => {
-      capturedDrawerProps.screenListeners?.transitionEnd?.({ data: { closing: true } });
-    });
-
-    expect(mock.navigate).toHaveBeenCalledTimes(1);
-    expect(mock.navigate).toHaveBeenCalledWith('MainStack', { screen: 'Settings' });
   });
 
   it('pops back to existing Settings route instead of duplicating it when already in stack', () => {
-    const mock = createMockDrawerProps({
-      drawerStatus: 'open',
-      stackRoutes: [
-        { key: 'dash-1', name: 'DashboardRoot' },
-        { key: 'set-1', name: 'Settings' },
-        { key: 'guide-1', name: 'AppGuide' },
-      ],
-      stackIndex: 2,
-    });
-    const view = renderMainDrawerWithMock(mock.props);
+    mockStackRoutes = [
+      { key: 'dash-1', name: 'DashboardRoot' },
+      { key: 'set-1', name: 'Settings' },
+      { key: 'guide-1', name: 'AppGuide' },
+    ];
+    mockStackIndex = 2;
 
-    fireEvent.press(view.getByText('Settings'));
-    act(() => {
-      capturedDrawerProps.screenListeners?.transitionEnd?.({ data: { closing: true } });
-    });
+    const view = renderHeader();
+    fireEvent.press(view.getByTestId('header-more-button'));
+    fireEvent.press(view.getByTestId('header-menu-settings'));
 
-    expect(mock.navigate).not.toHaveBeenCalled();
-    expect(mock.dispatch).toHaveBeenCalledWith({
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockDispatch).toHaveBeenCalledWith({
       type: 'POP_TO',
-      payload: { name: 'Settings', params: undefined },
-      target: 'stack-1',
+      payload: { name: 'Settings' },
     });
   });
 
-  it('navigates to Settings via fallback timer if transitionEnd is not emitted on Android', () => {
-    jest.useFakeTimers();
-    try {
-      const mock = createMockDrawerProps({ drawerStatus: 'open' });
-      const view = renderMainDrawerWithMock(mock.props);
-
-      fireEvent.press(view.getByText('Settings'));
-      expect(mock.closeDrawer).toHaveBeenCalledTimes(1);
-      expect(mock.navigate).not.toHaveBeenCalled();
-
-      act(() => {
-        jest.advanceTimersByTime(350);
-      });
-
-      expect(mock.navigate).toHaveBeenCalledTimes(1);
-      expect(mock.navigate).toHaveBeenCalledWith('MainStack', { screen: 'Settings' });
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('shares an app-wide invitation link via native Share API without group tokens', async () => {
-    const { Share, Alert } = require('react-native');
+  it('navigates to AppGuide, opens Help modal, and invokes Share with friends', async () => {
     const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    const view = renderHeader('dark');
 
-    const mock = createMockDrawerProps({ drawerStatus: 'open' });
-    const view = renderMainDrawerWithMock(mock.props);
+    // 1. How to use the app
+    fireEvent.press(view.getByTestId('header-more-button'));
+    fireEvent.press(view.getByTestId('header-menu-guide'));
+    expect(mockNavigate).toHaveBeenCalledWith('AppGuide');
 
+    // 2. Help modal
+    fireEvent.press(view.getByTestId('header-more-button'));
+    fireEvent.press(view.getByTestId('header-menu-help'));
+    expect(view.getByText('How can we help you?')).toBeTruthy();
+
+    // 3. Share with friends
+    fireEvent.press(view.getByTestId('header-more-button'));
     await act(async () => {
-      fireEvent.press(view.getByText('Share with friends'));
+      fireEvent.press(view.getByTestId('header-menu-share'));
     });
-
-    expect(alertSpy).not.toHaveBeenCalled();
     expect(shareSpy).toHaveBeenCalledTimes(1);
     const [content] = shareSpy.mock.calls[0] as [{ title?: string; message?: string }];
     expect(content.title).toBe('Study Sakha');
@@ -339,6 +189,14 @@ describe('MainDrawerNavigator Settings navigation reliability', () => {
     expect(content.message).not.toContain('groups/invite');
 
     shareSpy.mockRestore();
-    alertSpy.mockRestore();
+  });
+
+  it('closes the overflow menu when tapping outside', () => {
+    const view = renderHeader();
+    fireEvent.press(view.getByTestId('header-more-button'));
+    expect(view.getByTestId('header-overflow-menu')).toBeTruthy();
+
+    fireEvent.press(view.getByTestId('header-overflow-backdrop'));
+    expect(view.queryByTestId('header-overflow-menu')).toBeNull();
   });
 });

@@ -71,7 +71,7 @@ import {
 } from 'lucide-react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isAppDrawerOpen, Shell } from '../components/Shell';
+import { Shell } from '../components/Shell';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { SmartStudyRoomScreen } from '../screens/SmartStudyRoomScreen';
@@ -1988,7 +1988,6 @@ export default function StudySakhaGroupsRN() {
       focusLaunchRef.current = false;
       void refreshGroups({ silent: true });
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-        if (isAppDrawerOpen(navigation)) return false;
         if (activeScreen === 'main') navigation.popTo('DashboardRoot');
         else setActiveScreen('main');
         return true;

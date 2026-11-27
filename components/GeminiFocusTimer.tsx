@@ -30,8 +30,6 @@ import type { ThemeDefinition, ThemeId } from '../types';
 import { useStore } from '../lib/store';
 import type { AppStackRouteName } from '../lib/navigation';
 
-const SUBJECTS = ['No subject selected', 'Mathematics', 'Physics', 'Computer Science', 'Design & Art', 'Reading'];
-
 export type FocusTimerController = {
   totalSeconds: number;
   remainingSeconds: number;
@@ -49,8 +47,6 @@ type Props = {
   onStop: () => void;
   onBreak: () => void;
   onReset: () => void;
-  onSubjectChange: (subject: string) => void;
-  onChooseStudyTag: () => void;
   onGroupPress: () => void;
   onMusicPress: () => void;
   blockedAppsCount: number;
@@ -187,8 +183,6 @@ export default function GeminiFocusTimer({
   onStop,
   onBreak,
   onReset,
-  onSubjectChange,
-  onChooseStudyTag,
   onGroupPress,
   onMusicPress,
   blockedAppsCount,
@@ -205,7 +199,6 @@ export default function GeminiFocusTimer({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const motionEnabled = !focusSettings.reduceFocusMotion && focusSettings.focusAnimationIntensity !== 'minimal';
-  const [dropdown, setDropdown] = useState<'session' | 'subject' | null>(null);
   const [toast, setToast] = useState('');
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transitionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -293,23 +286,12 @@ export default function GeminiFocusTimer({
                 <TimerRing size={ringSize} progress={progress} theme={theme} />
                 <View style={styles.timerContent}>
                   <View style={styles.subjectAnchor}>
-                    <Pressable onPress={() => setDropdown(dropdown === 'subject' ? null : 'subject')} style={[styles.subjectPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}>
+                    <View style={[styles.subjectPill, { backgroundColor: theme.pill, borderColor: theme.pillBorder }]}>
                       <GlassLayer target={blurTarget} tint={theme.pill} />
-                      <Text style={[styles.subjectText, { color: theme.secondary }]}>{subject}</Text>
-                      <Ionicons name="chevron-down" size={13} color={theme.secondary} />
-                    </Pressable>
-                    {dropdown === 'subject' ? (
-                      <View style={styles.subjectDropdown}>
-                        {SUBJECTS.map((item) => (
-                          <Pressable key={item} onPress={() => { onSubjectChange(item); setDropdown(null); }} style={styles.dropdownRow}>
-                            <Text style={styles.dropdownText}>{item}</Text>
-                          </Pressable>
-                        ))}
-                        <Pressable onPress={() => { onChooseStudyTag(); setDropdown(null); }} style={styles.dropdownRow}>
-                          <Text style={styles.dropdownText}>Choose Study Sakha subject…</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
+                      <Text numberOfLines={1} style={[styles.subjectText, { color: theme.secondary }]}>
+                        {subject || 'No subject or activity selected'}
+                      </Text>
+                    </View>
                   </View>
                   <Text style={[styles.modeLabel, { color: theme.secondary }]}>{timer.isBreak ? 'BREAK' : timer.modeLabel}</Text>
                   <Text adjustsFontSizeToFit numberOfLines={1} style={styles.timerDigits}>{formatTime(timer.remainingSeconds)}</Text>

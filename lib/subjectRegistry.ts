@@ -1,3 +1,19 @@
+export type SubjectType = 'standard' | 'custom';
+
+export interface SubjectDefinition {
+  id: string;
+  name: string;
+  parentGroupId: string | null;
+  type: SubjectType;
+  packageIds?: string[];
+}
+
+export interface SubjectGroup {
+  id: string;
+  title: string;
+  subjects: SubjectDefinition[];
+}
+
 export interface SubjectCategory {
   id: string;
   title: string;
@@ -11,113 +27,104 @@ export interface CustomSubjectPackage {
   updatedAt: string;
 }
 
-export const SUBJECT_CATEGORIES: SubjectCategory[] = [
+export function toSubjectId(name: string, prefix = ''): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!slug) return prefix ? `${prefix}_subject` : 'subject';
+  return prefix ? `${prefix}_${slug}` : slug;
+}
+
+function makeStandardSubject(
+  id: string,
+  name: string,
+  parentGroupId: string | null
+): SubjectDefinition {
+  return { id, name, parentGroupId, type: 'standard' };
+}
+
+export const SUBJECT_GROUPS: SubjectGroup[] = [
   {
-    id: 'rajasthan_studies',
-    title: 'Rajasthan Studies',
+    id: 'gs_india',
+    title: 'General Studies – India',
     subjects: [
-      'Rajasthan History & Culture',
-      'Rajasthan Geography',
-      'Rajasthan Polity',
-      'Rajasthan Economy',
-      'Rajasthan Art & Heritage',
+      makeStandardSubject('indian_history', 'Indian History', 'gs_india'),
+      makeStandardSubject('indian_culture', 'Indian Culture', 'gs_india'),
+      makeStandardSubject('indian_geography', 'Indian Geography', 'gs_india'),
+      makeStandardSubject('indian_polity', 'Indian Polity', 'gs_india'),
+      makeStandardSubject('indian_economy', 'Indian Economy', 'gs_india'),
     ],
   },
   {
-    id: 'indian_history',
-    title: 'Indian History',
+    id: 'gs_rajasthan',
+    title: 'General Studies – Rajasthan',
     subjects: [
-      'Ancient History',
-      'Medieval History',
-      'Modern History',
-      'Indian National Movement',
+      makeStandardSubject('rajasthan_history', 'Rajasthan History', 'gs_rajasthan'),
+      makeStandardSubject('rajasthan_culture', 'Rajasthan Culture', 'gs_rajasthan'),
+      makeStandardSubject('rajasthan_geography', 'Rajasthan Geography', 'gs_rajasthan'),
+      makeStandardSubject('rajasthan_polity', 'Rajasthan Polity', 'gs_rajasthan'),
+      makeStandardSubject('rajasthan_economy', 'Rajasthan Economy', 'gs_rajasthan'),
     ],
   },
   {
-    id: 'indian_geography',
-    title: 'Indian Geography',
+    id: 'science',
+    title: 'Science',
     subjects: [
-      'Physical Geography',
-      'Human Geography',
-      'Economic Geography',
+      makeStandardSubject('biology', 'Biology', 'science'),
+      makeStandardSubject('chemistry', 'Chemistry', 'science'),
+      makeStandardSubject('physics', 'Physics', 'science'),
     ],
   },
   {
-    id: 'indian_polity',
-    title: 'Indian Polity',
+    id: 'ras_mains',
+    title: 'RAS Mains Subjects',
     subjects: [
-      'Constitution',
-      'Governance',
-      'Administration',
-    ],
-  },
-  {
-    id: 'indian_economy',
-    title: 'Indian Economy',
-    subjects: [
-      'Banking',
-      'Budget',
-      'Economic Development',
-    ],
-  },
-  {
-    id: 'science_tech',
-    title: 'Science & Technology',
-    subjects: [
-      'Physics',
-      'Chemistry',
-      'Biology',
-      'IT',
-      'Space Technology',
-    ],
-  },
-  {
-    id: 'environment',
-    title: 'Environment',
-    subjects: [
-      'Ecology',
-      'Biodiversity',
-      'Climate Change',
-    ],
-  },
-  {
-    id: 'current_affairs',
-    title: 'Current Affairs',
-    subjects: [
-      'National Current Affairs',
-      'International Current Affairs',
-      'Rajasthan Current Affairs',
-    ],
-  },
-  {
-    id: 'reasoning_aptitude',
-    title: 'Reasoning & Aptitude',
-    subjects: [
-      'Logical Reasoning',
-      'Quantitative Aptitude',
-      'Mental Ability',
-    ],
-  },
-  {
-    id: 'languages',
-    title: 'Languages',
-    subjects: [
-      'Hindi Grammar',
-      'English Grammar',
-      'Hindi & English Writing',
-    ],
-  },
-  {
-    id: 'ethics_admin',
-    title: 'Ethics & Administration',
-    subjects: [
-      'Ethics',
-      'Integrity',
-      'Aptitude',
-      'Public Administration',
+      makeStandardSubject('sociology', 'Sociology', 'ras_mains'),
+      makeStandardSubject('management', 'Management', 'ras_mains'),
+      makeStandardSubject('accounting_and_auditing', 'Accounting & Auditing', 'ras_mains'),
+      makeStandardSubject('ethics', 'Ethics', 'ras_mains'),
+      makeStandardSubject('international_relations', 'International Relations', 'ras_mains'),
+      makeStandardSubject('public_administration', 'Public Administration', 'ras_mains'),
+      makeStandardSubject('behaviour', 'Behaviour', 'ras_mains'),
+      makeStandardSubject('law', 'Law', 'ras_mains'),
+      makeStandardSubject('general_hindi', 'General Hindi', 'ras_mains'),
+      makeStandardSubject('general_english', 'General English', 'ras_mains'),
+      makeStandardSubject('world_history', 'World History', 'ras_mains'),
     ],
   },
 ];
+
+export const INDEPENDENT_SUBJECTS: SubjectDefinition[] = [
+  makeStandardSubject('technology', 'Technology', null),
+  makeStandardSubject('environment', 'Environment', null),
+  makeStandardSubject('mathematics', 'Mathematics', null),
+  makeStandardSubject('reasoning', 'Reasoning', null),
+  makeStandardSubject('current_affairs', 'Current Affairs', null),
+  makeStandardSubject('world_geography', 'World Geography', null),
+];
+
+export const STANDARD_SUBJECTS: SubjectDefinition[] = [
+  ...SUBJECT_GROUPS.flatMap((g) => g.subjects),
+  ...INDEPENDENT_SUBJECTS,
+];
+
+/**
+ * Compatibility view of the 3 parent groups as SubjectCategory[].
+ */
+export const SUBJECT_CATEGORIES: SubjectCategory[] = SUBJECT_GROUPS.map((group) => ({
+  id: group.id,
+  title: group.title,
+  subjects: group.subjects.map((s) => s.name),
+}));
+
+export function getParentGroupTitle(parentGroupId: string | null): string | null {
+  if (!parentGroupId) return null;
+  const found = SUBJECT_GROUPS.find((g) => g.id === parentGroupId);
+  return found ? found.title : null;
+}
 
 export function normalizeSubjectList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -150,10 +157,71 @@ export function normalizeCustomPackages(value: unknown): CustomSubjectPackage[] 
       id,
       name,
       subjects: normalizeSubjectList(rec.subjects),
-      updatedAt: typeof rec.updatedAt === 'string' && rec.updatedAt ? rec.updatedAt : new Date().toISOString(),
+      updatedAt:
+        typeof rec.updatedAt === 'string' && rec.updatedAt
+          ? rec.updatedAt
+          : new Date().toISOString(),
     });
   }
   return result;
+}
+
+/**
+ * Builds the unified subject registry combining standard grouped subjects,
+ * independent subjects, custom package subjects, and any preserved legacy selections.
+ * Deduplicates case-insensitively and retains stable IDs and package associations.
+ */
+export function buildUnifiedSubjectRegistry(
+  preferredSubjects: string[] = [],
+  customPackages: CustomSubjectPackage[] = []
+): SubjectDefinition[] {
+  const byKey = new Map<string, SubjectDefinition>();
+
+  for (const std of STANDARD_SUBJECTS) {
+    byKey.set(std.name.toLowerCase(), { ...std, packageIds: [] });
+  }
+
+  for (const pkg of customPackages) {
+    for (const rawSub of pkg.subjects) {
+      const trimmed = rawSub.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      const existing = byKey.get(key);
+      if (existing) {
+        const nextIds = existing.packageIds ? [...existing.packageIds] : [];
+        if (!nextIds.includes(pkg.id)) nextIds.push(pkg.id);
+        byKey.set(key, { ...existing, packageIds: nextIds });
+      } else {
+        byKey.set(key, {
+          id: toSubjectId(trimmed, 'custom'),
+          name: trimmed,
+          parentGroupId: null,
+          type: 'custom',
+          packageIds: [pkg.id],
+        });
+      }
+    }
+  }
+
+  // Preserve any legacy or previously saved user selections not in standard/packages
+  for (const rawSub of normalizeSubjectList(preferredSubjects)) {
+    const key = rawSub.toLowerCase();
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        id: toSubjectId(rawSub, 'custom'),
+        name: rawSub,
+        parentGroupId: null,
+        type: 'custom',
+        packageIds: [],
+      });
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+export function getCustomSubjects(registry: SubjectDefinition[]): SubjectDefinition[] {
+  return registry.filter((entry) => entry.type === 'custom');
 }
 
 export function toggleCategorySubjects(
@@ -176,6 +244,12 @@ export function isPackageFullySelected(current: string[], pkgSubjects: string[])
   return pkgSubjects.every((s) => currentKeys.has(s.trim().toLowerCase()));
 }
 
-export function getPreferredSubjectOptions(preferredSubjects: string[]): string[] {
-  return normalizeSubjectList(preferredSubjects);
+export function getPreferredSubjectOptions(
+  preferredSubjects: string[],
+  customPackages: CustomSubjectPackage[] = []
+): string[] {
+  const selected = normalizeSubjectList(preferredSubjects);
+  if (customPackages.length === 0) return selected;
+  const pkgSubjects = customPackages.flatMap((pkg) => pkg.subjects);
+  return normalizeSubjectList([...selected, ...pkgSubjects]);
 }

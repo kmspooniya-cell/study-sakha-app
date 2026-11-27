@@ -21,8 +21,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
-import type { AppNavigation } from '../lib/navigation';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { useStore, type User } from '../lib/store';
 import { EXAMS } from '../lib/data';
 import { focusLockNative } from '../lib/focusLockNative';
@@ -483,6 +483,7 @@ function normalizeSettingsState(raw: SettingsState): SettingsState {
    -------------------------------------------------------------------------- */
 export function SettingsScreen() {
   const navigation = useNavigation<AppNavigation>();
+  const route = useRoute<AppRoute<'Settings'>>();
   const { state, dispatch, saveProfile, signOut, streak, todayMinutes } = useStore();
   const accountStorageKey = useMemo(
     () => state.user?.id
@@ -500,7 +501,9 @@ export function SettingsScreen() {
   const appearanceSyncRef = useRef('');
 
   // 3-Level Navigation State
-  const [navLevel, setNavLevel] = useState<1 | 2 | 3>(1);
+  const [navLevel, setNavLevel] = useState<1 | 2 | 3>(
+    () => (route.params?.openDetail === 'preferred_subjects' ? 3 : 1)
+  );
   const navLevelRef = useRef<1 | 2 | 3>(1);
   const bypassBeforeRemoveRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -508,8 +511,19 @@ export function SettingsScreen() {
   useEffect(() => {
     navLevelRef.current = navLevel;
   }, [navLevel]);
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState<string | null>(
+    () => (route.params?.openDetail === 'preferred_subjects' ? 'learning' : null)
+  );
+  const [detailId, setDetailId] = useState<string | null>(
+    () => (route.params?.openDetail === 'preferred_subjects' ? 'preferred_subjects' : null)
+  );
+  useEffect(() => {
+    if (route.params?.openDetail === 'preferred_subjects') {
+      setCategoryId('learning');
+      setDetailId('preferred_subjects');
+      setNavLevel(3);
+    }
+  }, [route.params?.openDetail]);
   const [searchQuery, setSearchQuery] = useState('');
   const scrollOffsetsRef = useRef<Record<string, number>>({});
 
@@ -962,6 +976,9 @@ export function SettingsScreen() {
 
   useEffect(() => {
     const handler = () => {
+      if (typeof (navigation as { isFocused?: () => boolean }).isFocused === 'function' && !(navigation as { isFocused: () => boolean }).isFocused()) {
+        return false;
+      }
       if (modalConfig.visible) {
         setModalConfig((current) => ({ ...current, visible: false }));
         return true;
@@ -983,7 +1000,7 @@ export function SettingsScreen() {
     if (Platform.OS !== 'android') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
     return () => subscription.remove();
-  }, [feedbackModal.visible, goBack, modalConfig.visible, pickerModal.visible]);
+  }, [feedbackModal.visible, goBack, modalConfig.visible, navigation, pickerModal.visible]);
 
   useEffect(() => {
     const addListener = (navigation as any).addListener as ((event: string, listener: (event: any) => void) => () => void) | undefined;
@@ -3832,16 +3849,12 @@ export function SettingsScreen() {
       const customPackages = Array.isArray(state.settings?.customSubjectPackages)
         ? state.settings.customSubjectPackages
         : [];
-      title = t('Preferred Subjects', 'पसंदीदा विषय');
-      subtitle = t(
-        'Organize subjects by category, create custom packages, and sync with Study Planner.',
-        'श्रेणी के अनुसार विषय चुनें, कस्टम पैकेज बनाएं और स्टडी प्लानर से सिंक करें।'
-      );
-      body = (
+      return (
         <PreferredSubjectsManager
           preferredSubjects={currentPreferred}
           customPackages={customPackages}
           activePackageId={state.settings?.activeSubjectPackageId ?? null}
+          onBack={goBack}
           t={t}
           onChange={(next) => {
             mutateSettings((d) => {
@@ -4308,7 +4321,8 @@ export function SettingsScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
 
-      {/* Sticky Top Header */}
+      {/* Sticky Top Header (hidden on Subject Preferences which uses its own minimal header) */}
+      {!(navLevel === 3 && detailId === 'preferred_subjects' && !searchQuery.trim()) ? (
       <View style={[styles.header, { backgroundColor: colors.headerBg, borderBottomColor: colors.border }]}>
         {navLevel > 1 ? (
           <TouchableOpacity
@@ -4364,6 +4378,7 @@ export function SettingsScreen() {
           ) : null}
         </TouchableOpacity>
       </View>
+      ) : null}
 
       {/* Main Responsive Workspace */}
       <View style={{ flex: 1, flexDirection: 'row' }}>

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { DrawerActions, StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import React, { useCallback, useEffect, useState } from 'react';
-import { BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View } from 'react-native';
+import { StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, Share, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
@@ -10,6 +10,7 @@ import { Divider, IconButton, Txt } from './ui';
 import { getAndroidBackTarget } from '../lib/navigation';
 import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
 import { translateLabel } from '../lib/i18n';
+import { getAppShareUrl, getDistributionLinkMessage } from '../lib/shareLinks';
 
 export type NavKey =
 | 'Dashboard'
@@ -85,15 +86,16 @@ isDesktop: width >= 1180,
 };
 }
 
-export function isAppDrawerOpen(nav: AppNavigation) {
-const history = nav.getParent()?.getState().history;
-return Array.isArray(history) && history.some((item: unknown) =>
-typeof item === 'object' && item !== null && 'type' in item && item.type === 'drawer'
-);
-}
-
-function popToRoute(nav: AppNavigation, name: AppStackRouteName) {
+function navigateToRoute(nav: AppNavigation, name: AppStackRouteName) {
+const state = nav.getState?.();
+const currentRoute = state?.routes?.[state.index ?? 0]?.name;
+if (currentRoute === name) return;
+const existsInStack = Array.isArray(state?.routes) && state.routes.some((route) => route.name === name);
+if (existsInStack) {
 nav.dispatch(StackActions.popTo(name));
+return;
+}
+nav.navigate(name as never);
 }
 
 export function useSmartAndroidBack(onBack?: () => boolean) {
@@ -104,12 +106,11 @@ useFocusEffect(
 useCallback(() => {
 if (Platform.OS !== 'android' || ['DashboardRoot', 'Groups', 'FocusLock'].includes(route.name)) return;
 const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-if (isAppDrawerOpen(nav)) return false;
 if (onBack?.()) return true;
 const state = nav.getState();
 const target = getAndroidBackTarget(route.name, state.routes.slice(0, state.index).map((item) => item.name));
 if (!target) return false;
-popToRoute(nav, target);
+navigateToRoute(nav, target);
 return true;
 });
 return () => subscription.remove();
@@ -128,7 +129,16 @@ const nav = useNavigation<AppNavigation>();
 const route = useRoute<AppHeaderRoute>();
 const insets = useSafeAreaInsets();
 const { mode, scheme, colors } = useTheme();
-const { unread, dispatch, syncStatus } = useStore();
+const { state, unread, dispatch, syncStatus } = useStore();
+const language = state.settings.language;
+
+// Overflow Menu States
+const [menuVisible, setMenuVisible] = useState(false);
+const menuButtonRef = useRef<View>(null);
+const { width, height: windowHeight } = useWindowDimensions();
+const defaultAnchorTop = (safeAreaTop ? insets.top : 0) + 54;
+const defaultAnchorRight = width < 768 ? 14 : 22;
+const [menuAnchor, setMenuAnchor] = useState({ top: defaultAnchorTop, right: defaultAnchorRight });
 
 // Help Modal Multi-Step States
 const [helpModalVisible, setHelpModalVisible] = useState(false);
@@ -139,7 +149,6 @@ const [includeScreenshot, setIncludeScreenshot] = useState(false);
 const [selectedSubIssue, setSelectedSubIssue] = useState('Subscription Issue');
 const [descriptionText, setDescriptionText] = useState('');
 
-const { width } = useWindowDimensions();
 const parentState = nav.getParent?.()?.getState?.();
 const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
 const parentHeaderBrand =
@@ -159,9 +168,65 @@ const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
 dispatch({ type: 'settings', patch: { themeMode: next } });
 };
 
-const navigate = (name: AppStackRouteName) => popToRoute(nav, name);
-const openMenu = () => nav.dispatch(DrawerActions.openDrawer());
+const navigate = useCallback((name: AppStackRouteName) => {
+setMenuVisible(false);
+navigateToRoute(nav, name);
+}, [nav]);
 const goHome = () => navigate('DashboardRoot');
+
+useEffect(() => {
+const addListener = (nav as { addListener?: (event: string, listener: () => void) => () => void }).addListener;
+if (!addListener) return undefined;
+return addListener('blur', () => {
+setMenuVisible(false);
+});
+}, [nav]);
+
+const closeMenu = useCallback(() => setMenuVisible(false), []);
+
+const openOverflowMenu = useCallback(() => {
+const fallbackTop = Math.max(insets.top + 8, Math.min(defaultAnchorTop, windowHeight - 230));
+const fallbackRight = Math.max(12, defaultAnchorRight);
+setMenuAnchor({ top: fallbackTop, right: fallbackRight });
+setMenuVisible(true);
+const buttonNode = menuButtonRef.current;
+if (buttonNode && typeof buttonNode.measureInWindow === 'function') {
+buttonNode.measureInWindow((x, y, buttonWidth, buttonHeight) => {
+if (!Number.isFinite(x) || !Number.isFinite(y) || buttonWidth <= 0 || buttonHeight <= 0) return;
+const clampedTop = Math.max(insets.top + 8, Math.min(y + buttonHeight + 6, windowHeight - 230));
+const clampedRight = Math.max(12, Math.min(width - (x + buttonWidth), width - 220));
+setMenuAnchor({ top: clampedTop, right: clampedRight });
+});
+}
+}, [defaultAnchorRight, defaultAnchorTop, insets.top, width, windowHeight]);
+
+const openHelpModal = useCallback(() => {
+setMenuVisible(false);
+setHelpStep(1);
+setHelpModalVisible(true);
+}, []);
+
+const handleShareApp = useCallback(async () => {
+setMenuVisible(false);
+try {
+const url = getAppShareUrl();
+const result = await Share.share(
+{
+title: 'Study Sakha',
+message: `I'm using Study Sakha to prepare for competitive exams. ${getDistributionLinkMessage()}\n${url}`,
+...(Platform.OS === 'ios' ? { url } : {}),
+},
+{ dialogTitle: 'Share Study Sakha' }
+);
+if (result?.action === Share.dismissedAction) return;
+} catch (error) {
+if (error instanceof Error && error.name === 'AbortError') return;
+Alert.alert(
+'Unable to share',
+error instanceof Error ? error.message : 'Sharing is not supported on this device.'
+);
+}
+}, []);
 
 const glassBackground = scheme === 'dark' ? 'rgba(20,28,46,0.92)' : 'rgba(248,248,250,0.92)';
 const secondaryText = colors.textMuted;
@@ -195,9 +260,6 @@ return (
 <View style={{ backgroundColor: glassBackground, borderBottomWidth: 1, borderBottomColor: `${colors.border}CC`, paddingTop: safeAreaTop ? insets.top : 0 }}>
 <View style={{ width: '100%', minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: width < 768 ? 16 : 24 }}>
 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-<Pressable onPress={openMenu} style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceAlt : 'transparent' })} accessibilityRole="button" accessibilityLabel="Open menu">
-<Ionicons name="menu-outline" size={22} color={colors.text} />
-</Pressable>
 <Pressable
 onPress={!isHome && !isSakhaAI ? goHome : undefined}
 disabled={isHome || isSakhaAI}
@@ -235,30 +297,95 @@ color={syncStatus === 'offline' || syncStatus === 'error' ? colors.danger : seco
 </View>
 </Pressable>
 
-{/* Help Button in Header */}
+{/* Three-Dot Overflow Menu Button */}
+<View ref={menuButtonRef} collapsable={false}>
 <Pressable
-onPress={() => {
-setHelpStep(1);
-setHelpModalVisible(true);
-}}
+onPress={openOverflowMenu}
 accessibilityRole="button"
-accessibilityLabel="Open Help Menu"
+accessibilityLabel="More options"
+accessibilityState={{ expanded: menuVisible }}
+testID="header-more-button"
 style={({ pressed }) => ({
 width: 36,
 height: 36,
 borderRadius: 18,
 alignItems: 'center',
 justifyContent: 'center',
-backgroundColor: scheme === 'dark' ? '#2A2D32' : colors.surfaceAlt,
-borderWidth: 1,
-borderColor: colors.border,
+backgroundColor: menuVisible || pressed ? colors.surfaceAlt : 'transparent',
 opacity: pressed ? 0.8 : 1,
 })}
 >
-<Ionicons name="help-circle-outline" size={20} color={colors.text} />
+<Ionicons name="ellipsis-vertical" size={20} color={colors.text} />
 </Pressable>
 </View>
 </View>
+</View>
+
+{/* WhatsApp-style Anchored Overflow Menu */}
+<Modal
+animationType="none"
+transparent
+statusBarTranslucent
+visible={menuVisible}
+onRequestClose={closeMenu}
+>
+<Pressable
+onPress={closeMenu}
+accessibilityLabel="Close menu"
+testID="header-overflow-backdrop"
+style={{ flex: 1, backgroundColor: 'transparent' }}
+>
+<Pressable
+onPress={(e) => e.stopPropagation()}
+accessibilityRole="menu"
+testID="header-overflow-menu"
+style={{
+position: 'absolute',
+top: menuAnchor.top,
+right: menuAnchor.right,
+minWidth: 212,
+maxWidth: Math.min(264, width - 24),
+borderRadius: 14,
+backgroundColor: scheme === 'dark' ? colors.surface : '#FFFFFF',
+borderWidth: 1,
+borderColor: scheme === 'dark' ? colors.border : 'rgba(15, 23, 42, 0.08)',
+overflow: 'hidden',
+...(Platform.OS === 'web'
+? ({ boxShadow: scheme === 'dark' ? '0 10px 28px rgba(0,0,0,0.45)' : '0 8px 24px rgba(15,23,42,0.14)' } as any)
+: shadow(colors, 3)),
+}}
+>
+{[
+{ key: 'guide', label: translateLabel('How to use the app', language), icon: 'book-outline' as const, onPress: () => navigate('AppGuide') },
+{ key: 'settings', label: translateLabel('Settings', language), icon: 'settings-outline' as const, onPress: () => navigate('Settings') },
+{ key: 'help', label: translateLabel('Help', language), icon: 'help-circle-outline' as const, onPress: openHelpModal },
+{ key: 'share', label: translateLabel('Share with friends', language), icon: 'share-social-outline' as const, onPress: () => { void handleShareApp(); } },
+].map((item, idx) => (
+<React.Fragment key={item.key}>
+{idx > 0 ? <View style={{ height: 1, backgroundColor: colors.borderSubtle }} /> : null}
+<Pressable
+onPress={item.onPress}
+accessibilityRole="menuitem"
+accessibilityLabel={item.label}
+testID={`header-menu-${item.key}`}
+style={({ pressed }) => ({
+flexDirection: 'row',
+alignItems: 'center',
+gap: 12,
+minHeight: 46,
+paddingHorizontal: 16,
+paddingVertical: 12,
+backgroundColor: pressed ? colors.surfaceInteractive : 'transparent',
+})}
+>
+<Ionicons name={item.icon} size={19} color={colors.text} />
+<Txt size={14.5} weight="600" color={colors.text}>{item.label}</Txt>
+</Pressable>
+</React.Fragment>
+))}
+</Pressable>
+</Pressable>
+</Modal>
 
 {/* Multi-Step Help Modal */}
 <Modal
@@ -464,7 +591,7 @@ const { width } = useWindowDimensions();
 
 const go = (key: NavKey) => {
 const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-popToRoute(nav, routeName);
+navigateToRoute(nav, routeName);
 };
 
 const glassBackground = colors.bg === '#0C1220' ? 'rgba(20,28,46,0.94)' : 'rgba(255,255,255,0.88)';
@@ -551,7 +678,7 @@ const hasPageHeading = Boolean(title.trim() || subtitle?.trim());
 
 const go = (key: NavKey) => {
 const routeName = key === 'Dashboard' ? 'DashboardRoot' : key;
-popToRoute(nav, routeName);
+navigateToRoute(nav, routeName);
 };
 
 const Sidebar = (

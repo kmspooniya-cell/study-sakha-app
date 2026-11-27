@@ -32,7 +32,7 @@ Last verified: 2026-11-25
 
 | ID | Decision | Rationale | Constraints |
 |---|---|---|---|
-| **DEC-001** | Use React Navigation (Root Stack -> Drawer -> Authenticated Stack) instead of Expo Router | Existing navigation, `studysakha://` linking, custom drawer, and back-target policies are built on `@react-navigation/*` (`App.tsx`, `lib/navigation.ts`). | Keep all route names and params typed in `lib/navigation.ts`. |
+| **DEC-001** | Use React Navigation (Root Stack -> Authenticated Native Stack) without a left Drawer | `AuthenticatedStackNavigator` mounts directly on `Dashboard` (`App.tsx`, `lib/navigation.ts`); header overflow actions (`How to use the app`, `Settings`, `Help`, `Share with friends`) live in `AppHeader` (`components/Shell.tsx`). | Keep all route names and params typed in `lib/navigation.ts` and preserve `Profile`, `Settings`, `AppGuide`, and `LibraryDownloads` routes. |
 | **DEC-002** | Keep `StoreProvider` (`useReducer`) + user-scoped `AsyncStorage` as primary local state | Synchronous deterministic reducer with immediate offline availability and strict per-user key isolation (`sakha-store-v1:user:<id>`). | Do not persist transient UI flags, secrets, or native handles. |
 | **DEC-003** | Cloud Account Sync via single versioned JSON document (`account_sync_documents`) + optimistic-concurrency RPC | Avoids per-entity schema churn while enabling offline queue, timestamp/tombstone conflict resolution (`lib/sync/`), and Realtime acceleration. | Excludes passwords, tokens, managed content, group records, native permissions, and local file paths. |
 | **DEC-004** | Keep `GEMINI_API_KEY` and Supabase service-role secrets strictly server-side (`server.js` / Vercel) | Prevents credential extraction from mobile/web client bundles. `/api/chat` authenticates callers via Supabase Bearer token and rate-limits per user. | Native builds require `EXPO_PUBLIC_API_BASE_URL` to be an absolute `https://` URL (`app.config.js`). |
@@ -44,3 +44,15 @@ Last verified: 2026-11-25
 ## DEC-013 — Classify Alarm hardware behavior explicitly
 
 The Alarm module must not claim device reliability beyond the implemented native boundary. The separate Android engine owns AlarmManager scheduling, boot/time-change recovery, notification delivery, system alarm audio, and vibration; the React Native module remains the source of truth and UI event consumer. Manual mission flows for QR/photo/shake/steps and sleep-stage behavior remain simulated/UI-only until supported by device APIs.
+
+## DEC-014 — 2026-11-27 — Keep Sakha actions structured and allowlisted
+
+AI navigation actions remain a server-validated data contract, not executable model output. The server strips all internal action tags from display text, validates route names and parameters against the typed navigation allowlist, returns both a backward-compatible first `action` and an `actions` array, and the client renders explicit action cards that navigate only through React Navigation.
+
+Constraints: never execute arbitrary AI code; invalid actions degrade to normal text; authorization remains enforced by existing authenticated navigation/backend rules; model/provider selection stays internal to the chat screen.
+
+## DEC-015 — 2026-11-27 — Preserve authenticated state across transient auth failures
+
+Supabase session verification, profile reads, and admin-role enrichment are separated into authoritative logout events versus retryable failures. A persisted session user keeps the StoreProvider authenticated during network/profile failures; only explicit `SIGNED_OUT` or classified invalid/expired/revoked token failures clear the user. Root navigation remains gated by the single StoreProvider state.
+
+Constraints: do not create a parallel auth provider, do not bypass RLS or Supabase verification, keep local manual logout immediate, and verify token-revocation behavior against the live Supabase project before final release sign-off.

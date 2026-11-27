@@ -8,7 +8,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -16,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GeminiFocusTimer from '../components/GeminiFocusTimer';
 import type { FocusTimerController } from '../components/GeminiFocusTimer';
 import { FocusMusicSelection } from '../components/FocusMusicSelection';
-import { isAppDrawerOpen } from '../components/Shell';
 import { Button, Txt } from '../components/ui';
 import {
   FocusSessionProvider,
@@ -44,8 +42,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
 
   const [musicSelectionVisible, setMusicSelectionVisible] = useState(false);
   const [groupSelectModalVisible, setGroupSelectModalVisible] = useState(false);
-  const [tagModalVisible, setTagModalVisible] = useState(false);
-  const [customTagInput, setCustomTagInput] = useState('');
   const [showDiagnosticPanel, setShowDiagnosticPanel] = useState(false);
 
   const returningToOrigin = useRef(false);
@@ -72,7 +68,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
     togglePause,
     toggleBreak,
     resetSession,
-    updateSessionSubject,
     requestEndSession,
     completeSession,
     discardSession,
@@ -170,11 +165,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
 
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (isAppDrawerOpen(navigation)) return false;
-      if (tagModalVisible) {
-        setTagModalVisible(false);
-        return true;
-      }
       if (musicSelectionVisible) {
         setMusicSelectionVisible(false);
         return true;
@@ -204,7 +194,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
     musicSelectionVisible,
     navigation,
     stayInSession,
-    tagModalVisible,
   ]));
 
   const currentSession = session;
@@ -222,7 +211,9 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
   } : null;
 
   const activeSubject = currentSession
-    ? [currentSession.topic, currentSession.subject].filter(Boolean).join(' · ') || 'No subject selected'
+    ? currentSession.tagType === 'activity'
+      ? currentSession.activity || 'No subject or activity selected'
+      : [currentSession.topic, currentSession.subject].filter(Boolean).join(' · ') || 'No subject or activity selected'
     : '';
 
   const openJoinedGroup = (group: ActiveStudyGroup) => {
@@ -296,8 +287,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
           onStop={() => requestEndSession(Date.now(), { onCompleted: navigateToCompletion })}
           onBreak={toggleBreak}
           onReset={resetSession}
-          onSubjectChange={updateSessionSubject}
-          onChooseStudyTag={() => setTagModalVisible(true)}
           onGroupPress={() => setGroupSelectModalVisible(true)}
           onMusicPress={() => setMusicSelectionVisible(true)}
           blockedAppsCount={5}
@@ -312,56 +301,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
           onSelect={(id) => dispatch({ type: 'settings', patch: { focusMusicId: id } })}
           onClose={() => setMusicSelectionVisible(false)}
         />
-
-        <Modal visible={tagModalVisible} transparent animationType="fade" onRequestClose={() => setTagModalVisible(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.modalHeader}>
-                <Txt size={18} weight="800">Select Subject Tag</Txt>
-                <Pressable accessibilityRole="button" accessibilityLabel="Close subject tags" onPress={() => setTagModalVisible(false)} style={styles.closeButton}>
-                  <Ionicons name="close" size={20} color={colors.textMuted} />
-                </Pressable>
-              </View>
-              {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
-                <Pressable
-                  key={tag}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    updateSessionSubject(tag);
-                    setTagModalVisible(false);
-                  }}
-                  style={[styles.optionRow, { backgroundColor: colors.surfaceAlt }]}
-                >
-                  <Txt size={14} weight="700">{tag}</Txt>
-                  {currentSession.subject === tag ? <Ionicons name="checkmark" size={18} color={colors.blue} /> : null}
-                </Pressable>
-              ))}
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                <TextInput
-                  accessibilityLabel="Custom subject tag"
-                  style={[styles.textInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]}
-                  placeholder="Add custom tag..."
-                  placeholderTextColor={colors.textMuted}
-                  value={customTagInput}
-                  onChangeText={setCustomTagInput}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    const tag = customTagInput.trim();
-                    if (!tag) return;
-                    updateSessionSubject(tag);
-                    setCustomTagInput('');
-                    setTagModalVisible(false);
-                  }}
-                  style={[styles.addButton, { backgroundColor: colors.blue }]}
-                >
-                  <Txt size={13} weight="700" color="#FFFFFF">Add</Txt>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
 
         <Modal animationType="slide" transparent visible={groupSelectModalVisible} onRequestClose={() => setGroupSelectModalVisible(false)}>
           <View style={styles.bottomSheetBackdrop}>
@@ -537,11 +476,15 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
                       {currentSession?.plannedSeconds === null ? 'Open-ended' : formatFocusClock(currentSession?.plannedSeconds ?? 0)}
                     </Txt>
                   </View>
-                  {currentSession?.topic || currentSession?.subject ? (
+                  {currentSession?.topic || currentSession?.subject || currentSession?.activity ? (
                     <View style={styles.summaryRow}>
-                      <Txt size={12} color={colors.textMuted}>Subject / task</Txt>
+                      <Txt size={12} color={colors.textMuted}>
+                        {currentSession.tagType === 'activity' ? 'Activity' : 'Subject / task'}
+                      </Txt>
                       <Txt size={13} weight="700" numberOfLines={2} style={{ maxWidth: '60%', textAlign: 'right' }}>
-                        {[currentSession.topic, currentSession.subject].filter(Boolean).join(' · ')}
+                        {currentSession.tagType === 'activity'
+                          ? currentSession.activity
+                          : [currentSession.topic, currentSession.subject].filter(Boolean).join(' · ')}
                       </Txt>
                     </View>
                   ) : null}

@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { NavigationContext } from '@react-navigation/native';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -27,23 +28,28 @@ import {
   isFocusDurationPreset,
   MAX_FOCUS_DURATION_MINUTES,
   MIN_FOCUS_DURATION_MINUTES,
+  PREDEFINED_FOCUS_ACTIVITIES,
   validateCustomFocusDuration,
 } from '../lib/focusSetup';
 import { useTheme } from '../lib/theme';
+import { getPreferredSubjectOptions, normalizeSubjectList } from '../lib/subjectRegistry';
 
 export type FocusSessionMode = 'timer' | 'stopwatch' | 'pomodoro';
 export type FocusSessionSelection = 'schedule' | 'manual' | null;
+export type FocusSessionTagType = 'subject' | 'activity';
 export type FocusSessionSetup = {
   mode: FocusSessionMode;
   durationMinutes: number;
   selection: FocusSessionSelection;
   tag: string;
+  tagType?: FocusSessionTagType;
   task: PlannerTask | PlannerScheduleItem | null;
   scheduleOccurrenceId?: string;
   startInBreak?: boolean;
 };
 
 type SetupSubView = 'setup' | 'schedule' | 'tag';
+type TagModalTab = 'subject' | 'activity';
 type ScheduleTabStatus = 'upcoming' | 'missed' | 'completed';
 
 function toLocalDateKey(date: Date): string {
@@ -212,15 +218,27 @@ type Props = {
   onChange: (value: FocusSessionSetup) => void;
   onClose: () => void;
   onContinue: (value: FocusSessionSetup) => void;
+  onOpenSubjectPreferences?: () => void;
 };
 
-export function FocusSessionSetupModal({ visible, value, onChange, onClose, onContinue }: Props) {
+export function FocusSessionSetupModal({
+  visible,
+  value,
+  onChange,
+  onClose,
+  onContinue,
+  onOpenSubjectPreferences,
+}: Props) {
   const { colors, scheme } = useTheme();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
+  const navigation = useContext(NavigationContext);
   const [subView, setSubView] = useState<SetupSubView>('setup');
   const [scheduleStatusTab, setScheduleStatusTab] = useState<ScheduleTabStatus>('upcoming');
+  const [tagTab, setTagTab] = useState<TagModalTab>('subject');
+  const [draftSubject, setDraftSubject] = useState('');
+  const [draftActivity, setDraftActivity] = useState('');
   const [customTagInput, setCustomTagInput] = useState('');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [customActive, setCustomActive] = useState(
@@ -320,7 +338,13 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
 
   const handleSelectOccurrence = (occurrence: PlannerScheduleOccurrence) => {
     const summary = calculateScheduleFocusDuration(occurrence);
-    const subjectTag = occurrence.item.subject || occurrence.item.category || value.tag;
+    const taskSubject = occurrence.item.subject?.trim();
+    const subjectTag = taskSubject || value.tag;
+    const tagType: FocusSessionTagType | undefined = taskSubject
+      ? 'subject'
+      : value.tag
+        ? (value.tagType ?? 'subject')
+        : undefined;
     const nextDuration = summary.remainingMinutes !== null
       ? summary.remainingMinutes
       : value.durationMinutes;
@@ -335,9 +359,85 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
       scheduleOccurrenceId: occurrence.id,
       selection: 'schedule',
       tag: subjectTag,
+      tagType,
       durationMinutes: nextDuration,
     });
     setSubView('setup');
+  };
+
+  const preferredSubjectOptions = useMemo(
+    () => getPreferredSubjectOptions(
+      state.settings?.preferredSubjects ?? [],
+      state.settings?.customSubjectPackages ?? [],
+    ),
+    [state.settings?.customSubjectPackages, state.settings?.preferredSubjects],
+  );
+
+  const activityOptions = useMemo(
+    () => normalizeSubjectList([
+      ...PREDEFINED_FOCUS_ACTIVITIES,
+      ...(state.settings?.customActivities ?? []),
+    ]),
+    [state.settings?.customActivities],
+  );
+
+  const openTagManually = () => {
+    const isManual = value.selection === 'manual';
+    const currentType: TagModalTab = isManual && value.tagType === 'activity' ? 'activity' : 'subject';
+    setTagTab(currentType);
+    setDraftSubject(isManual && currentType === 'subject' ? value.tag : '');
+    setDraftActivity(isManual && currentType === 'activity' ? value.tag : '');
+    setCustomTagInput('');
+    setSubView('tag');
+  };
+
+  const handleConfirmTag = () => {
+    Keyboard.dismiss();
+    if (draftActivity) {
+      update({
+        tag: draftActivity,
+        tagType: 'activity',
+        selection: 'manual',
+        task: null,
+        scheduleOccurrenceId: undefined,
+      });
+    } else if (draftSubject) {
+      update({
+        tag: draftSubject,
+        tagType: 'subject',
+        selection: 'manual',
+        task: null,
+        scheduleOccurrenceId: undefined,
+      });
+    }
+    setCustomTagInput('');
+    setSubView('setup');
+  };
+
+  const handleAddCustomActivity = () => {
+    const clean = customTagInput.trim();
+    if (!clean) return;
+    const existingMatch = activityOptions.find(
+      (item) => item.toLowerCase() === clean.toLowerCase(),
+    );
+    const resolved = existingMatch ?? clean;
+    if (!existingMatch) {
+      const nextCustom = normalizeSubjectList([...(state.settings?.customActivities ?? []), clean]);
+      dispatch({ type: 'settings', patch: { customActivities: nextCustom } });
+    }
+    setDraftActivity(resolved);
+    setDraftSubject('');
+    setCustomTagInput('');
+    Keyboard.dismiss();
+  };
+
+  const handleOpenSubjectPreferences = () => {
+    close();
+    if (onOpenSubjectPreferences) {
+      onOpenSubjectPreferences();
+      return;
+    }
+    navigation?.navigate({ name: 'Settings', params: { openDetail: 'preferred_subjects' } } as never);
   };
 
   const handleContinuePress = () => {
@@ -457,7 +557,7 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ selected: value.selection === 'manual' }}
-                      onPress={() => setSubView('tag')}
+                      onPress={openTagManually}
                       style={[
                         styles.studySourceButton,
                         {
@@ -529,20 +629,20 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                     <View style={[styles.selectedScheduleCard, { backgroundColor: surfaceAltBg, borderColor: colors.border }]}>
                       <View style={{ flex: 1 }}>
                         <Txt color={colors.text} size={13} weight="800" numberOfLines={1}>
-                          Subject: {value.tag}
+                          {value.tagType === 'activity' ? `Activity: ${value.tag}` : `Subject: ${value.tag}`}
                         </Txt>
                       </View>
                       <Pressable
-                        onPress={() => setSubView('tag')}
+                        onPress={openTagManually}
                         accessibilityRole="button"
-                        accessibilityLabel="Change subject tag"
+                        accessibilityLabel="Change selected tag"
                       >
                         <Txt color={colors.blue} size={12} weight="800">Change</Txt>
                       </Pressable>
                       <Pressable
-                        onPress={() => update({ selection: null, tag: '', task: null, scheduleOccurrenceId: undefined })}
+                        onPress={() => update({ selection: null, tag: '', tagType: undefined, task: null, scheduleOccurrenceId: undefined })}
                         accessibilityRole="button"
-                        accessibilityLabel="Remove subject tag"
+                        accessibilityLabel="Remove selected tag"
                         style={{ marginLeft: 10 }}
                       >
                         <Ionicons name="close-circle-outline" size={20} color={colors.textMuted} />
@@ -737,60 +837,192 @@ export function FocusSessionSetupModal({ visible, value, onChange, onClose, onCo
                 <View style={styles.sheetHeaderRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <Pressable
-                      onPress={() => setSubView('setup')}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setSubView('setup');
+                      }}
                       hitSlop={8}
                       accessibilityRole="button"
                       accessibilityLabel="Back to focus setup"
                     >
                       <Ionicons name="arrow-back" size={20} color={colors.text} />
                     </Pressable>
-                    <Txt color={colors.text} size={18} weight="800">Select Subject Tag</Txt>
+                    <Txt color={colors.text} size={18} weight="800">Tag Manually</Txt>
                   </View>
                   <Pressable
-                    onPress={() => setSubView('setup')}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setSubView('setup');
+                    }}
                     hitSlop={8}
                     accessibilityRole="button"
-                    accessibilityLabel="Close subject tags"
+                    accessibilityLabel="Close tag manually"
                   >
                     <Ionicons name="close" size={20} color={colors.textMuted} />
                   </Pressable>
                 </View>
-                <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                  {['History', 'Polity', 'Economy', 'Rajasthan Geography', 'General Science', 'Work'].map((tag) => (
-                    <Pressable
-                      key={tag}
-                      onPress={() => {
-                        update({ tag, selection: 'manual', task: null, scheduleOccurrenceId: undefined });
-                        setSubView('setup');
-                      }}
-                      style={[styles.modalTagItem, { backgroundColor: surfaceAltBg, borderWidth: 1, borderColor: value.tag === tag && value.selection === 'manual' ? colors.blue : colors.border }]}
-                    >
-                      <Txt color={colors.text} size={14} weight="700">{tag}</Txt>
-                      {value.tag === tag && value.selection === 'manual' ? <Ionicons name="checkmark" size={18} color={colors.blue} /> : null}
-                    </Pressable>
-                  ))}
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                    <TextInput
-                      style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text }]}
-                      placeholder="Add custom tag..."
-                      placeholderTextColor={colors.textMuted}
-                      value={customTagInput}
-                      onChangeText={setCustomTagInput}
-                    />
-                    <Pressable
-                      onPress={() => {
-                        const tag = customTagInput.trim();
-                        if (!tag) return;
-                        update({ tag, selection: 'manual', task: null, scheduleOccurrenceId: undefined });
-                        setCustomTagInput('');
-                        setSubView('setup');
-                      }}
-                      style={[styles.addTagBtn, { backgroundColor: colors.blue }]}
-                    >
-                      <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
-                    </Pressable>
-                  </View>
+
+                <View style={[styles.tagTabBar, { backgroundColor: surfaceAltBg }]}>
+                  {([
+                    { id: 'subject', label: 'Subject' },
+                    { id: 'activity', label: 'Activity' },
+                  ] as const).map((tab) => {
+                    const active = tagTab === tab.id;
+                    return (
+                      <Pressable
+                        key={tab.id}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setTagTab(tab.id)}
+                        style={[
+                          styles.tagTabButton,
+                          active && { backgroundColor: surfaceBg },
+                        ]}
+                      >
+                        <Txt
+                          color={active ? colors.text : colors.textMuted}
+                          size={13}
+                          weight={active ? '800' : '600'}
+                        >
+                          {tab.label}
+                        </Txt>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <ScrollView
+                  style={{ flexShrink: 1 }}
+                  contentContainerStyle={{ paddingBottom: 8 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  {tagTab === 'subject' ? (
+                    preferredSubjectOptions.length === 0 ? (
+                      <View style={[styles.scheduleEmptyState, { backgroundColor: surfaceAltBg, borderRadius: 14, borderWidth: 1, borderColor: colors.border }]}>
+                        <Ionicons name="book-outline" size={26} color={colors.textMuted} />
+                        <Txt color={colors.text} size={14} weight="700" style={{ textAlign: 'center' }}>
+                          No subjects selected in Subject Preferences
+                        </Txt>
+                        <Txt color={colors.textMuted} size={12} style={{ textAlign: 'center' }}>
+                          Select your subjects in Subject Preferences to tag focus sessions by subject.
+                        </Txt>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={handleOpenSubjectPreferences}
+                          style={[styles.openPrefsBtn, { backgroundColor: colors.blue }]}
+                        >
+                          <Txt color="#FFFFFF" size={12.5} weight="700">Open Subject Preferences</Txt>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      preferredSubjectOptions.map((subjectName) => {
+                        const selected = draftSubject === subjectName && !draftActivity;
+                        return (
+                          <Pressable
+                            key={subjectName}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            onPress={() => {
+                              setDraftSubject(subjectName);
+                              setDraftActivity('');
+                            }}
+                            style={[
+                              styles.modalTagItem,
+                              {
+                                backgroundColor: selected ? `${colors.blue}16` : surfaceAltBg,
+                                borderWidth: selected ? 1.5 : 1,
+                                borderColor: selected ? colors.blue : colors.border,
+                              },
+                            ]}
+                          >
+                            <Txt color={selected ? colors.blue : colors.text} size={14} weight="700">
+                              {subjectName}
+                            </Txt>
+                            {selected ? <Ionicons name="checkmark-circle" size={18} color={colors.blue} /> : null}
+                          </Pressable>
+                        );
+                      })
+                    )
+                  ) : (
+                    <>
+                      <View style={styles.activityGrid}>
+                        {activityOptions.map((activityName) => {
+                          const selected = draftActivity === activityName && !draftSubject;
+                          return (
+                            <Pressable
+                              key={activityName}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                              onPress={() => {
+                                setDraftActivity(activityName);
+                                setDraftSubject('');
+                              }}
+                              style={[
+                                styles.activityChip,
+                                {
+                                  backgroundColor: selected ? `${colors.blue}16` : surfaceAltBg,
+                                  borderWidth: selected ? 1.5 : 1,
+                                  borderColor: selected ? colors.blue : colors.border,
+                                },
+                              ]}
+                            >
+                              <Txt
+                                color={selected ? colors.blue : colors.text}
+                                size={13}
+                                weight="700"
+                                numberOfLines={1}
+                              >
+                                {activityName}
+                              </Txt>
+                              {selected ? <Ionicons name="checkmark-circle" size={16} color={colors.blue} /> : null}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                        <TextInput
+                          style={[styles.modalInput, { backgroundColor: surfaceAltBg, borderColor: colors.border, color: colors.text }]}
+                          placeholder="Add custom activity..."
+                          placeholderTextColor={colors.textMuted}
+                          value={customTagInput}
+                          onChangeText={setCustomTagInput}
+                          onSubmitEditing={handleAddCustomActivity}
+                          returnKeyType="done"
+                        />
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={handleAddCustomActivity}
+                          style={[styles.addTagBtn, { backgroundColor: colors.blue }]}
+                        >
+                          <Txt color="#FFFFFF" size={13} weight="700">Add</Txt>
+                        </Pressable>
+                      </View>
+                    </>
+                  )}
                 </ScrollView>
+
+                <View style={[styles.setupFooter, { flexDirection: 'row', gap: 10 }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setSubView('setup');
+                    }}
+                    style={[styles.cancelTagBtn, { backgroundColor: surfaceAltBg, borderColor: colors.border }]}
+                  >
+                    <Txt color={colors.text} size={13.5} weight="700">Cancel</Txt>
+                  </Pressable>
+                  <View style={{ flex: 1 }}>
+                    <Button
+                      label="Confirm"
+                      full
+                      size="lg"
+                      disabled={!draftSubject && !draftActivity}
+                      onPress={handleConfirmTag}
+                    />
+                  </View>
+                </View>
               </>
             )}
           </View>
@@ -843,4 +1075,19 @@ const styles = StyleSheet.create({
   modalTagItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, marginBottom: 8 },
   modalInput: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 13.5 },
   addTagBtn: { paddingHorizontal: 16, minHeight: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  tagTabBar: { flexDirection: 'row', borderRadius: 12, padding: 4, marginBottom: 12 },
+  tagTabButton: { flex: 1, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
+  activityGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  activityChip: {
+    width: '48.5%',
+    minHeight: 46,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  openPrefsBtn: { marginTop: 6, paddingHorizontal: 16, minHeight: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  cancelTagBtn: { minHeight: 48, paddingHorizontal: 18, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 });

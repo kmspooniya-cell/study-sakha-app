@@ -1,5 +1,36 @@
 # Development Log — Study Sakha
 
+## 2026-11-27 — Left Drawer Removal, WhatsApp-Style Header Overflow Menu & Android Settings Navigation Fix
+- **Left Drawer Removal (`App.tsx`, `lib/navigation.ts`, `components/Shell.tsx`, `screens/FocusCenterScreen.tsx`, `screens/GroupsScreen.tsx`):**
+  - Removed `createDrawerNavigator`, `MainDrawerNavigator`, `CustomDrawerContent`, `executeDrawerTargetNavigation`, `DrawerParamList`, `AppDrawerContentProps`, `isAppDrawerOpen`, and the header hamburger (`menu-outline`) button.
+  - Mounted `AuthenticatedStackNavigator` directly on Root Stack `Dashboard`, flattening `linking.config.screens.Dashboard` and `navigationRef.navigate('Dashboard', ...)` calls without `MainStack` nesting while preserving all 29 routes (`Profile`, `Settings`, `AppGuide`, `LibraryDownloads`, etc.).
+- **Three-Dot Overflow Menu (`components/Shell.tsx`):**
+  - Replaced the top-right circular Help button in `AppHeader` with an `ellipsis-vertical` button (`header-more-button`) opening a right-aligned, anchored dropdown (`Modal` with `animationType="none"`, `statusBarTranslucent`, `onRequestClose`, outside-tap backdrop, light/dark surface tokens, shadow, and status-bar/viewport clamping).
+  - Menu displays the exact four options in order: `How to use the app` (`book-outline` -> `AppGuide`), `Settings` (`settings-outline` -> `Settings`), `Help` (`help-circle-outline` -> existing multi-step Help modal), and `Share with friends` (`share-social-outline` -> existing `Share.share` logic from `lib/shareLinks.ts`).
+- **Android Repeated Settings Navigation Fix (`components/Shell.tsx`, `screens/SettingsScreen.tsx`):**
+  - **Root Cause:** `Drawer.Navigator` (`MainDrawerNavigator`) previously delayed navigation until Reanimated `transitionEnd` / 350ms fallback across the drawer-to-stack boundary, and `components/Shell.tsx`'s `popToRoute` dispatched `StackActions.popTo(name)` unconditionally—which in React Navigation v7 `StackRouter` replaces `DashboardRoot` (`index === 0`) when `Settings` is not yet in the stack. Additionally, `SettingsScreen.tsx`'s `BackHandler` lacked an `isFocused()` guard when stacked behind other routes.
+  - **Fix:** Eliminated the Drawer boundary, updated `navigateToRoute` in `components/Shell.tsx` to use `StackActions.popTo(name)` only when `name` already exists in `state.routes` and `nav.navigate(name)` otherwise (skipping when `currentRoute === name`), reset `menuVisible` on `blur` and before navigating, and added `navigation.isFocused()` guard to `SettingsScreen.tsx`'s `BackHandler`.
+- **Verification:** `test/drawerSettingsNavigation.test.tsx`, `test/navigationLayoutFixes.test.tsx`, and `test/navigationBack.test.tsx` passed (3/3 suites, 18/18 tests, including 12 consecutive Android Settings cycles); `EXPO_NO_TELEMETRY=1 pnpm exec expo lint` passed; `tsc --noEmit` reported 0 errors in all modified files. Physical Android device runtime remains not verified in Codespace.
+
+## 2026-11-27 — Unified Study Data Flow & Focus Subject/Activity Integration
+- Extended `FocusHistoryRecord` (`lib/focusHistory.ts`), `ActiveFocusSession` / `CompletionRecord` (`lib/focusSession.tsx`), `FocusSessionSetup` (`components/FocusSessionSetupModal.tsx`), `AppStackParamList` (`lib/navigation.ts`), and `State['settings']['customActivities']` (`lib/store.tsx`) to support unified `tagType?: 'subject' | 'activity'` and `activity?: string` across Subject Preferences, Study Planner, Focus Centre, Focus Completion, and Statistics.
+- Redesigned Focus Session Setup → **Tag Manually** (`components/FocusSessionSetupModal.tsx`) into a bottom sheet with a horizontal `[ Subject ] [ Activity ]` tab bar, draft selection state preserved across tab switches, mutual exclusivity between Subject and Activity, `Confirm` / `Cancel` semantics, dynamic Subject Preferences list with empty state + direct `Settings` (`openDetail: 'preferred_subjects'`) navigation, and predefined + custom Activity selection (`lib/focusSetup.ts`).
+- Removed the subject-selection dropdown and hardcoded `SUBJECTS` / `tagModalVisible` picker from `components/GeminiFocusTimer.tsx` and `screens/FocusCenterScreen.tsx`; active Focus Centre now displays the selected subject/activity (or `"No subject or activity selected"`) as non-interactive informational text.
+- Updated `screens/FocusCompletionScreen.tsx` to replace `INITIAL_SUBJECTS` fallback with `getPreferredSubjectOptions` / `PREDEFINED_FOCUS_ACTIVITIES` and preserve `tagType: 'activity'` on reflection edits.
+- Updated `lib/statistics.ts` and `screens/StatisticsScreen.tsx` to exclude `interrupted`/`abandoned` sessions, merge `state.focusHistory` with `AsyncStorage` history, separate **Subject-wise Analytics** from **Activity-wise Analytics**, and display `"No study data available yet"` empty states.
+
+## 2026-11-27 — Subject Preferences Structure Redesign (Hierarchical Groups & Unified Custom Registry)
+- Reorganized `lib/subjectRegistry.ts` into 4 parent groups (`General Studies – India`, `General Studies – Rajasthan`, `Science`, `RAS Mains Subjects`) and 5 independent subjects (`Technology`, `Environment`, `Mathematics`, `Reasoning`, `Current Affairs`), plus `buildUnifiedSubjectRegistry()` with stable IDs, case-insensitive deduplication across packages, and preservation of custom/legacy subjects.
+- Simplified `PreferredSubjectsManager.tsx` and `SettingsScreen.tsx` top header to show ONLY the back arrow and `Subject Preferences` title (hiding the outer Settings search/title/avatar header on this view).
+- Implemented single-open accordion parent groups (`Select All` / `Clear All`, `x/y` counts), direct independent/custom subject buttons, removable `Selected Subjects` chips, and search with parent group context.
+- Connected `components/FocusSessionSetupModal.tsx` tag picker to `getPreferredSubjectOptions(preferredSubjects, customSubjectPackages)` so all selected and custom-package subjects are available in Focus Session Setup alongside Study Planner and individual Statistics tracking.
+
+## 2026-11-27 — Preferred Subjects UI Redesign (Academic Preference Workspace)
+- Redesigned `components/PreferredSubjectsManager.tsx` into a structured Academic Preference Workspace while preserving 100% of existing subject data (`lib/subjectRegistry.ts`), store persistence (`lib/store.tsx`), Study Planner sync, custom package CRUD, and bilingual localization.
+- Added Section A Compact Header (`Subject Preferences`, `"Build your study focus"`, subject & category counts, search focus button, back navigation), Section B expandable Selected Subjects Summary (`Your Selected Subjects`, preview chips + `+N more` + `View All` / `Show Less` + `Clear All`), Section C Find Subjects (`"Search subjects..."` input + horizontal scrolling category tabs starting with `All Subjects`), Section D checkbox-based subject selection rows with `Select All` / `Clear All` per category, Section E compact Custom Packages section, and Section F docked Bottom Action Area (`{N} selected • Synced with Study Planner` + `Done`).
+- Updated `screens/SettingsScreen.tsx` (`detailId === 'preferred_subjects'`) to render `PreferredSubjectsManager` directly in a `flex: 1` container with `onBack={goBack}` so the compact header and bottom action bar dock cleanly within `SafeAreaView` and `KeyboardAvoidingView` without overlapping scrollable content.
+- Expanded `test/preferredSubjects.test.tsx` to cover header, summary expand/collapse, search + reset filters, horizontal category tabs, checkbox selection, custom package CRUD, and dark mode.
+
 ## 2026-11-27 — Groups header alignment patch
 - Corrected the Groups main-screen header order to `Groups` on the left and notification/search controls on the right. No other Groups behavior or content changed.
 
@@ -222,3 +253,18 @@ Chronological record of significant development work. **Append new entries; do n
 - Confirmed EAS authentication and submitted the configured `preview` Android APK build. EAS loaded the preview Supabase/API variables and uploaded the 227 MB archive, but rejected the build before compilation because the account's Android build quota is exhausted until 2026-12-01. No APK or build URL was produced.
 - Local `:app:compileDebugKotlin` reached Expo/Gradle configuration but was blocked before Kotlin compilation because this environment has no Android SDK or `ANDROID_HOME`/`android/local.properties`.
 - Final focused Alarm/navigation Jest checks passed (4 suites, 21 tests); Expo lint passed. Full TypeScript remains blocked by unrelated existing `GroupsScreen.tsx` and Jest typing errors. No `adb` executable or Android device/emulator is available, so runtime verification remains pending.
+
+## 2026-11-27 — Sakha AI Chat UX, Action Safety & App Awareness Upgrade
+- Inspected `SakhaAIScreen.tsx`, `Shell.tsx`, `lib/geminiChat.ts`, `lib/types.ts`, `server/gemini.js`, `server/appKnowledge.js`, `App.tsx`, `lib/store.tsx`, and navigation types before editing.
+- Removed visible model controls, model badge, history banner, and large introductory blocks while preserving internal model selection, Gemini fallback, persistence, clear-chat, sources, chips, and navigation.
+- Added Android keyboard-aware height behavior, safe-area bottom padding, bounded multiline auto-growth, keyboard-aware scrolling, and structured markdown/code/table rendering.
+- Hardened server action parsing to strip every action tag, validate route/parameters against the allowlist, preserve legacy `action`, and return validated `actions` for clickable cards.
+- Expanded the verified registry with Task Performance, Alarm, Downloads/Bookmarks, Focus Lock, richer data sources, related modules, and operational limits.
+- **Verified in session:** Expo lint passed; focused Sakha/backend tests passed (2 suites, 11 tests). Full TypeScript/Jest remain blocked by existing unrelated test/focus/group/settings failures; Android/web runtime was not verified.
+
+## 2026-11-27 — Complete Startup, Authentication & Navigation Audit
+- Traced `index.ts` bootstrap, Expo splash/React splash, provider order, StoreProvider hydration, Supabase session restore, profile/admin enrichment, root navigation gating, Homepage entry, notifications, invites, sync, and secondary data loading.
+- Confirmed the false-logout root cause: `getUser`/profile errors dispatched `authCheckFailed`, which cleared the user and reset hydrated data even for temporary network failures.
+- Added explicit auth lifecycle statuses, transient failure classification, session-user fallback during temporary verification failure, non-destructive profile/admin failure handling, authenticated offline indicator, and immediate local manual logout.
+- Added regression coverage for transient auth state preservation and network-vs-revoked-token classification.
+- **Verified in session:** focused auth/backend Jest 2 suites / 12 tests passed; Expo lint passed; TypeScript passed; Expo public config passed. Full Jest: 44 suites passed / 7 existing suites failed, 233 tests passed / 12 failed. Android/live Supabase/release env verification remains blocked or unverified.

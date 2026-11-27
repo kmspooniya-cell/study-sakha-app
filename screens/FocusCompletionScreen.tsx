@@ -32,6 +32,8 @@ import { captureRef } from 'react-native-view-shot';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { Shell } from '../components/Shell';
 import { updateFocusHistoryRecord } from '../lib/focusHistory';
+import { PREDEFINED_FOCUS_ACTIVITIES } from '../lib/focusSetup';
+import { getPreferredSubjectOptions, normalizeSubjectList } from '../lib/subjectRegistry';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
 import {
@@ -190,8 +192,6 @@ const MOOD_META: Record<MoodType, { emoji: string; label: string; shortLabel: st
   flow: { emoji: '🔥', label: 'Deep Flow', shortLabel: 'Deep Flow' },
 };
 
-const INITIAL_SUBJECTS = ['Physics', 'Mathematics', 'DSA', 'Revision', 'Mock Test'];
-
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 function formatDuration(seconds: number) {
@@ -232,7 +232,9 @@ function isValidCompletionSession(value: unknown): value is CompletionSession {
     (session.plannedMinutes === undefined || validNumber(session.plannedMinutes)) &&
     (session.mode === 'timer' || session.mode === 'stopwatch' || session.mode === 'pomodoro') &&
     (session.status === 'completed' || session.status === 'saved_early') &&
+    (session.tagType === undefined || session.tagType === 'subject' || session.tagType === 'activity') &&
     (session.subject === undefined || typeof session.subject === 'string') &&
+    (session.activity === undefined || typeof session.activity === 'string') &&
     (session.topic === undefined || typeof session.topic === 'string') &&
     (session.taskId === undefined || typeof session.taskId === 'string') &&
     (session.scheduleId === undefined || typeof session.scheduleId === 'string') &&
@@ -275,14 +277,28 @@ function FocusCompletionContent() {
   const sessionType: SessionType = session.status === 'completed' && hasReachedPlannedDuration
     ? 'complete'
     : 'early';
+  const isActivitySession = session.tagType === 'activity';
   const [selectedSubject, setSelectedSubject] = useState<string>(
-    () => session.subject || session.topic || INITIAL_SUBJECTS[0],
+    () => (isActivitySession
+      ? (session.activity || session.subject || 'Activity')
+      : (session.subject || session.topic || 'General Study')),
   );
-  const [subjects, setSubjects] = useState<string[]>(() => Array.from(new Set([
-    ...INITIAL_SUBJECTS,
-    session.topic,
-    session.subject,
-  ].filter((subject): subject is string => Boolean(subject)))));
+  const [subjects, setSubjects] = useState<string[]>(() => normalizeSubjectList(
+    isActivitySession
+      ? [
+          session.activity ?? '',
+          ...PREDEFINED_FOCUS_ACTIVITIES,
+          ...(state.settings?.customActivities ?? []),
+        ]
+      : [
+          session.subject ?? '',
+          session.topic ?? '',
+          ...getPreferredSubjectOptions(
+            state.settings?.preferredSubjects ?? [],
+            state.settings?.customSubjectPackages ?? [],
+          ),
+        ],
+  ));
   const [mood, setMood] = useState<MoodType>(() => session.focusQuality ?? 'steady');
   const darkMode = scheme === 'dark';
   const [shareTheme, setShareTheme] = useState<ShareThemeId>('obsidian');
@@ -400,6 +416,7 @@ function FocusCompletionContent() {
         durationMinutes,
         selection: matchedTask ? 'schedule' : 'manual',
         tag: subject,
+        tagType: session.tagType,
         task: matchedTask,
         ...(matchedSchedule && session.scheduleOccurrenceId
           ? { scheduleOccurrenceId: session.scheduleOccurrenceId }
@@ -539,18 +556,21 @@ function FocusCompletionContent() {
   }, [params.groupSyncWarning, showToast]);
 
   const persistReflection = useCallback(async (patch: { subject?: string; focusQuality?: MoodType }) => {
+    const historyPatch = patch.subject !== undefined && isActivitySession
+      ? { activity: patch.subject, tagType: 'activity' as const, ...(patch.focusQuality ? { focusQuality: patch.focusQuality } : {}) }
+      : patch;
     try {
       await updateFocusHistoryRecord(
         getUserScopedStorageKey('study-sakha-focus-history-v1', userId),
         session.id,
-        patch,
+        historyPatch,
       );
-      dispatch({ type: 'updateFocusHistory', id: session.id, patch });
+      dispatch({ type: 'updateFocusHistory', id: session.id, patch: historyPatch });
     } catch (error) {
       console.error('Focus session reflection could not be saved:', error);
       showToast('Unable to save your focus reflection');
     }
-  }, [dispatch, session.id, showToast, userId]);
+  }, [dispatch, isActivitySession, session.id, showToast, userId]);
 
   const handleSelectSubject = useCallback((subject: string) => {
     setSelectedSubject(subject);

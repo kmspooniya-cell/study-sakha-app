@@ -79,6 +79,9 @@ export interface StudySession {
   durationSeconds: number;
   elapsedSeconds?: number;
   subject: string;
+  tagType?: 'subject' | 'activity';
+  activity?: string;
+  sessionType?: string;
   status: 'completed' | 'ongoing';
   taskId: string | null;
 }
@@ -340,12 +343,23 @@ const createLiveDataset = (
   return {
     sessions: sessions.map((session) => {
       const startDate = session.startedAt ? new Date(session.startedAt) : null;
+      const isActivity =
+        session.tagType === 'activity' ||
+        Boolean(session.activity?.trim()) ||
+        session.sessionType === 'meditation' ||
+        session.sessionType === 'break' ||
+        session.sessionType === 'ambient';
       return {
         id: session.id,
         date: session.dateKey,
         startHour: startDate && !Number.isNaN(startDate.getTime()) ? startDate.getHours() : undefined,
         durationSeconds: session.actualSeconds,
-        subject: session.subject?.trim() || 'General Study',
+        subject: isActivity
+          ? (session.activity?.trim() || session.subject?.trim() || 'Other')
+          : (session.subject?.trim() || 'General Study'),
+        tagType: isActivity ? 'activity' : 'subject',
+        activity: isActivity ? (session.activity?.trim() || session.subject?.trim() || 'Other') : undefined,
+        sessionType: session.sessionType,
         status: 'completed',
         taskId: session.taskId ?? null,
       };
@@ -614,7 +628,38 @@ const computeDashboardAnalytics = (rawData: RawDataset, startISO: string, endISO
     }
   >();
 
+  const activityMap = new Map<
+    string,
+    {
+      activity: string;
+      color: string;
+      actualSeconds: number;
+      sessions: number;
+    }
+  >();
+
   for (const s of periodSessions) {
+    const isActivity =
+      s.tagType === 'activity' ||
+      Boolean(s.activity?.trim()) ||
+      s.sessionType === 'meditation' ||
+      s.sessionType === 'break' ||
+      s.sessionType === 'ambient';
+    if (isActivity) {
+      const activityName = s.activity?.trim() || s.subject?.trim() || 'Other';
+      if (!activityMap.has(activityName)) {
+        activityMap.set(activityName, {
+          activity: activityName,
+          color: '#8B5CF6',
+          actualSeconds: 0,
+          sessions: 0,
+        });
+      }
+      const act = activityMap.get(activityName)!;
+      act.actualSeconds += s.durationSeconds;
+      act.sessions += 1;
+      continue;
+    }
     if (!subjectMap.has(s.subject)) {
       subjectMap.set(s.subject, {
         subject: s.subject,
@@ -644,6 +689,26 @@ const computeDashboardAnalytics = (rawData: RawDataset, startISO: string, endISO
     }
   }
 
+  const totalActivitySeconds = Array.from(activityMap.values()).reduce(
+    (sum, item) => sum + item.actualSeconds,
+    0,
+  );
+  const activityAnalytics = Array.from(activityMap.values())
+    .map((act) => ({
+      activity: act.activity,
+      color: act.color,
+      actualSeconds: act.actualSeconds,
+      sessions: act.sessions,
+      sharePercent:
+        totalActivitySeconds > 0 ? Math.round((act.actualSeconds / totalActivitySeconds) * 100) : 0,
+    }))
+    .sort((a, b) => b.actualSeconds - a.actualSeconds);
+
+  const totalSubjectSeconds = Array.from(subjectMap.values()).reduce(
+    (sum, item) => sum + item.actualSeconds,
+    0,
+  );
+
   const subjectAnalytics: SubjectMetric[] = Array.from(subjectMap.values())
     .map((sub) => ({
       subject: sub.subject,
@@ -656,10 +721,10 @@ const computeDashboardAnalytics = (rawData: RawDataset, startISO: string, endISO
       activeDays: sub.activeDates.size,
       avgSessionSeconds: sub.sessions > 0 ? Math.round(sub.actualSeconds / sub.sessions) : 0,
       sharePercent:
-        totalActualSeconds > 0 ? Math.round((sub.actualSeconds / totalActualSeconds) * 100) : 0,
+        totalSubjectSeconds > 0 ? Math.round((sub.actualSeconds / totalSubjectSeconds) * 100) : 0,
       exactShare:
-        totalActualSeconds > 0
-          ? Number(((sub.actualSeconds / totalActualSeconds) * 100).toFixed(1))
+        totalSubjectSeconds > 0
+          ? Number(((sub.actualSeconds / totalSubjectSeconds) * 100).toFixed(1))
           : 0,
     }))
     .sort((a, b) => b.actualSeconds - a.actualSeconds);
@@ -879,6 +944,10 @@ const computeDashboardAnalytics = (rawData: RawDataset, startISO: string, endISO
     subjects: {
       list: subjectAnalytics,
       neglectedPlanned: neglectedPlannedSubjects,
+    },
+    activities: {
+      list: activityAnalytics,
+      totalSeconds: totalActivitySeconds,
     },
     tasks: {
       total: totalTasks,
@@ -1817,7 +1886,12 @@ function StudySakhaStatisticsScreen() {
       const raw = await AsyncStorage.getItem(historyKey);
       let loadedSessions: NormalizedFocusSession[];
       try {
-        loadedSessions = normalizeFocusSessions(raw ? JSON.parse(raw) : []);
+        const storedRecords: unknown[] = raw ? JSON.parse(raw) : [];
+        const mergedRecords = [
+          ...(Array.isArray(state.focusHistory) ? state.focusHistory : []),
+          ...(Array.isArray(storedRecords) ? storedRecords : []),
+        ];
+        loadedSessions = normalizeFocusSessions(mergedRecords);
       } catch {
         if (requestId !== historyRequestId.current) return;
         setHistoryError('Focus history could not be read.');
@@ -1832,7 +1906,7 @@ function StudySakhaStatisticsScreen() {
       setHistoryError('Focus history could not be loaded.');
       setHistoryStatus('error');
     }
-  }, [historyKey]);
+  }, [historyKey, state.focusHistory]);
 
   useFocusEffect(useCallback(() => {
     void loadHistory();
@@ -2700,10 +2774,10 @@ function StudySakhaStatisticsScreen() {
                 <View style={[styles.emptyChartBox, { borderColor: c.borderCard }]}>
                   <Activity size={26} color={c.textMuted} />
                   <Text style={[styles.emptyChartTitle, { color: c.textSecondary }]}>
-                    No focus sessions logged in this range
+                    No study data available yet
                   </Text>
                   <Text style={[styles.emptyChartSub, { color: c.textMuted }]}>
-                    Start a session in Focus Center to track daily activity.
+                    Completed focus sessions will appear here.
                   </Text>
                 </View>
               ) : (
@@ -3106,10 +3180,10 @@ function StudySakhaStatisticsScreen() {
                 <View style={[styles.emptyChartBox, { borderColor: c.borderCard }]}>
                   <BookOpen size={26} color={c.textMuted} />
                   <Text style={[styles.emptyChartTitle, { color: c.textSecondary }]}>
-                    No subject focus recorded yet
+                    No study data available yet
                   </Text>
                   <Text style={[styles.emptyChartSub, { color: c.textMuted }]}>
-                    Tag your focus sessions with a subject to unlock distribution analytics.
+                    Completed focus sessions will appear here. Tag a session with a subject to view subject distribution.
                   </Text>
                 </View>
               ) : (
@@ -3233,6 +3307,67 @@ function StudySakhaStatisticsScreen() {
               )}
             </AnalyticsCard>
           </View>
+
+          {/* ==================================================================
+           * ACTIVITY-WISE TIME DISTRIBUTION (NON-SUBJECT ACTIVITIES)
+           * ================================================================== */}
+          <AnalyticsCard
+            title="Activity-wise Analytics"
+            subtitle="Time spent on Meditation, Yoga, Sports, Revision, and other activities."
+            icon={Sparkles}
+            iconTone="violet"
+            dark={dark}
+          >
+            {analytics.activities.list.length === 0 ? (
+              <View style={[styles.emptyChartBox, { borderColor: c.borderCard }]}>
+                <Sparkles size={26} color={c.textMuted} />
+                <Text style={[styles.emptyChartTitle, { color: c.textSecondary }]}>
+                  No study data available yet
+                </Text>
+                <Text style={[styles.emptyChartSub, { color: c.textMuted }]}>
+                  Completed focus sessions tagged with an activity will appear here.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {analytics.activities.list.map((act) => (
+                  <View key={act.activity} style={{ gap: 5 }}>
+                    <View style={styles.subjectBarTop}>
+                      <View style={[styles.rowCenterGap6, { flex: 1 }]}>
+                        <View style={[styles.dot10, { backgroundColor: act.color }]} />
+                        <Text
+                          style={{ fontSize: 12.5, fontWeight: '600', color: c.textHeading, flexShrink: 1 }}
+                          numberOfLines={1}
+                        >
+                          {act.activity}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: c.textMuted }}>
+                          ({act.sessions} {act.sessions === 1 ? 'session' : 'sessions'})
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'], color: c.textHeading }}>
+                        {formatDurationSeconds(act.actualSeconds)}{' '}
+                        <Text style={{ fontWeight: '400', color: c.textSecondary }}>
+                          · {act.sharePercent}%
+                        </Text>
+                      </Text>
+                    </View>
+                    <View style={[styles.progressTrack6, { backgroundColor: c.bgTrack }]}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${Math.max(4, act.sharePercent)}%`,
+                            backgroundColor: act.color,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </AnalyticsCard>
 
           {/* ==================================================================
            * SECTION G: TASK PERFORMANCE INTELLIGENCE

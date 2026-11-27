@@ -4,6 +4,19 @@ export const FOCUS_DURATION_PRESETS = [15, 25, 40] as const;
 export const MIN_FOCUS_DURATION_MINUTES = 1;
 export const MAX_FOCUS_DURATION_MINUTES = 360;
 
+export const PREDEFINED_FOCUS_ACTIVITIES = [
+  'Meditation',
+  'Yoga',
+  'Sports',
+  'Exercise',
+  'Reading',
+  'Revision',
+  'Practice',
+  'Mock Test',
+  'Break',
+  'Other',
+] as const;
+
 export type FocusDurationPreset = (typeof FOCUS_DURATION_PRESETS)[number];
 
 export function isFocusDurationPreset(minutes: number): minutes is FocusDurationPreset {

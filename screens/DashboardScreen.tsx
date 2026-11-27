@@ -64,7 +64,7 @@ export default function DashboardScreen() {
     mode: 'timer',
     durationMinutes: state.settings.focusDurationMinutes,
     selection: null,
-    tag: 'History',
+    tag: '',
     task: null,
   });
 

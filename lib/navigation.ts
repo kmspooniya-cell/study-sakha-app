@@ -1,4 +1,3 @@
-import type { DrawerContentComponentProps } from '@react-navigation/drawer';
 import type { LinkingOptions, NavigatorScreenParams, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ExamId } from './types';
@@ -63,7 +62,9 @@ export type AppStackParamList = {
       plannedSeconds: number | null;
       plannedMinutes?: number;
       mode: 'timer' | 'stopwatch' | 'pomodoro';
+      tagType?: 'subject' | 'activity';
       subject?: string;
+      activity?: string;
       topic?: string;
       focusQuality?: 'distracted' | 'steady' | 'flow';
       taskId?: string;
@@ -78,20 +79,17 @@ export type AppStackParamList = {
   };
   FocusLock: OptionalScreenParams;
   Profile: OptionalScreenParams;
-  Settings: OptionalScreenParams;
+  Settings: (HeaderParams & { openDetail?: string }) | undefined;
   AppGuide: OptionalScreenParams;
   Admin: OptionalScreenParams;
 };
 
-export type DrawerParamList = {
-  MainStack: NavigatorScreenParams<AppStackParamList> | undefined;
-};
 export type AppStackNavigationTarget = NavigatorScreenParams<AppStackParamList>;
 
 export type RootStackParamList = {
   SignIn: undefined;
   SignUp: undefined;
-  Dashboard: NavigatorScreenParams<DrawerParamList> | undefined;
+  Dashboard: NavigatorScreenParams<AppStackParamList> | undefined;
 };
 
 export type AppNavigationParamList = AppStackParamList & {
@@ -114,7 +112,6 @@ export type AuthNavigation = NativeStackNavigationProp<RootStackParamList>;
 export type AppRoute<RouteName extends keyof AppStackParamList> = RouteProp<AppStackParamList, RouteName>;
 export type AppHeaderRoute = RouteProp<AppStackParamList, keyof AppStackParamList>;
 export type AppLinkingOptions = LinkingOptions<RootStackParamList>;
-export type AppDrawerContentProps = DrawerContentComponentProps;
 
 const APP_BACK_TARGETS: Partial<Record<AppStackRouteName, AppStackRouteName>> = {
   LibraryNotes: 'Library',

@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import type { State } from '../lib/store';
-import { dayKey, reducer } from '../lib/store';
+import { classifyAuthFailure, dayKey, reducer } from '../lib/store';
 import { localDateKey } from '../lib/statistics';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -91,5 +91,27 @@ describe('store reducer learning data', () => {
     expect(next.authReady).toBe(true);
     expect(next.hydrated).toBe(false);
     expect(next.storageReady).toBe(false);
+  });
+
+  it('keeps the authenticated account during a transient auth/network failure', () => {
+    const state = {
+      ...baseState,
+      hydrated: true,
+      storageReady: true,
+      authReady: true,
+      authStatus: 'authenticated',
+    } as State;
+    const next = reducer(state, { type: 'authTransientFailure', status: 'network_unavailable' });
+
+    expect(next.user?.id).toBe('user-1');
+    expect(next.hydrated).toBe(true);
+    expect(next.storageReady).toBe(true);
+    expect(next.authReady).toBe(true);
+    expect(next.authStatus).toBe('network_unavailable');
+  });
+
+  it('distinguishes retryable network errors from revoked sessions', () => {
+    expect(classifyAuthFailure(new Error('Failed to fetch'))).toBe('network_unavailable');
+    expect(classifyAuthFailure({ status: 401, message: 'Invalid refresh token' })).toBe('token_refresh_failed');
   });
 });

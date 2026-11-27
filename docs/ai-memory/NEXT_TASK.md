@@ -60,5 +60,27 @@ Complete native Alarm Engine validation. CNG integration and host tests are comp
 - **No connected Android device/emulator:** Runtime verification, Maestro, Flashlight, and MobSF cannot run in this container.
 - **No Supabase CLI/service-role credentials in workspace:** Live DB migration status cannot be queried from this container.
 
+## Completed Task — Sakha AI Chat UX & Intelligence Upgrade — 2026-11-27
+- [x] Inspected existing chat, provider, persistence, navigation, store, app registry, and server action paths.
+- [x] Removed visible model controls/history notice and tightened the empty chat surface.
+- [x] Added Android keyboard avoidance, safe-area composer padding, bounded multiline growth, and latest-message scrolling behavior.
+- [x] Added structured markdown/code/table rendering and validated multi-action cards.
+- [x] Expanded verified app registry and improved context/personalization instructions without adding unsupported product claims.
+- [x] Ran focused Jest (11/11) and Expo lint (pass).
+- [x] Recorded full TypeScript/Jest baseline failures and unavailable Android/web runtime verification.
+
+### Exact next action
+Run the Sakha AI screen through a deployed web preview and an Android dev/release build on small-phone/tablet devices, then add UI/E2E coverage for keyboard visibility and action-card navigation when those runtimes are available.
+
+## Completed Task — Startup, Authentication & Navigation Audit — 2026-11-27
+- [x] Traced process/bootstrap, splash, providers, AsyncStorage hydration, Supabase session restore, root navigation, Homepage entry, notifications, invites, sync, and secondary data loading.
+- [x] Confirmed and fixed false logout on temporary network/profile/auth verification failures.
+- [x] Added explicit auth lifecycle status and authenticated offline/reconnecting feedback.
+- [x] Added focused regression tests and ran TypeScript, Expo lint, public config, focused Jest, and full Jest.
+- [x] Created `docs/STUDY_SAKHA_AUTH_STARTUP_AUDIT.md` with FIXED/VERIFIED/BLOCKED/NOT VERIFIED classifications.
+
+### Exact next action
+Run cold-start, Wi-Fi/mobile-data toggle, background/foreground, revoked-session, and manual-logout flows on an Android dev/release build against the deployed Supabase/API environment.
+
 ## Exact Next Action
 Retry `npx eas-cli@latest build --platform android --profile preview --non-interactive` after the quota reset, then install the APK and run the native Alarm device checklist. Do not claim Gradle or physical-device verification until those steps complete.

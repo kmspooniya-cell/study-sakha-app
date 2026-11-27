@@ -1,5 +1,29 @@
 # Testing Status — Study Sakha
 
+## Left Drawer Removal & Header Three-Dot Menu — 2026-11-27
+- Focused Jest suites (`test/drawerSettingsNavigation.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/navigationBack.test.tsx`): **PASS** — 3 suites, 18 tests passed (including 12 consecutive Android Settings navigation cycles, overflow menu options, outside tap, and Help/Share actions). `test/settingsScreen.test.tsx` failed on pre-existing missing `useRoute` mock in that test file.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS**.
+- TypeScript (`tsc --noEmit`): **0 errors** in all modified files (`App.tsx`, `components/Shell.tsx`, `lib/navigation.ts`, `screens/FocusCenterScreen.tsx`, `screens/GroupsScreen.tsx`, `screens/SettingsScreen.tsx`, `test/drawerSettingsNavigation.test.tsx`); repository-wide `tsc` still has pre-existing diagnostics in other test/screen files.
+- Physical Android device/tablet runtime: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Unified Study Data Flow & Focus Subject/Activity Integration — 2026-11-27
+- Focused Jest suites (`test/unifiedStudyDataFlow.test.tsx`, `test/focusSessionSetupModal.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/focusUiSurface.test.tsx`, `test/focusHistory.test.tsx`, `test/statistics.test.tsx`, `test/focusCompletionScreen.test.tsx`, `test/focusCompletionNavigation.test.tsx`, `test/preferredSubjects.test.tsx`, `test/store.reducer.test.tsx`): **PASS** (re-verified after final test import fix).
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS**.
+- TypeScript (`tsc --noEmit`): **0 errors** in all modified/added files; repository-wide `tsc` still has pre-existing unrelated diagnostics in `screens/GroupsScreen.tsx` and other test files.
+- Android/web visual runtime: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Subject Preferences Structure Redesign — 2026-11-27
+- Focused Jest suites (`test/preferredSubjects.test.tsx`, `test/settingsScreen.test.tsx`, `test/studyPlannerFilters.test.tsx`, `test/focusSessionSetupModal.test.tsx`): **PASS** — 4 suites, 16 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** — 0 errors, 0 warnings.
+- TypeScript (`tsc --noEmit`): **0 errors** in `lib/subjectRegistry.ts`, `components/PreferredSubjectsManager.tsx`, `components/FocusSessionSetupModal.tsx`, `screens/SettingsScreen.tsx`, and `test/preferredSubjects.test.tsx`; repository-wide `tsc` still fails on pre-existing unrelated diagnostics in `screens/GroupsScreen.tsx` and other test files.
+- Android/web visual runtime: **NOT VERIFIED** (no connected device/emulator in Codespace).
+
+## Preferred Subjects UI Redesign — 2026-11-27
+- Focused Jest suites (`test/preferredSubjects.test.tsx`, `test/settingsScreen.test.tsx`, `test/studyPlannerFilters.test.tsx`): **PASS** — 3 suites, 13 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** — 0 errors, 0 warnings.
+- TypeScript (`tsc --noEmit`): **0 errors** in `components/PreferredSubjectsManager.tsx`, `screens/SettingsScreen.tsx`, and `test/preferredSubjects.test.tsx`; repository-wide `tsc` still fails on pre-existing unrelated diagnostics in `screens/GroupsScreen.tsx` and other test files.
+- Android phone/tablet/web visual runtime: **NOT VERIFIED** (no connected device/emulator in Codespace).
+
 ## Groups header alignment patch — 2026-11-27
 - Expo lint: **PASS**.
 - `git diff --check`: **PASS**.
@@ -206,6 +230,31 @@ Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests 
 | **Maestro E2E (`.maestro/`, 12 flows)** | **BLOCKED** | 0 connected Android devices/emulators. |
 | **Flashlight Performance Baseline** | **BLOCKED** | Requires connected Android device. |
 | **Android Monkey Stress Test** | **BLOCKED** | Requires `adb` + APK + device. |
+
+## Sakha AI Chat Upgrade — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Focused backend/chat Jest | **PASS** — 2 suites, 11 tests | Covers API retry/error contracts, registry retrieval, and multi-action parsing with invalid-action stripping. |
+| Expo lint | **PASS** | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint`; no reported errors/warnings. |
+| TypeScript | **FAIL (repository baseline)** | `pnpm run lint` reports existing Jest global/type errors and focus/group test typing issues; no Sakha AI diagnostics were reported. |
+| Full Jest | **FAIL (repository baseline)** | Existing Focus Session Setup, Focus Improvements, Four Fixes, and Settings test failures; no Sakha-focused failure reported. |
+| Web export | **NOT VERIFIED** | `pnpm run build:web` started Metro but did not complete within the tool window. |
+| Android physical/tablet/small-screen runtime | **NOT VERIFIED** | No `adb`, emulator, or physical Android device is available. |
+| Live Gemini/native API | **NOT VERIFIED** | Requires deployed HTTPS API base URL and configured server Gemini key. |
+
+## Startup & Authentication Audit — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Focused auth/backend Jest | **PASS** — 2 suites, 12 tests | Includes transient auth preservation and network-vs-revoked-token classification. |
+| TypeScript | **PASS** | `pnpm exec tsc --noEmit --pretty false` passed in this session. |
+| Expo lint | **PASS** | 0 reported errors/warnings. |
+| Expo public config | **PASS** | `pnpm exec expo config --type public --json`. |
+| Full Jest | **FAIL / existing baseline** | 44 suites passed, 7 existing suites failed; 233 tests passed, 12 failed. Failures are focus/group/four-fixes test-environment paths, not auth regression tests. |
+| Release config | **BLOCKED** | Preview Supabase/API environment variables are absent in the workspace. |
+| Android runtime | **BLOCKED** | No `adb`, emulator, or physical device. |
+| Live Supabase token/revocation behavior | **NOT VERIFIED** | Requires deployed authenticated environment. |
 | **MobSF Static/Dynamic APK Security Scan** | **BLOCKED** | Requires built release APK. |
 | **Live Supabase Migrations & Multi-Device Sync / Realtime** | **NOT VERIFIED** | Requires live Supabase deployment + authenticated test accounts. |
 | **Live Sakha AI (`/api/chat`) on Native** | **NOT VERIFIED** | Requires deployed HTTPS `EXPO_PUBLIC_API_BASE_URL` + server `GEMINI_API_KEY`. |

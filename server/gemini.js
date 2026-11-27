@@ -102,14 +102,14 @@ function buildSystemInstruction(userContext, userQuery = '') {
 
 APP KNOWLEDGE RETRIEVED FOR THIS QUESTION (repository-backed; only this context supports product claims):
 ${appKnowledge}
-State the navigation path exactly as documented. Respect implementation status and limitations. If the requested feature is absent or its status is partial, say so clearly. Never invent features, permissions, integrations, or availability.
+State the navigation path exactly as documented. Respect implementation status and limitations. If the requested feature is absent or its status is partial, say so clearly. Never invent features, permissions, integrations, or availability. Treat the registry as product truth, not as a prompt to mention internal file names.
 For a named book, note, PYQ set, or test, use only matchingResources; if the requested title is not listed there, say that it is not currently available in the app catalog.
 
 USER CONTEXT & PERSONALIZED STUDY HELP
 - ${nameInstruction}
 - ${examInstruction}
 - Active Study Context: Streak: ${streak || 0} days, Today's study time: ${todayMinutes || 0} minutes (Goal: ${goalMinutes || 180} min).${personalizedStudyContext}
-- Use the user's selected exam, study goals, available progress, recent test accuracy, and planner tasks when giving personalized study advice.
+- Use the user's selected exam, study goals, available progress, recent test accuracy, and planner tasks when giving personalized study advice. Only mention a personal metric when it is present in the supplied context and relevant to the question.
 - Recommend relevant available books, notes, PYQs, tests, or study tools based on the user's exam and current learning needs.
 - Keep recommendations practical, concise, and focused on the user's current goal.
 - If study progress or exam is unavailable, do NOT assume or fabricate it. Ask one focused question only when necessary.
@@ -139,7 +139,7 @@ STRICT SOURCE CITATION RULES:
 ==============================================
 4. ACTIONS & SUGGESTIONS FORMAT
 ==============================================
-When recommending a feature or resource that the user can navigate to, include an action tag at the very end on its own line:
+When recommending one or more features or resources that the user can navigate to, include one or more action tags at the very end on their own lines:
 [ACTION: RouteName | Button Label | {"paramKey": "paramValue"}]
 
 Supported Route Names:
@@ -158,7 +158,7 @@ Supported Route Names:
 - Settings (e.g. [ACTION: Settings | Open App Settings])
 - AppGuide (e.g. [ACTION: AppGuide | How to Use the App])
 
-Also include 2 to 3 relevant follow-up questions at the very end:
+Never write action tags in prose or repeat them in the answer body. Also include 2 to 3 relevant follow-up questions at the very end:
 [CHIPS: Follow-up question 1 | Follow-up question 2 | Follow-up question 3]`;
 }
 
@@ -351,25 +351,26 @@ function sanitizeNavigationAction(action) {
 
 function parseActionAndChips(rawText) {
   let text = rawText || '';
-  let action = null;
+  const actions = [];
   let chips = [];
 
-  // Parse [ACTION: route | label | optional_json_params]
-  const actionMatch = text.match(/\[ACTION:\s*([a-zA-Z0-9_]+)\s*\|\s*([^|\]]+)(?:\s*\|\s*(\{[^\]]+\}))?\s*\]/);
-  if (actionMatch) {
-    const route = actionMatch[1].trim();
-    const label = actionMatch[2].trim();
-    let params = undefined;
-    if (actionMatch[3]) {
+  // Parse every [ACTION: route | label | optional_json_params] tag. Always
+  // remove the tag from display text, even when validation rejects it.
+  text = text.replace(/\[ACTION:\s*([a-zA-Z0-9_]+)\s*\|\s*([^|\]]+)(?:\s*\|\s*(\{[^\]]*\}))?\s*\]/gi, (_match, rawRoute, rawLabel, rawParams) => {
+    let params;
+    if (rawParams) {
       try {
-        params = JSON.parse(actionMatch[3].trim());
-      } catch (e) {
-        // ignore json parse error
+        params = JSON.parse(rawParams.trim());
+      } catch (_error) {
+        params = undefined;
       }
     }
-    action = sanitizeNavigationAction({ route, label, params });
-    text = text.replace(actionMatch[0], '').trim();
-  }
+    const action = sanitizeNavigationAction({ route: rawRoute.trim(), label: rawLabel.trim(), params });
+    if (action && !actions.some((item) => item.route === action.route && item.label === action.label)) {
+      actions.push(action);
+    }
+    return '';
+  }).trim();
 
   // Parse [CHIPS: chip1 | chip2 | chip3]
   const chipsMatch = text.match(/\[CHIPS:\s*([^\]]+)\]/);
@@ -382,7 +383,7 @@ function parseActionAndChips(rawText) {
     text = text.replace(chipsMatch[0], '').trim();
   }
 
-  return { text, action, chips };
+  return { text, action: actions[0] || null, actions, chips };
 }
 
 // Heuristic fallback if model didn't output an explicit action tag
@@ -752,7 +753,9 @@ async function handleChat(req, res) {
 
     // Parse action, chips, and sources from response text
     const parsed = parseActionAndChips(rawResult.text);
-    const finalAction = sanitizeNavigationAction(parsed.action || inferFallbackAction(parsed.text, message));
+    const fallbackAction = parsed.actions.length === 0 ? sanitizeNavigationAction(inferFallbackAction(parsed.text, message)) : null;
+    const finalActions = parsed.actions.length > 0 ? parsed.actions : (fallbackAction ? [fallbackAction] : []);
+    const finalAction = finalActions[0] || null;
     const parsedSources = parseSources(parsed.text, message, finalAction);
 
     // If no chips were emitted by the model, check heuristic fallback
@@ -761,6 +764,7 @@ async function handleChat(req, res) {
     return res.json({
       text: parsedSources.text,
       action: finalAction,
+      actions: finalActions,
       sources: parsedSources.sources,
       chips: finalChips,
       modelUsed: rawResult.modelUsed,
@@ -792,6 +796,7 @@ async function handleChat(req, res) {
         return res.json({
           text: parsedSources.text,
           action: parsedAction,
+          actions: parsedAction ? [parsedAction] : [],
           sources: parsedSources.sources,
           chips: inferFallbackChips(parsedSources.text, safeExamContext.exam),
           modelUsed: 'verified-catalog',

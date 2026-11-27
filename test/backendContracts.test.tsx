@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { EXAMS } from '../lib/data';
 import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
 const { FEATURE_REGISTRY, retrieveAppKnowledge, retrieveStudyResources } = require('../server/appKnowledge');
-const { buildSystemInstruction } = require('../server/gemini');
+const { buildSystemInstruction, parseActionAndChips } = require('../server/gemini');
 
 describe('production backend catalog contracts', () => {
   it('maps every profile exam selector to a stable catalog ID', () => {
@@ -33,5 +33,15 @@ describe('production backend catalog contracts', () => {
     expect(retrieveStudyResources('Fundamental Rights Articles 12 to 35')[0]).toMatchObject({ id: 'r1', route: 'NoteEditor' });
     expect(retrieveStudyResources('Laxmikanth book')).toEqual([]);
     expect(buildSystemInstruction({}, 'Is Laxmikanth available?')).toContain('not listed as currently available');
+  });
+
+  it('parses multiple allowlisted actions and never leaks action syntax into display text', () => {
+    const parsed = parseActionAndChips('Open your plan.\n[ACTION: StudyPlanner | Open Study Planner]\n[ACTION: Statistics | View Statistics]\n[ACTION: UnknownRoute | Unsafe action]\n[CHIPS: Show tasks | View progress]');
+    expect(parsed.text).toBe('Open your plan.');
+    expect(parsed.actions).toHaveLength(2);
+    expect(parsed.actions.map((action: { route: string }) => action.route)).toEqual(['StudyPlanner', 'Statistics']);
+    expect(parsed.action.route).toBe('StudyPlanner');
+    expect(parsed.chips).toEqual(['Show tasks', 'View progress']);
+    expect(parsed.text).not.toContain('[ACTION:');
   });
 });

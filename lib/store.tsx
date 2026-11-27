@@ -47,6 +47,14 @@ export type User = {
   examFocus?: string;
 };
 
+export type AuthLifecycleStatus =
+  | 'session_restoring'
+  | 'authenticated'
+  | 'signed_out'
+  | 'network_unavailable'
+  | 'token_refresh_failed'
+  | 'profile_fetch_failed';
+
 export function getDisplayName(user: User | null) {
   const name = user?.name?.trim();
   return name || 'Aspirant';
@@ -99,6 +107,7 @@ export type State = {
   hydrated: boolean;
   storageReady: boolean;
   authReady: boolean;
+  authStatus: AuthLifecycleStatus;
   user: User | null;
   settings: {
     themeMode: ThemeMode;
@@ -142,6 +151,7 @@ export type State = {
     preferredSubjects: string[];
     customSubjectPackages: CustomSubjectPackage[];
     activeSubjectPackageId: string | null;
+    customActivities: string[];
   };
   notes: UserNote[];
   starred: string[];
@@ -384,6 +394,7 @@ function normalizeSettings(value: unknown): State['settings'] {
     activeSubjectPackageId: typeof saved.activeSubjectPackageId === 'string' && saved.activeSubjectPackageId.trim()
       ? saved.activeSubjectPackageId.trim()
       : null,
+    customActivities: normalizeSubjectList(saved.customActivities),
   };
 }
 
@@ -403,6 +414,7 @@ const initialState: State = {
   hydrated: false,
   storageReady: false,
   authReady: false,
+  authStatus: 'session_restoring',
   user: null,
   settings: {
     themeMode: 'system', language: 'en', dailyGoalMin: 180, textScale: 1, notifications: true,
@@ -417,7 +429,7 @@ const initialState: State = {
     focusMusicId: 'pure_cosmic_waves', focusMusicVolume: 0.65,
     aiResponseLanguage: 'Bilingual (Hinglish)', aiResponseLength: 'Balanced', aiDetailLevel: 'Exam-Ready',
     aiLearningMode: 'Teacher Mode', aiSaveChatHistory: true,
-    preferredSubjects: [], customSubjectPackages: [], activeSubjectPackageId: null,
+    preferredSubjects: [], customSubjectPackages: [], activeSubjectPackageId: null, customActivities: [],
   },
   notes: [
     {
@@ -498,6 +510,7 @@ export type Action =
   | { type: 'reconcilePlannerTasks'; tasks: PlannerTask[]; deletedIds: string[] }
   | { type: 'authResolved'; user: User | null }
   | { type: 'authCheckFailed' }
+  | { type: 'authTransientFailure'; status: Exclude<AuthLifecycleStatus, 'session_restoring' | 'authenticated' | 'signed_out'> }
   | { type: 'signIn'; user: User }
   | { type: 'updateProfile'; patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>> }
   | { type: 'signOut' }
@@ -543,7 +556,7 @@ export type Action =
       sessionType?: FocusSessionCategory;
     }
   | { type: 'upsertFocusHistory'; record: FocusHistoryRecord }
-  | { type: 'updateFocusHistory'; id: string; patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'focusQuality'>> }
+  | { type: 'updateFocusHistory'; id: string; patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'activity' | 'tagType' | 'focusQuality'>> }
   | { type: 'plannerCompletion'; date: string; completion: PlannerCompletion; completed: boolean }
   | { type: 'study'; minutes: number }
   | { type: 'result'; result: TestResult }
@@ -632,6 +645,7 @@ export function reducer(state: State, action: Action): State {
         ...(nextNotifications !== undefined ? { notifications: nextNotifications } : {}),
         user: state.user,
         authReady: state.authReady,
+        authStatus: state.authStatus,
         hydrated: true,
       };
     }
@@ -761,12 +775,13 @@ export function reducer(state: State, action: Action): State {
               photoUri: state.user.photoUri,
             }
           : action.user;
-        return { ...state, user, authReady: true };
+        return { ...state, user, authReady: true, authStatus: user ? 'authenticated' : 'signed_out' };
       }
       return {
         ...state,
         user: action.user,
         authReady: true,
+        authStatus: action.user ? 'authenticated' : 'signed_out',
         hydrated: false,
         storageReady: false,
         settings: {
@@ -803,9 +818,15 @@ export function reducer(state: State, action: Action): State {
       };
     }
     case 'authCheckFailed':
-      // A failed verification must not leave the previous account authenticated
-      // while a new or refreshed session is unresolved.
+      // Retained for genuine, non-transient auth failures. Network/profile
+      // failures use authTransientFailure and must not clear the account.
       return reducer(state, { type: 'authResolved', user: null });
+    case 'authTransientFailure':
+      return {
+        ...state,
+        authReady: true,
+        authStatus: action.status,
+      };
     case 'signIn':
       return { ...state, user: action.user };
     case 'updateProfile':
@@ -1161,6 +1182,7 @@ export function reducer(state: State, action: Action): State {
 type Ctx = {
   state: State;
   syncStatus: SyncStatus;
+  authStatus: AuthLifecycleStatus;
   hydrationError: string | null;
   retryHydration: () => void;
   plannerRecoveryCount: number;
@@ -1291,6 +1313,33 @@ function errorMessage(error: unknown, fallback: string) {
     ? ` (HTTP ${error.statusCode})`
     : '';
   return `${message}${code}${statusCode}${details}${hint}`;
+}
+
+export function classifyAuthFailure(error: unknown): Exclude<AuthLifecycleStatus, 'session_restoring' | 'authenticated' | 'signed_out'> {
+  const record = isRecord(error) ? error : {};
+  const status = typeof record.status === 'number' ? record.status : undefined;
+  const code = typeof record.code === 'string' ? record.code.toLowerCase() : '';
+  const message = errorMessage(error, '').toLowerCase();
+  if (
+    status === 401 ||
+    status === 403 ||
+    code.includes('invalid') ||
+    code.includes('expired') ||
+    code.includes('refresh_token_not_found') ||
+    message.includes('invalid refresh token') ||
+    message.includes('jwt expired') ||
+    message.includes('token has expired')
+  ) return 'token_refresh_failed';
+  if (
+    message.includes('network') ||
+    message.includes('fetch') ||
+    message.includes('offline') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('failed to reach') ||
+    message.includes('could not be reached')
+  ) return 'network_unavailable';
+  return 'profile_fetch_failed';
 }
 
 type RecoverySnapshot = {
@@ -1693,6 +1742,7 @@ function serializePersistentState(state: State) {
   const persistentState: Partial<State> = { ...state };
   delete persistentState.hydrated;
   delete persistentState.authReady;
+  delete persistentState.authStatus;
   delete persistentState.managedContent;
   delete persistentState.managedContentError;
   delete persistentState.plannerTasksLoaded;
@@ -1965,27 +2015,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // A persisted Supabase session already contains an authenticated user.
+      // Keep that identity available while remote verification/profile reads
+      // recover from a temporary connectivity failure.
+      let authUser = session.user;
       try {
         const { data: authData, error: authError } = await supabase.auth.getUser(session.access_token);
-        if (authError || !authData.user) throw authError ?? new Error('Unable to verify the current account.');
+        if (authError) {
+          const failure = classifyAuthFailure(authError);
+          if (failure === 'token_refresh_failed') {
+            if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user: null });
+            return;
+          }
+          if (active && currentRequestId === requestId) {
+            dispatch({ type: 'authTransientFailure', status: failure });
+          }
+        } else if (authData.user) {
+          authUser = authData.user;
+        }
+
+        if (!authUser) throw new Error('Unable to verify the current account.');
 
         const [profileResult, adminResult] = await Promise.all([
-          supabase.from('profiles').select('display_name, exam_id, joined_at').eq('id', authData.user.id).maybeSingle(),
+          supabase.from('profiles').select('display_name, exam_id, joined_at').eq('id', authUser.id).maybeSingle(),
           supabase.rpc('is_admin'),
         ]);
-        if (profileResult.error) console.error('Supabase profile lookup failed:', profileResult.error);
+        if (profileResult.error) {
+          console.error('Supabase profile lookup failed:', profileResult.error);
+          if (active && currentRequestId === requestId) dispatch({ type: 'authTransientFailure', status: 'profile_fetch_failed' });
+        }
         if (adminResult.error) console.error('Supabase administrator role lookup failed:', adminResult.error);
         const profile = profileResult.data;
-        const metadata = authData.user.user_metadata ?? {};
+        const metadata = authUser.user_metadata ?? {};
         const examValue = profile?.exam_id ?? metadata.exam_id;
         const exam: ExamId = isExamId(examValue) ? examValue : 'upsc';
         const user: User = {
-          id: authData.user.id,
-          name: profile?.display_name || metadata.display_name || authData.user.email || 'Aspirant',
-          email: authData.user.email ?? '',
+          id: authUser.id,
+          name: profile?.display_name || metadata.display_name || authUser.email || 'Aspirant',
+          email: authUser.email ?? '',
           role: !adminResult.error && adminResult.data === true ? 'admin' : 'learner',
           exam,
-          joined: profile?.joined_at?.slice(0, 10) ?? authData.user.created_at.slice(0, 10),
+          joined: profile?.joined_at?.slice(0, 10) ?? authUser.created_at.slice(0, 10),
           birthday: typeof metadata.birthday === 'string' ? metadata.birthday : undefined,
           phoneNumber: typeof metadata.phone_number === 'string' ? metadata.phone_number : undefined,
           currentCity: typeof metadata.current_city === 'string' ? metadata.current_city : undefined,
@@ -1994,7 +2064,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (active && currentRequestId === requestId) dispatch({ type: 'authResolved', user });
       } catch (error) {
         console.error('Supabase session verification failed:', error);
-        if (active && currentRequestId === requestId) dispatch({ type: 'authCheckFailed' });
+        const failure = classifyAuthFailure(error);
+        if (active && currentRequestId === requestId) {
+          if (failure === 'token_refresh_failed') dispatch({ type: 'authResolved', user: null });
+          else if (authUser) dispatch({ type: 'authTransientFailure', status: failure });
+          else dispatch({ type: 'authResolved', user: null });
+        }
       }
     };
 
@@ -2003,7 +2078,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!active) return;
       const currentRequestId = ++requestId;
       if (!session) {
-        if (event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
+        if (event === 'SIGNED_OUT') {
+          dispatch({ type: 'authResolved', user: null });
+        } else if (event === 'INITIAL_SESSION' && !stateRef.current.user) {
           dispatch({ type: 'authResolved', user: null });
         }
         return;
@@ -2018,14 +2095,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (initialRequestId !== requestId) return;
       if (error) {
         console.error('Supabase session restore failed:', error);
-        dispatch({ type: 'authCheckFailed' });
+        const failure = classifyAuthFailure(error);
+        if (stateRef.current.user) dispatch({ type: 'authTransientFailure', status: failure });
+        else dispatch({ type: 'authResolved', user: null });
         return;
       }
       void resolveSession(data.session, initialRequestId);
     }).catch((error: unknown) => {
       if (!active || initialRequestId !== requestId) return;
       console.error('Supabase session restore failed:', error);
-      dispatch({ type: 'authCheckFailed' });
+      const failure = classifyAuthFailure(error);
+      if (stateRef.current.user) dispatch({ type: 'authTransientFailure', status: failure });
+      else dispatch({ type: 'authResolved', user: null });
     });
 
     return () => {
@@ -2434,9 +2515,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return { ok: false, error: 'Authentication is not configured for this app.' };
+    // A user-requested logout is authoritative locally even if the remote
+    // revoke request is temporarily unavailable.
+    dispatch({ type: 'authResolved', user: null });
     const { error } = await supabase.auth.signOut();
     return error ? { ok: false, error: error.message } : { ok: true };
-  }, []);
+  }, [dispatch]);
 
   const saveProfile = useCallback(async (
     patch: Partial<Pick<User, 'name' | 'email' | 'exam' | 'photoUri' | 'birthday' | 'phoneNumber' | 'currentCity' | 'examFocus'>>
@@ -2650,6 +2734,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       state,
       syncStatus,
+      authStatus: state.authStatus,
       hydrationError,
       retryHydration,
       plannerRecoveryCount,
@@ -2682,6 +2767,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [
       state,
       syncStatus,
+      state.authStatus,
       hydrationError,
       retryHydration,
       plannerRecoveryCount,

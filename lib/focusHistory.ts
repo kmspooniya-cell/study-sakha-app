@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type FocusSessionCategory = 'study' | 'meditation' | 'break' | 'ambient';
+export type FocusTagType = 'subject' | 'activity';
 
 export type FocusHistoryRecord = {
   id: string;
@@ -16,11 +17,13 @@ export type FocusHistoryRecord = {
   plannedMinutes?: number;
   mode?: 'timer' | 'stopwatch' | 'pomodoro';
   sessionType?: FocusSessionCategory;
+  tagType?: FocusTagType;
   taskId?: string;
   scheduleId?: string;
   scheduleOccurrenceId?: string;
   groupId?: string;
   subject?: string;
+  activity?: string;
   topic?: string;
   focusQuality?: 'distracted' | 'steady' | 'flow';
   status?: 'completed' | 'saved_early' | 'interrupted' | 'abandoned';
@@ -62,7 +65,7 @@ export function appendFocusHistory<T extends FocusHistoryRecord>(
 export function updateFocusHistoryRecord(
   storageKey: string,
   id: string,
-  patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'focusQuality'>>
+  patch: Partial<Pick<FocusHistoryRecord, 'subject' | 'activity' | 'tagType' | 'focusQuality'>>
 ): Promise<FocusHistoryRecord[]> {
   const previous = pendingWrites.get(storageKey) ?? Promise.resolve([]);
   const write = previous.catch(() => []).then(async () => {

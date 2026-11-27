@@ -27,6 +27,9 @@ export type PersistedFocusSession = {
   taskId?: string;
   groupId?: string;
   mode?: 'timer' | 'stopwatch' | 'pomodoro';
+  sessionType?: 'study' | 'meditation' | 'break' | 'ambient';
+  tagType?: 'subject' | 'activity';
+  activity?: string;
   startedAt?: string;
   endedAt?: string;
   actualSeconds?: number;
@@ -84,6 +87,14 @@ export type SubjectStatistics = {
   shareOfActualTime: number;
 };
 
+export type ActivityStatistics = {
+  activity: string;
+  actualMinutes: number;
+  actualSeconds: number;
+  focusSessionCount: number;
+  shareOfActualTime: number;
+};
+
 export type FocusStatistics = {
   totalSessions: number;
   totalActualSeconds: number;
@@ -129,6 +140,7 @@ export type UnifiedStatistics = {
   plannedVsActual: PlannedActualStatistics;
   tasks: TaskStatistics[];
   subjects: SubjectStatistics[];
+  activities: ActivityStatistics[];
   focus: FocusStatistics;
   streak: StreakStatistics;
 };
@@ -237,12 +249,19 @@ export function normalizeFocusSessions(records: unknown): NormalizedFocusSession
     const actualSeconds = actualSecondsForSession(value);
     if (actualSeconds === null || actualSeconds <= 0) return;
 
+    const status = value.status === 'completed' || value.status === 'saved_early' ||
+      value.status === 'interrupted' || value.status === 'abandoned'
+      ? value.status
+      : undefined;
+    if (status === 'interrupted' || status === 'abandoned') return;
+
     seenIds.add(value.id);
     normalized.push({
       id: value.id,
       sessionId: typeof value.sessionId === 'string' ? value.sessionId : value.id,
       userId: typeof value.userId === 'string' ? value.userId : undefined,
       subject: typeof value.subject === 'string' ? value.subject : undefined,
+      activity: typeof value.activity === 'string' ? value.activity : undefined,
       topic: typeof value.topic === 'string' ? value.topic : undefined,
       minutes: isFiniteNonNegative(value.minutes) ? value.minutes : actualSeconds / 60,
       completedAt: value.completedAt,
@@ -251,16 +270,20 @@ export function normalizeFocusSessions(records: unknown): NormalizedFocusSession
       mode: value.mode === 'timer' || value.mode === 'stopwatch' || value.mode === 'pomodoro'
         ? value.mode
         : undefined,
+      sessionType: value.sessionType === 'study' || value.sessionType === 'meditation' ||
+        value.sessionType === 'break' || value.sessionType === 'ambient'
+        ? value.sessionType
+        : undefined,
+      tagType: value.tagType === 'subject' || value.tagType === 'activity'
+        ? value.tagType
+        : undefined,
       startedAt: typeof value.startedAt === 'string' ? value.startedAt : undefined,
       endedAt: typeof value.endedAt === 'string' ? value.endedAt : undefined,
       actualSeconds,
       focusedSeconds: actualSeconds,
       plannedSeconds: isFiniteNonNegative(value.plannedSeconds) ? value.plannedSeconds : undefined,
       plannedMinutes: isFiniteNonNegative(value.plannedMinutes) ? value.plannedMinutes : undefined,
-      status: value.status === 'completed' || value.status === 'saved_early' ||
-        value.status === 'interrupted' || value.status === 'abandoned'
-        ? value.status
-        : undefined,
+      status,
       dateKey: localDateKey(completedAt),
     });
   });
@@ -302,6 +325,7 @@ function emptyStatistics(
     },
     tasks: [],
     subjects: [],
+    activities: [],
     focus: {
       totalSessions: 0,
       totalActualSeconds: 0,
@@ -508,8 +532,32 @@ export function deriveStatistics(
     0,
   );
 
+  const isActivitySession = (session: NormalizedFocusSession) => (
+    session.tagType === 'activity' ||
+    Boolean(session.activity?.trim()) ||
+    session.sessionType === 'meditation' ||
+    session.sessionType === 'break' ||
+    session.sessionType === 'ambient'
+  );
+
   const subjectMap = new Map<string, { seconds: number; sessions: number }>();
+  const activityMap = new Map<string, { seconds: number; sessions: number }>();
   sessions.forEach((session) => {
+    if (isActivitySession(session)) {
+      const activityLabel = session.activity?.trim() ||
+        session.subject?.trim() ||
+        (session.sessionType === 'meditation'
+          ? 'Meditation'
+          : session.sessionType === 'break'
+            ? 'Break'
+            : 'Other');
+      const existing = activityMap.get(activityLabel) ?? { seconds: 0, sessions: 0 };
+      activityMap.set(activityLabel, {
+        seconds: existing.seconds + session.actualSeconds,
+        sessions: existing.sessions + 1,
+      });
+      return;
+    }
     const subject = subjectName(session.subject);
     const existing = subjectMap.get(subject) ?? { seconds: 0, sessions: 0 };
     subjectMap.set(subject, {
@@ -525,6 +573,15 @@ export function deriveStatistics(
       shareOfActualTime: actualSeconds > 0 ? (value.seconds / actualSeconds) * 100 : 0,
     }))
     .sort((a, b) => b.actualMinutes - a.actualMinutes);
+  const activities: ActivityStatistics[] = Array.from(activityMap.entries())
+    .map(([activity, value]) => ({
+      activity,
+      actualMinutes: value.seconds / 60,
+      actualSeconds: value.seconds,
+      focusSessionCount: value.sessions,
+      shareOfActualTime: actualSeconds > 0 ? (value.seconds / actualSeconds) * 100 : 0,
+    }))
+    .sort((a, b) => b.actualSeconds - a.actualSeconds);
 
   const completedFocusSessionCount = sessions.filter((session) =>
     session.status !== 'saved_early' && session.status !== 'interrupted' && session.status !== 'abandoned'
@@ -578,6 +635,7 @@ export function deriveStatistics(
     },
     tasks: taskRows,
     subjects,
+    activities,
     focus: {
       totalSessions: sessions.length,
       totalActualSeconds: actualSeconds,

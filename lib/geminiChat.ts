@@ -49,6 +49,7 @@ export type ExamContext = {
 export type GeminiChatResponse = {
   text: string;
   action?: ({ label: string } & AppNavigationTarget) | null;
+  actions?: ({ label: string } & AppNavigationTarget)[];
   sources?: SourceRef[];
   chips?: string[];
   modelUsed?: string;
@@ -240,6 +241,7 @@ export async function askGemini(params: {
   return {
     text: data.text,
     action: data.action || null,
+    actions: Array.isArray(data.actions) ? data.actions : data.action ? [data.action] : [],
     sources: Array.isArray(data.sources) ? data.sources : [],
     chips: data.chips || [],
     modelUsed: data.modelUsed,

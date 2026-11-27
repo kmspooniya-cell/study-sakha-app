@@ -121,6 +121,7 @@ export type ChatMsg = {
   at: number;
   chips?: string[];
   action?: { label: string } & AppNavigationTarget;
+  actions?: ({ label: string } & AppNavigationTarget)[];
   sources?: SourceRef[];
   intent?: string;
   status?: 'sending' | 'sent' | 'error';

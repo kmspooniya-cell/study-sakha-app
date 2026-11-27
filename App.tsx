@@ -1,6 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { createDrawerNavigator, DrawerContentScrollView, getDrawerStatusFromState } from '@react-navigation/drawer';
-import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer, StackActions } from '@react-navigation/native';
+import { createNavigationContainerRef, DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,26 +11,21 @@ import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, AppState, Easing, Image, Platform, Share, View, Pressable } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Image, Platform, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActiveSessionBar } from './components/ActiveSessionBar';
 import { Logo } from './components/Logo';
-import { Txt } from './components/ui';
 import { FocusSessionProvider, useOptionalFocusSession } from './lib/focusSession';
 import type { FocusCompletionPayload } from './lib/focusSession';
-import { getDisplayName, StoreProvider, useStore } from './lib/store';
+import { StoreProvider, useStore } from './lib/store';
 import { ThemeProvider, useTheme } from './lib/theme';
 import type {
-  AppDrawerContentProps,
   AppLinkingOptions,
-  AppStackNavigationTarget,
   AppStackParamList,
-  DrawerParamList,
   RootStackParamList,
 } from './lib/navigation';
 import { getNotificationNavigationRoute } from './lib/navigation';
-import { translateLabel } from './lib/i18n';
 import LibraryScreen, {
   LibraryBooksScreen,
   LibraryDownloadsScreen,
@@ -77,28 +71,15 @@ import {
 import {
   clearPendingGroupInvite,
   extractGroupInviteFromUrl,
-  getAppShareUrl,
   getDeepLinkPrefixes,
-  getDistributionLinkMessage,
   getPendingGroupInvite,
   savePendingGroupInvite,
 } from './lib/shareLinks';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
-const Drawer = createDrawerNavigator<DrawerParamList>();
 const MASCOT_SPLASH = require('./assets/mascot/study-sakha-mascot.png');
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
-
-const DRAWER_ITEMS = [
-  { label: 'Offline downloads', icon: 'cloud-download-outline', target: { screen: 'LibraryDownloads' } },
-  { label: 'How to use the app', icon: 'help-circle-outline', target: { screen: 'AppGuide' } },
-  { label: 'Settings', icon: 'settings-outline', target: { screen: 'Settings' } },
-] as const satisfies readonly {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  target: AppStackNavigationTarget;
-}[];
 
 const linking: AppLinkingOptions = {
   prefixes: getDeepLinkPrefixes(),
@@ -109,41 +90,36 @@ const linking: AppLinkingOptions = {
       Dashboard: {
         path: '',
         screens: {
-          MainStack: {
-            path: '',
-            screens: {
-              DashboardRoot: '',
-              Library: 'library',
-              Groups: 'groups/invite/:inviteToken',
-              More: 'more',
-              LibraryNotes: 'library/notes',
-              LibraryBooks: 'library/books',
-              LibraryPYQSets: 'library/pyq-sets',
-              LibraryStarred: 'library/starred',
-              LibraryDownloads: 'library/downloads',
-              PYQ: 'pyq-bank',
-              Tests: 'tests',
-              TestPlayer: 'tests/attempt',
-              TestResult: 'tests/result',
-              SakhaAI: 'sakha-ai',
-              NoteEditor: 'notes',
-              BookReader: 'books',
-              CurrentAffairs: 'current-affairs',
-              Search: 'search',
-              Notifications: 'notifications',
-              Statistics: 'statistics',
-              TaskPerformance: 'statistics/tasks',
-              StudyPlanner: 'study-planner',
-              Alarm: 'alarm',
-              FocusCenter: 'focus/center',
-              FocusCompletion: 'focus/completed',
-              Profile: 'profile',
-              Settings: 'settings',
-              AppGuide: 'app-guide',
-              Admin: 'admin',
-              FocusLock: 'focus/lock',
-            },
-          },
+          DashboardRoot: '',
+          Library: 'library',
+          Groups: 'groups/invite/:inviteToken',
+          More: 'more',
+          LibraryNotes: 'library/notes',
+          LibraryBooks: 'library/books',
+          LibraryPYQSets: 'library/pyq-sets',
+          LibraryStarred: 'library/starred',
+          LibraryDownloads: 'library/downloads',
+          PYQ: 'pyq-bank',
+          Tests: 'tests',
+          TestPlayer: 'tests/attempt',
+          TestResult: 'tests/result',
+          SakhaAI: 'sakha-ai',
+          NoteEditor: 'notes',
+          BookReader: 'books',
+          CurrentAffairs: 'current-affairs',
+          Search: 'search',
+          Notifications: 'notifications',
+          Statistics: 'statistics',
+          TaskPerformance: 'statistics/tasks',
+          StudyPlanner: 'study-planner',
+          Alarm: 'alarm',
+          FocusCenter: 'focus/center',
+          FocusCompletion: 'focus/completed',
+          Profile: 'profile',
+          Settings: 'settings',
+          AppGuide: 'app-guide',
+          Admin: 'admin',
+          FocusLock: 'focus/lock',
         },
       },
     },
@@ -194,162 +170,9 @@ function BrandIntro({ onFinished }: { onFinished: () => void }) {
 }
 
 // ----------------------------------------------------
-// 1. CUSTOM LEFT DRAWER COMPONENT
+// 1. AUTHENTICATED APP NAVIGATOR
 // ----------------------------------------------------
-export function executeDrawerTargetNavigation(
-  navigation: AppDrawerContentProps['navigation'],
-  drawerState: AppDrawerContentProps['state'],
-  target: AppStackNavigationTarget
-) {
-  if (!target.screen) return;
-  const mainStackState = drawerState?.routes?.[drawerState?.index ?? 0]?.state;
-  const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
-  if (currentRoute === target.screen) return;
-  const targetScreen = target.screen;
-  const targetExistsInStack = Boolean(
-    mainStackState?.key &&
-    Array.isArray(mainStackState.routes) &&
-    mainStackState.routes.some((route) => route.name === targetScreen)
-  );
-  if (targetExistsInStack && mainStackState?.key) {
-    navigation.dispatch({
-      ...StackActions.popTo(targetScreen, target.params),
-      target: mainStackState.key,
-    });
-    return;
-  }
-  navigation.navigate('MainStack', target);
-}
-
-export function CustomDrawerContent(
-  props: AppDrawerContentProps & {
-    onPendingTargetChange?: (
-      target: AppStackNavigationTarget | null,
-      navigation?: AppDrawerContentProps['navigation'],
-      drawerState?: AppDrawerContentProps['state']
-    ) => void;
-    onSyncDrawerContext?: (
-      navigation: AppDrawerContentProps['navigation'],
-      state: AppDrawerContentProps['state']
-    ) => void;
-  }
-) {
-  const { state } = useStore();
-  const { colors, scheme } = useTheme();
-  const first = getDisplayName(state.user).split(/\s+/)[0];
-  const mainStackState = props.state?.routes?.[props.state?.index ?? 0]?.state;
-  const currentRoute = mainStackState?.routes?.[mainStackState?.index ?? 0]?.name;
-  const drawerStatus = getDrawerStatusFromState(props.state);
-  const { onPendingTargetChange, onSyncDrawerContext } = props;
-
-  useEffect(() => {
-    onSyncDrawerContext?.(props.navigation, props.state);
-  }, [onSyncDrawerContext, props.navigation, props.state]);
-
-  useEffect(() => {
-    if (drawerStatus === 'open') {
-      onPendingTargetChange?.(null);
-    }
-  }, [drawerStatus, onPendingTargetChange]);
-
-  const navigateToMainStack = useCallback((target: AppStackNavigationTarget) => {
-    if (!target.screen || currentRoute === target.screen) {
-      onPendingTargetChange?.(null);
-      props.navigation.closeDrawer();
-      return;
-    }
-    if (Platform.OS === 'web' || drawerStatus === 'closed') {
-      onPendingTargetChange?.(null);
-      props.navigation.closeDrawer();
-      executeDrawerTargetNavigation(props.navigation, props.state, target);
-      return;
-    }
-    // Wait for the drawer's close transitionEnd event (with a deterministic
-    // fallback timer in MainDrawerNavigator) so native stack transitions never
-    // stall if Reanimated skips or interrupts the close callback on Android.
-    onPendingTargetChange?.(target, props.navigation, props.state);
-    props.navigation.closeDrawer();
-  }, [currentRoute, drawerStatus, onPendingTargetChange, props.navigation, props.state]);
-
-  return (
-    <View collapsable={false} style={{ flex: 1, backgroundColor: colors.bg }}>
-      <DrawerContentScrollView {...props} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 0 }}>
-        {/* Profile Header (Top) */}
-        <LinearGradient 
-          colors={scheme === 'dark' ? [colors.navy, colors.bg] : [colors.rose, colors.navy]}
-          style={{ padding: 20, paddingTop: 56, paddingBottom: 28, flexDirection: 'row', alignItems: 'center' }}
-        >
-          <Pressable
-            onPress={() => navigateToMainStack({ screen: 'Profile' })}
-            accessibilityRole="button"
-            accessibilityLabel="View profile"
-            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.82 : 1 })}
-          >
-            <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surfaceRaised, alignItems: 'center', justifyContent: 'center', marginRight: 15 }}>
-              <Txt size={20} weight="700" color={colors.brandPrimary}>{first.charAt(0)}</Txt>
-            </View>
-            <View>
-              <Txt size={18} weight="700" color="#FFF">{getDisplayName(state.user)}</Txt>
-              <Txt size={13} color="rgba(255,255,255,0.78)" style={{ marginTop: 2 }}>{translateLabel('View Profile', state.settings.language)}</Txt>
-            </View>
-          </Pressable>
-        </LinearGradient>
-
-        {/* 4 Menu Options */}
-        <View collapsable={false} style={{ padding: 16, gap: 6 }}>
-          {DRAWER_ITEMS.map((item) => (
-            <View key={item.label} collapsable={false}>
-              <Pressable
-                onPress={() => navigateToMainStack(item.target)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: currentRoute === item.target.screen }}
-                style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: currentRoute === item.target.screen ? colors.selectedSurface : pressed ? colors.surfaceInteractive : 'transparent', opacity: pressed ? 0.78 : 1 })}
-              >
-                <Ionicons name={item.icon} size={22} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} />
-                <Txt size={15} weight={currentRoute === item.target.screen ? '800' : '600'} color={currentRoute === item.target.screen ? colors.brandPrimary : colors.text} style={{ marginLeft: 15 }}>{translateLabel(item.label, state.settings.language)}</Txt>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      </DrawerContentScrollView>
-
-      {/* Share Bottom Bar */}
-      <Pressable
-        onPress={async () => {
-          try {
-            const url = getAppShareUrl();
-            const result = await Share.share(
-              {
-                title: 'Study Sakha',
-                message: `I'm using Study Sakha to prepare for competitive exams. ${getDistributionLinkMessage()}\n${url}`,
-                ...(Platform.OS === 'ios' ? { url } : {}),
-              },
-              { dialogTitle: 'Share Study Sakha' }
-            );
-            if (result?.action === Share.dismissedAction) return;
-          } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') return;
-            Alert.alert(
-              'Unable to share',
-              error instanceof Error ? error.message : 'Sharing is not supported on this device.'
-            );
-          }
-        }}
-        accessibilityRole="button"
-        accessibilityLabel="Share Study Sakha with friends"
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 64, padding: 20, borderTopWidth: 1, borderTopColor: colors.borderSubtle, backgroundColor: colors.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
-      >
-        <Ionicons name="share-social-outline" size={22} color={colors.brandPrimary} />
-        <Txt size={15} weight="700" color={colors.brandPrimary} style={{ marginLeft: 15 }}>{translateLabel('Share with friends', state.settings.language)}</Txt>
-      </Pressable>
-    </View>
-  );
-}
-
-// ----------------------------------------------------
-// 2. AUTHENTICATED APP NAVIGATORS
-// ----------------------------------------------------
-function AuthenticatedStackNavigator() {
+export function AuthenticatedStackNavigator() {
   const { colors, reduceMotion } = useTheme();
   return (
     <AppStack.Navigator
@@ -393,95 +216,11 @@ function AuthenticatedStackNavigator() {
   );
 }
 
-export function MainDrawerNavigator() {
-  const pendingTargetRef = useRef<AppStackNavigationTarget | null>(null);
-  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestNavigationRef = useRef<AppDrawerContentProps['navigation'] | null>(null);
-  const latestStateRef = useRef<AppDrawerContentProps['state'] | null>(null);
-
-  const clearPendingTimer = useCallback(() => {
-    if (pendingTimerRef.current) {
-      clearTimeout(pendingTimerRef.current);
-      pendingTimerRef.current = null;
-    }
-  }, []);
-
-  const flushPendingTarget = useCallback(() => {
-    clearPendingTimer();
-    const nextTarget = pendingTargetRef.current;
-    if (!nextTarget) return;
-    pendingTargetRef.current = null;
-    const nav = latestNavigationRef.current;
-    const drawerState = latestStateRef.current;
-    if (nav && drawerState) {
-      executeDrawerTargetNavigation(nav, drawerState, nextTarget);
-    }
-  }, [clearPendingTimer]);
-
-  useEffect(() => clearPendingTimer, [clearPendingTimer]);
-
-  const handlePendingTargetChange = useCallback((
-    target: AppStackNavigationTarget | null,
-    navigation?: AppDrawerContentProps['navigation'],
-    drawerState?: AppDrawerContentProps['state']
-  ) => {
-    clearPendingTimer();
-    pendingTargetRef.current = target;
-    if (navigation) latestNavigationRef.current = navigation;
-    if (drawerState) latestStateRef.current = drawerState;
-    if (target) {
-      pendingTimerRef.current = setTimeout(() => {
-        flushPendingTarget();
-      }, 350);
-    }
-  }, [clearPendingTimer, flushPendingTarget]);
-
-  const handleSyncDrawerContext = useCallback((
-    navigation: AppDrawerContentProps['navigation'],
-    drawerState: AppDrawerContentProps['state']
-  ) => {
-    latestNavigationRef.current = navigation;
-    latestStateRef.current = drawerState;
-  }, []);
-
-  const renderDrawerContent = useCallback(
-    (props: AppDrawerContentProps) => (
-      <CustomDrawerContent
-        {...props}
-        onPendingTargetChange={handlePendingTargetChange}
-        onSyncDrawerContext={handleSyncDrawerContext}
-      />
-    ),
-    [handlePendingTargetChange, handleSyncDrawerContext]
-  );
-
-  return (
-    <Drawer.Navigator 
-      drawerContent={renderDrawerContent}
-      screenListeners={{
-        transitionStart: (e) => {
-          if (!e.data.closing) {
-            clearPendingTimer();
-            pendingTargetRef.current = null;
-          }
-        },
-        transitionEnd: (e) => {
-          if (!e.data.closing) return;
-          flushPendingTarget();
-        },
-      }}
-      screenOptions={{ headerShown: false, drawerStyle: { width: 290 } }}
-    >
-      <Drawer.Screen name="MainStack" component={AuthenticatedStackNavigator} />
-    </Drawer.Navigator>
-  );
-}
-
 // ----------------------------------------------------
-// 3. ROOT STACK NAVIGATOR
+// 2. ROOT STACK NAVIGATOR
 // ----------------------------------------------------
 function Navigation() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, authStatus } = useStore();
   const { colors, scheme, reduceMotion } = useTheme();
   const focus = useOptionalFocusSession();
   const [showBrandIntro, setShowBrandIntro] = useState(true);
@@ -522,13 +261,10 @@ function Navigation() {
     pendingInviteRef.current = null;
     void clearPendingGroupInvite();
     navigationRef.navigate('Dashboard', {
-      screen: 'MainStack',
+      screen: 'Groups',
       params: {
-        screen: 'Groups',
-        params: {
-          ...(pending.inviteToken ? { inviteToken: pending.inviteToken } : {}),
-          ...(pending.inviteGroupId ? { inviteGroupId: pending.inviteGroupId } : {}),
-        },
+        ...(pending.inviteToken ? { inviteToken: pending.inviteToken } : {}),
+        ...(pending.inviteGroupId ? { inviteGroupId: pending.inviteGroupId } : {}),
       },
     });
   }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
@@ -543,7 +279,7 @@ function Navigation() {
       !state.user
     ) return;
     pendingNotificationRoute.current = null;
-    navigationRef.navigate('Dashboard', { screen: 'MainStack', params: { screen: 'Notifications' } });
+    navigationRef.navigate('Dashboard', { screen: 'Notifications' });
     void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
       console.error('Notification response could not be cleared:', error);
     });
@@ -551,7 +287,7 @@ function Navigation() {
 
   const handleBackToFocus = useCallback(() => {
     if (!navigationRef.isReady() || !state.user) return;
-    navigationRef.navigate('Dashboard', { screen: 'MainStack', params: { screen: 'FocusCenter' } });
+    navigationRef.navigate('Dashboard', { screen: 'FocusCenter' });
   }, [state.user]);
 
   const navTheme = {
@@ -662,6 +398,13 @@ function Navigation() {
 
   return (
     <View style={{ flex: 1 }}>
+      {state.user && (authStatus === 'network_unavailable' || authStatus === 'profile_fetch_failed') ? (
+        <View style={{ minHeight: 30, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: scheme === 'dark' ? '#3A2E12' : '#FFF4D6' }}>
+          <Text style={{ color: scheme === 'dark' ? '#FCD34D' : '#7C4A03', fontSize: 12, textAlign: 'center' }}>
+            {authStatus === 'network_unavailable' ? 'You are offline. Your account is safe; reconnecting will resume sync.' : 'Some account details are temporarily unavailable. Your session remains active.'}
+          </Text>
+        </View>
+      ) : null}
       <NavigationContainer
         ref={navigationRef}
         onReady={() => {
@@ -685,7 +428,7 @@ function Navigation() {
         >
           {state.user ? (
             <>
-              <Stack.Screen name="Dashboard" component={MainDrawerNavigator} />
+              <Stack.Screen name="Dashboard" component={AuthenticatedStackNavigator} />
             </>
           ) : (
             <>
@@ -709,8 +452,8 @@ function Themed() {
   const handleBackgroundCompletion = useCallback((payload: FocusCompletionPayload) => {
     if (!navigationRef.isReady() || !state.user) return;
     navigationRef.navigate('Dashboard', {
-      screen: 'MainStack',
-      params: { screen: 'FocusCompletion', params: payload },
+      screen: 'FocusCompletion',
+      params: payload,
     });
   }, [state.user]);
 

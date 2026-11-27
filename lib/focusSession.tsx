@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { AppState } from 'react-native';
 import type { FocusSessionMode, FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { appendFocusHistory } from './focusHistory';
-import type { FocusSessionCategory } from './focusHistory';
+import type { FocusSessionCategory, FocusTagType } from './focusHistory';
 import { getFocusedMilliseconds, getFocusedSeconds, shouldPromptToSaveFocusSession } from './focusTimerAccounting';
 import { retryPendingStudyMemberActivities, syncStudyMemberActivityWithRetry } from './groupActivitySync';
 import {
@@ -41,7 +41,9 @@ export type CompletionRecord = {
   plannedMinutes?: number;
   mode: FocusSessionMode;
   sessionType: FocusSessionCategory;
+  tagType?: FocusTagType;
   subject?: string;
+  activity?: string;
   topic?: string;
   taskId?: string;
   scheduleId?: string;
@@ -57,6 +59,7 @@ export type ActiveFocusSession = {
   startedAt: string;
   mode: FocusSessionMode;
   sessionType: FocusSessionCategory;
+  tagType?: FocusTagType | null;
   plannedSeconds: number | null;
   focusedMilliseconds: number;
   focusSegmentStartedAt: number | null;
@@ -66,6 +69,7 @@ export type ActiveFocusSession = {
   breakStartedAt: number | null;
   breakDurationSeconds?: number;
   subject: string | null;
+  activity?: string | null;
   topic: string | null;
   taskId: string | null;
   scheduleId: string | null;
@@ -121,6 +125,7 @@ export function isValidFocusSessionSetup(value: unknown): value is FocusSessionS
   if (!isNonNegativeFiniteNumber(value.durationMinutes) || value.durationMinutes <= 0) return false;
   if (value.selection !== null && value.selection !== 'manual' && value.selection !== 'schedule') return false;
   if (typeof value.tag !== 'string') return false;
+  if (value.tagType !== undefined && value.tagType !== 'subject' && value.tagType !== 'activity') return false;
   if (value.startInBreak !== undefined && typeof value.startInBreak !== 'boolean') return false;
   if (
     value.scheduleOccurrenceId !== undefined &&
@@ -146,6 +151,8 @@ export function isActiveFocusSession(value: unknown): value is ActiveFocusSessio
     (value.breakDurationSeconds === undefined || isNonNegativeFiniteNumber(value.breakDurationSeconds)) &&
     (value.breakStartedAt === null || isNonNegativeFiniteNumber(value.breakStartedAt)) &&
     (value.subject === null || typeof value.subject === 'string') &&
+    (value.activity === undefined || value.activity === null || typeof value.activity === 'string') &&
+    (value.tagType === undefined || value.tagType === null || value.tagType === 'subject' || value.tagType === 'activity') &&
     (value.topic === null || typeof value.topic === 'string') &&
     (value.taskId === null || typeof value.taskId === 'string') &&
     (value.scheduleId === undefined || value.scheduleId === null || typeof value.scheduleId === 'string') &&
@@ -457,18 +464,50 @@ export function FocusSessionProvider({
     roomFocus?: GroupRoomFocusContext | null,
   ): ActiveFocusSession => {
     const task = setup.selection === 'schedule' ? setup.task : null;
-    const subject = task
-      ? ('subject' in task ? task.subject || task.category : task.category)
-      : setup.selection === 'manual'
-        ? setup.tag.trim() || null
-        : null;
+    const trimmedSetupTag = setup.tag.trim();
+    const taskSubject = task ? ('subject' in task ? task.subject?.trim() : undefined) : undefined;
+    let tagType: FocusTagType | null = null;
+    let subject: string | null = null;
+    let activity: string | null = null;
+    let sessionType: FocusSessionCategory = setup.startInBreak ? 'break' : 'study';
+
+    if (task) {
+      if (taskSubject) {
+        tagType = 'subject';
+        subject = taskSubject;
+      } else if (trimmedSetupTag) {
+        tagType = setup.tagType ?? 'subject';
+        if (tagType === 'activity') {
+          activity = trimmedSetupTag;
+        } else {
+          subject = trimmedSetupTag;
+        }
+      } else {
+        tagType = 'subject';
+        subject = task.category;
+      }
+    } else if (setup.selection === 'manual' && trimmedSetupTag) {
+      tagType = setup.tagType === 'activity' ? 'activity' : 'subject';
+      if (tagType === 'activity') {
+        activity = trimmedSetupTag;
+        if (!setup.startInBreak) {
+          const lower = trimmedSetupTag.toLowerCase();
+          if (lower === 'meditation') sessionType = 'meditation';
+          else if (lower === 'break') sessionType = 'break';
+        }
+      } else {
+        subject = trimmedSetupTag;
+      }
+    }
+
     const scheduleId = task && 'title' in task ? task.id : null;
     return {
       id: createFocusSessionId(),
       userId,
       startedAt: new Date(now).toISOString(),
       mode: setup.mode,
-      sessionType: setup.startInBreak ? 'break' : 'study',
+      sessionType,
+      tagType,
       plannedSeconds: setup.mode === 'stopwatch' ? null : setup.durationMinutes * 60,
       focusedMilliseconds: 0,
       focusSegmentStartedAt: setup.startInBreak ? null : now,
@@ -478,6 +517,7 @@ export function FocusSessionProvider({
       breakStartedAt: setup.startInBreak ? now : null,
       breakDurationSeconds: (storeState.settings?.shortBreakMinutes ?? 5) * 60,
       subject,
+      activity,
       topic: getTaskTitle(task),
       taskId: task?.id ?? setup.scheduleOccurrenceId ?? null,
       scheduleId,
@@ -523,6 +563,7 @@ export function FocusSessionProvider({
     const endedAt = existingRecord?.endedAt ?? new Date(now).toISOString();
     const dateStr = existingRecord?.date ?? dayKey(new Date(endedAt));
     const sessionType: FocusSessionCategory = existingRecord?.sessionType ?? value.sessionType ?? 'study';
+    const tagType: FocusTagType | undefined = existingRecord?.tagType ?? value.tagType ?? (value.activity ? 'activity' : value.subject ? 'subject' : undefined);
     const record: CompletionRecord = existingRecord ?? {
       id: value.id,
       sessionId: value.id,
@@ -537,7 +578,9 @@ export function FocusSessionProvider({
       ...(value.plannedSeconds === null ? {} : { plannedMinutes: value.plannedSeconds / 60 }),
       mode: value.mode,
       sessionType,
-      ...(value.subject ? { subject: value.subject } : {}),
+      ...(tagType ? { tagType } : {}),
+      ...(tagType !== 'activity' && value.subject ? { subject: value.subject } : {}),
+      ...(tagType === 'activity' && value.activity ? { activity: value.activity } : {}),
       ...(value.topic ? { topic: value.topic } : {}),
       ...(value.taskId ? { taskId: value.taskId } : {}),
       ...(value.scheduleId ? { scheduleId: value.scheduleId } : {}),
