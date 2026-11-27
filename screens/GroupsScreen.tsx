@@ -3,6 +3,8 @@ import {
   BackHandler,
   ActivityIndicator,
   Animated,
+  FlatList,
+  Keyboard,
   View,
   Text,
   Pressable,
@@ -18,8 +20,11 @@ import {
   Share,
   useWindowDimensions,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Ellipse, Rect, Circle } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import type { LucideIcon } from 'lucide-react-native';
 import type { ChairState, StudyMember } from '../lib/smartStudyRoomTypes';
 import {
@@ -27,18 +32,18 @@ import {
   Plus,
   Bell,
   Users,
-  Clock,
+  Timer,
   Video,
   VideoOff,
   Lock,
   Globe,
-  Shield,
+  ShieldCheck,
   Sparkles,
-  MessageSquare,
+  MessageCircle,
   Target,
   BookOpen,
   Calendar,
-  BarChart3,
+  ChartNoAxesCombined,
   Settings,
   ChevronLeft,
   ChevronDown,
@@ -68,10 +73,23 @@ import {
   Volume2,
   VolumeX,
   EyeOff,
+  Flame,
+  Star,
+  ArrowRight,
+  TrendingUp,
+  ChevronRight,
+  UserPlus,
+  Trash2,
 } from 'lucide-react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Shell } from '../components/Shell';
+import { GroupChatHeader } from '../components/groups/GroupChatHeader';
+import { ChannelBar, ChannelSelectorSheet } from '../components/groups/ChannelSelectorSheet';
+import { GroupMessageList } from '../components/groups/GroupMessageList';
+import { MessageActionSheet } from '../components/groups/MessageActionSheet';
+import { GroupChatComposer } from '../components/groups/GroupChatComposer';
+import type { ChatAttachment, ChatChannelDef, ChatMessageItem } from '../components/groups/types';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { SmartStudyRoomScreen } from '../screens/SmartStudyRoomScreen';
@@ -229,25 +247,6 @@ interface GoalItem {
   userContribution: number;
   userTarget: number;
   deadline: string;
-}
-
-interface ChatMessageItem {
-  id: string;
-  createdAt?: string;
-  sender: string;
-  initials: string;
-  role: string;
-  time: string;
-  pinned?: boolean;
-  text: string;
-  attachment?: { name: string; size: string };
-  poll?: {
-    question: string;
-    options: { id: string; label: string; votes: number }[];
-    votedId: string | null;
-  };
-  reactions: { emoji: string; count: number; reacted: boolean }[];
-  replies: number;
 }
 
 interface EventItem {
@@ -560,10 +559,10 @@ const AMBIENT_AUDIO_OPTIONS: { value: AmbientAudio; label: string }[] = [
   },
 ]; */
 
-const CHAT_CHANNELS = [
-  { id: 'general-chat', name: 'general-chat', unread: 0, desc: 'Daily coordination and group discussions', lockedWrite: false },
-  { id: 'announcements', name: 'announcements', unread: 2, desc: 'Admin & Mentor notices only', lockedWrite: true },
-  { id: 'motivation', name: 'motivation', unread: 0, desc: 'Milestones, streaks & peer encouragement', lockedWrite: false },
+const CHAT_CHANNELS: ChatChannelDef[] = [
+  { id: 'general-chat', name: 'general-chat', desc: 'Daily coordination and group discussions', lockedWrite: false },
+  { id: 'announcements', name: 'announcements', desc: 'Admin & Mentor notices only', lockedWrite: true },
+  { id: 'motivation', name: 'motivation', desc: 'Milestones, streaks & peer encouragement', lockedWrite: false },
 ];
 
 /* const INITIAL_MESSAGES: Record<string, ChatMessageItem[]> = {
@@ -957,7 +956,7 @@ const EmptyState = ({
     ]}
   >
     <View style={[styles.emptyIconWrap, { backgroundColor: theme.primarySoft }]}>
-      <Icon size={24} color={theme.primary} />
+      <Icon size={24} strokeWidth={1.9} color={theme.primary} />
     </View>
     <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>{title}</Text>
     <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>{description}</Text>
@@ -1591,8 +1590,23 @@ export default function StudySakhaGroupsRN() {
   const [activeChannel, setActiveChannel] = useState('general-chat');
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChatMessageItem[]>>({});
   const [chatInput, setChatInput] = useState('');
-  const chatScrollRef = useRef<ScrollView | null>(null);
+  const chatListRef = useRef<FlatList<ChatMessageItem> | null>(null);
   const chatLoadRequestRef = useRef(0);
+  const [chatLoadingByChannel, setChatLoadingByChannel] = useState<Record<string, boolean>>({});
+  const [chatErrorByChannel, setChatErrorByChannel] = useState<Record<string, string | null>>({});
+  const [chatHasMoreByChannel, setChatHasMoreByChannel] = useState<Record<string, boolean>>({});
+  const [chatRetryNonce, setChatRetryNonce] = useState(0);
+  const [chatLoadingOlder, setChatLoadingOlder] = useState(false);
+  const [channelSelectorVisible, setChannelSelectorVisible] = useState(false);
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [actionSheetMessage, setActionSheetMessage] = useState<ChatMessageItem | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
+  const [unreadByChannel, setUnreadByChannel] = useState<Record<string, number>>({});
+  const [firstUnreadIdByChannel, setFirstUnreadIdByChannel] = useState<Record<string, string | null>>({});
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const keyboardVisibleRef = useRef(false);
+  const cameFromChatRef = useRef(false);
   const [threadMessage, setThreadMessage] = useState<ChatMessageItem | null>(null);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
@@ -1847,14 +1861,58 @@ export default function StudySakhaGroupsRN() {
     };
   }, [roomUser?.id]);
 
-  // Realtime & initial fetch for group chat messages
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => {
+      keyboardVisibleRef.current = true;
+      setKeyboardVisible(true);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardVisibleRef.current = false;
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Draft persistence per group + channel
   useEffect(() => {
     if (!selectedGroupId || !activeChannel) return;
     let active = true;
-    const requestId = ++chatLoadRequestRef.current;
+    const draftKey = `sakha-group-draft:${selectedGroupId}:${activeChannel}`;
+    void AsyncStorage.getItem(draftKey)
+      .then((saved) => {
+        if (active && typeof saved === 'string') {
+          setChatInput(saved);
+        } else if (active) {
+          setChatInput('');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [activeChannel, selectedGroupId]);
 
-    // Helper to map DB row to ChatMessageItem
-    const mapRowToMessage = (row: StudyGroupChatMessageRecord): ChatMessageItem => {
+  useEffect(() => {
+    if (!selectedGroupId || !activeChannel) return;
+    const draftKey = `sakha-group-draft:${selectedGroupId}:${activeChannel}`;
+    const timer = setTimeout(() => {
+      if (chatInput.trim()) {
+        void AsyncStorage.setItem(draftKey, chatInput).catch(() => {});
+      } else {
+        void AsyncStorage.removeItem(draftKey).catch(() => {});
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [activeChannel, chatInput, selectedGroupId]);
+
+  const mapRowToMessage = useCallback(
+    (row: StudyGroupChatMessageRecord): ChatMessageItem => {
       const isMe = row.user_id === roomUser?.id;
       const createdAt = new Date(row.created_at);
       const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1865,6 +1923,7 @@ export default function StudySakhaGroupsRN() {
         initials: row.sender_initials,
         role: row.sender_role as ChatMessageItem['role'],
         time: isNaN(createdAt.getTime()) ? 'Just now' : timeStr,
+        status: 'sent',
         text: row.message,
         attachment: row.attachment ?? undefined,
         poll: row.poll ? { ...row.poll, votedId: row.poll.votedId ?? null } : undefined,
@@ -1872,21 +1931,32 @@ export default function StudySakhaGroupsRN() {
         reactions: [],
         replies: 0,
       };
-    };
+    },
+    [roomUser?.id]
+  );
 
-    const mergeMessages = (current: ChatMessageItem[], incoming: ChatMessageItem[]) => {
-      const byId = new Map<string, ChatMessageItem>();
-      [...current, ...incoming].forEach((message) => byId.set(message.id, message));
-      return [...byId.values()].sort((a, b) => {
-        const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.MAX_SAFE_INTEGER;
-        const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.MAX_SAFE_INTEGER;
-        return aTime - bTime;
-      });
-    };
+  const mergeMessages = useCallback((current: ChatMessageItem[], incoming: ChatMessageItem[]) => {
+    const byId = new Map<string, ChatMessageItem>();
+    [...current, ...incoming].forEach((message) => byId.set(message.id, message));
+    return [...byId.values()].sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.MAX_SAFE_INTEGER;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.MAX_SAFE_INTEGER;
+      return aTime - bTime;
+    });
+  }, []);
+
+  // Realtime & initial fetch for group chat messages
+  useEffect(() => {
+    if (!selectedGroupId || !activeChannel) return;
+    let active = true;
+    const requestId = ++chatLoadRequestRef.current;
+
+    setChatLoadingByChannel((prev) => ({ ...prev, [activeChannel]: true }));
+    setChatErrorByChannel((prev) => ({ ...prev, [activeChannel]: null }));
 
     // Load initial messages for active channel. Merge with anything received or
     // sent while the request was in flight; never replace newer local state.
-    void getStudyGroupMessages(selectedGroupId, activeChannel)
+    void getStudyGroupMessages(selectedGroupId, activeChannel, 50)
       .then((records) => {
         if (!active || requestId !== chatLoadRequestRef.current) return;
         const mapped = records.map(mapRowToMessage);
@@ -1894,9 +1964,16 @@ export default function StudySakhaGroupsRN() {
           ...prev,
           [activeChannel]: mergeMessages(prev[activeChannel] || [], mapped),
         }));
+        setChatHasMoreByChannel((prev) => ({ ...prev, [activeChannel]: records.length >= 50 }));
+        setChatLoadingByChannel((prev) => ({ ...prev, [activeChannel]: false }));
       })
-      .catch((error) => {
-        // Silently log or preserve local fallback
+      .catch((error: unknown) => {
+        if (!active || requestId !== chatLoadRequestRef.current) return;
+        setChatLoadingByChannel((prev) => ({ ...prev, [activeChannel]: false }));
+        setChatErrorByChannel((prev) => ({
+          ...prev,
+          [activeChannel]: error instanceof Error ? error.message : 'Could not load group messages.',
+        }));
       });
 
     if (!supabaseConfigured || typeof supabase.channel !== 'function') return;
@@ -1916,8 +1993,19 @@ export default function StudySakhaGroupsRN() {
       (payload) => {
         if (!active) return;
         const newRecord = payload.new as StudyGroupChatMessageRecord;
-        if (newRecord.channel_id !== activeChannel) return;
         const mapped = mapRowToMessage(newRecord);
+        if (newRecord.channel_id !== activeChannel) {
+          if (newRecord.user_id !== roomUser?.id) {
+            setUnreadByChannel((prev) => ({
+              ...prev,
+              [newRecord.channel_id]: (prev[newRecord.channel_id] ?? 0) + 1,
+            }));
+            setFirstUnreadIdByChannel((prev) =>
+              prev[newRecord.channel_id] ? prev : { ...prev, [newRecord.channel_id]: mapped.id }
+            );
+          }
+          return;
+        }
         setMessagesByChannel((prev) => {
           const currentList = prev[activeChannel] || [];
           if (currentList.some((m) => m.id === mapped.id)) {
@@ -1941,13 +2029,13 @@ export default function StudySakhaGroupsRN() {
         void channel.unsubscribe().catch(() => {});
       }
     };
-  }, [activeChannel, roomUser?.id, selectedGroupId]);
+  }, [activeChannel, chatRetryNonce, mapRowToMessage, mergeMessages, roomUser?.id, selectedGroupId]);
 
   useEffect(() => {
     const messages = messagesByChannel[activeChannel] ?? [];
-    if (!messages.length) return;
-    requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: true }));
-  }, [activeChannel, messagesByChannel]);
+    if (!messages.length || chatLoadingOlder) return;
+    requestAnimationFrame(() => chatListRef.current?.scrollToEnd({ animated: true }));
+  }, [activeChannel, chatLoadingOlder, messagesByChannel]);
 
   useEffect(() => {
     if (!roomUser?.id) return;
@@ -1988,12 +2076,57 @@ export default function StudySakhaGroupsRN() {
       focusLaunchRef.current = false;
       void refreshGroups({ silent: true });
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (keyboardVisibleRef.current) {
+          Keyboard.dismiss();
+          return true;
+        }
+        if (actionSheetMessage) {
+          setActionSheetMessage(null);
+          return true;
+        }
+        if (channelSelectorVisible) {
+          setChannelSelectorVisible(false);
+          return true;
+        }
+        if (chatSearchOpen) {
+          setChatSearchOpen(false);
+          setChatSearchQuery('');
+          return true;
+        }
+        if (showGroupMenu) {
+          setShowGroupMenu(false);
+          return true;
+        }
+        if (selectionSheet) {
+          setSelectionSheet(null);
+          return true;
+        }
+        if (threadMessage) {
+          setThreadMessage(null);
+          return true;
+        }
+        if (activeScreen === 'detail' && detailTab !== 'chat' && cameFromChatRef.current) {
+          cameFromChatRef.current = false;
+          setDetailTab('chat');
+          return true;
+        }
         if (activeScreen === 'main') navigation.popTo('DashboardRoot');
         else setActiveScreen('main');
         return true;
       });
       return () => subscription.remove();
-    }, [activeScreen, navigation, refreshGroups])
+    }, [
+      actionSheetMessage,
+      activeScreen,
+      channelSelectorVisible,
+      chatSearchOpen,
+      detailTab,
+      navigation,
+      refreshGroups,
+      selectionSheet,
+      showGroupMenu,
+      threadMessage,
+    ])
   );
 
   const joinedGroups = useMemo(() => groups.filter((group) => group.joined), [groups]);
@@ -2741,15 +2874,72 @@ export default function StudySakhaGroupsRN() {
     }
   };
 
-  const handleSendMessage = async () => {
-    const textToSend = chatInput.trim();
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!selectedGroupId || !activeChannel || chatLoadingOlder) return;
+    const current = messagesByChannel[activeChannel] ?? [];
+    const oldestCreatedAt = current[0]?.createdAt;
+    if (!oldestCreatedAt) return;
+    setChatLoadingOlder(true);
+    try {
+      const older = await getStudyGroupMessages(selectedGroupId, activeChannel, 50, oldestCreatedAt);
+      const mapped = older.map(mapRowToMessage);
+      setMessagesByChannel((prev) => ({
+        ...prev,
+        [activeChannel]: mergeMessages(mapped, prev[activeChannel] ?? []),
+      }));
+      setChatHasMoreByChannel((prev) => ({ ...prev, [activeChannel]: older.length >= 50 }));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not load older messages.');
+    } finally {
+      setChatLoadingOlder(false);
+    }
+  }, [activeChannel, chatLoadingOlder, mapRowToMessage, mergeMessages, messagesByChannel, selectedGroupId]);
+
+  const handleSendMessage = async (retryText?: string, retryId?: string) => {
+    const rawText = typeof retryText === 'string' ? retryText : chatInput;
+    const textToSend = rawText.trim() || (pendingAttachment ? `Shared ${pendingAttachment.name}` : '');
     if (!textToSend || isSendingMessage) return;
 
     const senderName = roomUser?.name || 'Aspirant';
     const senderInitials = initialsForName(senderName);
     const senderRole = selectedGroup?.joined ? 'Member' : 'Member';
+    const attachmentToSend = pendingAttachment;
+    const replyContext = threadMessage
+      ? { id: threadMessage.id, sender: threadMessage.sender.replace(' (You)', ''), text: threadMessage.text }
+      : undefined;
+    const tempId = retryId ?? `temp-${Date.now()}`;
+    const nowIso = new Date().toISOString();
 
-    setChatInput('');
+    if (!retryId) {
+      setChatInput('');
+      setPendingAttachment(null);
+      setThreadMessage(null);
+      if (selectedGroupId && activeChannel) {
+        void AsyncStorage.removeItem(`sakha-group-draft:${selectedGroupId}:${activeChannel}`).catch(() => {});
+      }
+    }
+
+    const optimisticMsg: ChatMessageItem = {
+      id: tempId,
+      createdAt: nowIso,
+      sender: `${senderName} (You)`,
+      initials: senderInitials,
+      role: senderRole,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'sending',
+      replyTo: replyContext,
+      text: textToSend,
+      attachment: attachmentToSend ?? undefined,
+      reactions: [],
+      replies: 0,
+    };
+
+    setMessagesByChannel((prev) => {
+      const list = prev[activeChannel] || [];
+      const filtered = list.filter((m) => m.id !== tempId);
+      return { ...prev, [activeChannel]: [...filtered, optimisticMsg] };
+    });
+
     setIsSendingMessage(true);
 
     try {
@@ -2761,29 +2951,36 @@ export default function StudySakhaGroupsRN() {
           senderName,
           senderInitials,
           senderRole,
+          attachment: attachmentToSend
+            ? { name: attachmentToSend.name, size: attachmentToSend.size, pages: attachmentToSend.pages }
+            : null,
         });
 
-        // Optimistically ensure it's in the state if realtime hasn't added it already
         const createdAt = new Date(record.created_at);
         const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const newMsg: ChatMessageItem = {
+        const confirmedMsg: ChatMessageItem = {
           id: record.id,
           createdAt: record.created_at,
           sender: `${record.sender_name} (You)`,
           initials: record.sender_initials,
           role: record.sender_role as ChatMessageItem['role'],
           time: isNaN(createdAt.getTime()) ? 'Just now' : timeStr,
+          status: 'sent',
+          replyTo: replyContext,
           text: record.message,
+          attachment: attachmentToSend ?? (record.attachment ?? undefined),
           reactions: [],
           replies: 0,
         };
 
         setMessagesByChannel((prev) => {
-          const channelList = prev[activeChannel] || [];
-          if (channelList.some((m) => m.id === newMsg.id)) return prev;
+          const channelList = (prev[activeChannel] || []).filter((m) => m.id !== tempId);
+          if (channelList.some((m) => m.id === confirmedMsg.id)) {
+            return { ...prev, [activeChannel]: channelList };
+          }
           return {
             ...prev,
-            [activeChannel]: [...channelList, newMsg],
+            [activeChannel]: mergeMessages(channelList, [confirmedMsg]),
           };
         });
       } else {
@@ -2791,12 +2988,123 @@ export default function StudySakhaGroupsRN() {
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not send message.');
-      // Restore input if sending failed
-      setChatInput(textToSend);
+      setMessagesByChannel((prev) => ({
+        ...prev,
+        [activeChannel]: (prev[activeChannel] || []).map((m) =>
+          m.id === tempId ? { ...m, status: 'failed' } : m
+        ),
+      }));
+      if (!retryText) {
+        setChatInput(rawText);
+      }
     } finally {
       setIsSendingMessage(false);
     }
   };
+
+  const handlePickImage = useCallback(async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const sizeBytes = asset.fileSize ?? 0;
+      const sizeLabel = sizeBytes > 0
+        ? sizeBytes > 1048576
+          ? `${(sizeBytes / 1048576).toFixed(1)} MB`
+          : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`
+        : 'Image';
+      setPendingAttachment({
+        name: asset.fileName || `photo-${Date.now()}.jpg`,
+        size: sizeLabel,
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        kind: 'image',
+      });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open photo library.');
+    }
+  }, []);
+
+  const handlePickDocument = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const sizeBytes = asset.size ?? 0;
+      const sizeLabel = sizeBytes > 0
+        ? sizeBytes > 1048576
+          ? `${(sizeBytes / 1048576).toFixed(1)} MB`
+          : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`
+        : 'File';
+      setPendingAttachment({
+        name: asset.name || 'Document.pdf',
+        size: sizeLabel,
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'application/pdf',
+        kind: 'document',
+      });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not open document picker.');
+    }
+  }, []);
+
+  const handleCopyMessage = useCallback((msg: ChatMessageItem) => {
+    void Clipboard.setStringAsync(msg.text)
+      .then(() => showToast('Message copied.'))
+      .catch(() => showToast('Could not copy message.'));
+  }, []);
+
+  const handleReactWithEmoji = useCallback((msg: ChatMessageItem, emoji: string) => {
+    setMessagesByChannel((prev) => ({
+      ...prev,
+      [activeChannel]: (prev[activeChannel] || []).map((m) => {
+        if (m.id !== msg.id) return m;
+        const existingIndex = m.reactions.findIndex((r) => r.emoji === emoji);
+        if (existingIndex >= 0) {
+          return {
+            ...m,
+            reactions: m.reactions.map((r, idx) =>
+              idx === existingIndex
+                ? { ...r, reacted: !r.reacted, count: Math.max(0, r.count + (r.reacted ? -1 : 1)) }
+                : r
+            ).filter((r) => r.count > 0),
+          };
+        }
+        return {
+          ...m,
+          reactions: [...m.reactions, { emoji, count: 1, reacted: true }],
+        };
+      }),
+    }));
+  }, [activeChannel]);
+
+  const handleSaveAttachmentToResources = useCallback((msg: ChatMessageItem) => {
+    const attachment = msg.attachment;
+    if (!attachment || !selectedGroup) return;
+    setResources((prev) =>
+      prev.some((resource) => resource.id === `chat-${msg.id}`)
+        ? prev
+        : [
+            ...prev,
+            {
+              id: `chat-${msg.id}`,
+              title: attachment.name,
+              type: attachment.kind === 'image' ? 'Image' : 'PDF',
+              subject: selectedGroup.subject,
+              size: attachment.size,
+              uploader: msg.sender,
+              bookmarked: true,
+            },
+          ]
+    );
+    showToast('Saved to group resources.');
+  }, [selectedGroup]);
 
   const handlePollVote = (channelId: string, msgId: string, optionId: string) => {
     setMessagesByChannel((prev) => ({
@@ -3015,6 +3323,7 @@ export default function StudySakhaGroupsRN() {
           {group.membersCount ?? 0} members
         </Text>
       </View>
+      <ChevronRight size={20} strokeWidth={1.9} color={theme.textMuted} />
     </Pressable>
   );
 
@@ -3055,7 +3364,13 @@ export default function StudySakhaGroupsRN() {
           },
         ]}
       >
-        {joiningGroupId === group.id ? <ActivityIndicator size="small" color={group.joined ? theme.successText : '#FFFFFF'} /> : null}
+        {joiningGroupId === group.id ? (
+          <ActivityIndicator size="small" color={group.joined ? theme.successText : '#FFFFFF'} />
+        ) : !group.joined ? (
+          <UserPlus size={15} strokeWidth={2} color="#FFFFFF" />
+        ) : (
+          <Check size={15} strokeWidth={2} color={theme.successText} />
+        )}
         <Text style={{ color: group.joined ? theme.successText : '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
           {group.joined ? 'Joined' : group.joinMethod === 'Open Join' ? 'Join' : 'Request'}
         </Text>
@@ -3076,7 +3391,7 @@ export default function StudySakhaGroupsRN() {
               accessibilityLabel={`Group notifications${unreadNotifCount ? `, ${unreadNotifCount} unread` : ''}`}
               style={[styles.iconBoxBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
-              <Bell size={18} color={theme.textPrimary} />
+              <Bell size={20} strokeWidth={1.9} color={theme.textPrimary} />
               {unreadNotifCount > 0 && (
                 <View style={[styles.notifBadge, { backgroundColor: theme.primary }]}>
                   <Text style={styles.notifBadgeText}>{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</Text>
@@ -3089,7 +3404,7 @@ export default function StudySakhaGroupsRN() {
               accessibilityLabel="Explore groups"
               style={[styles.iconBoxBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
-              <Search size={18} color={theme.textPrimary} />
+              <Search size={20} strokeWidth={1.9} color={theme.textPrimary} />
             </Pressable>
           </View>
         </View>
@@ -3194,13 +3509,13 @@ export default function StudySakhaGroupsRN() {
   // --------------------------------------------------------------------------
   const renderGroupDetail = () => {
     const tabs = [
-      { id: 'live', label: 'Live Study', icon: Clock, badge: liveMemberCount },
-      { id: 'chat', label: 'Chat', icon: MessageSquare, premium: !isPremium },
+      { id: 'live', label: 'Live Study', icon: Timer, badge: liveMemberCount },
+      { id: 'chat', label: 'Chat', icon: MessageCircle, premium: !isPremium },
       { id: 'goals', label: 'Goals', icon: Target },
       { id: 'learn', label: 'Learn Together', icon: BookOpen },
       { id: 'events', label: 'Events', icon: Calendar },
       { id: 'members', label: 'Members', icon: Users },
-      { id: 'insights', label: 'Insights', icon: BarChart3 },
+      { id: 'insights', label: 'Insights', icon: ChartNoAxesCombined },
     ];
     const sheetOptions = selectionSheet === 'learn-categories'
       ? LEARN_MODULE_OPTIONS
@@ -3236,55 +3551,44 @@ export default function StudySakhaGroupsRN() {
       'leaderboard-categories': 'Leaderboard ranking',
     };
 
+    const totalChatUnread = Object.values(unreadByChannel).reduce((sum, count) => sum + count, 0);
+
     return (
       <View style={{ width: '100%', maxWidth: 1120, alignSelf: 'center', flex: 1 }}>
-        <View style={[styles.heroCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pressable
-              onPress={() => setActiveScreen('main')}
-              accessibilityRole="button"
-              accessibilityLabel="Back to all groups"
-              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginLeft: -6 }}
-            >
-              <ChevronLeft size={20} color={theme.textSecondary} />
-            </Pressable>
-            <View style={[styles.heroAvatar, { backgroundColor: selectedGroup.accentHex, marginTop: 0, borderColor: theme.border }]}>
-              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 15 }}>{selectedGroup.shortName}</Text>
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '700', color: theme.textPrimary, flexShrink: 1 }}>
-                  {selectedGroup.name}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                {selectedGroup.membersCount !== undefined && <Text style={{ fontSize: 11, color: theme.textSecondary }}>{selectedGroup.membersCount}{selectedGroup.memberLimit !== undefined ? `/${selectedGroup.memberLimit}` : ''} members</Text>}
-                <LiveStatusIndicator count={liveMemberCount} label="studying" theme={theme} />
-                {selectedGroup.dataSource !== 'backend' && <Text style={{ fontSize: 11, color: theme.textMuted }}>{selectedGroup.exam}</Text>}
-              </View>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Pressable
-                onPress={() => { if (!selectedGroup.joined) void handleInitiateJoin(selectedGroup); }}
-                disabled={Boolean(joiningGroupId) || selectedGroup.joined}
-                accessibilityRole="button"
-                accessibilityLabel={selectedGroup.joined ? 'Joined group' : 'Join group'}
-                style={[styles.smallPrimaryBtn, { backgroundColor: selectedGroup.joined ? theme.successSoft : theme.primary, opacity: joiningGroupId ? 0.7 : 1 }]}
-              >
-                {joiningGroupId === selectedGroup.id ? <ActivityIndicator size="small" color={theme.primary} /> : selectedGroup.joined ? <Check size={14} color={theme.successText} /> : <Plus size={14} color="#FFFFFF" />}
-                <Text style={[styles.smallPrimaryBtnText, { color: selectedGroup.joined ? theme.successText : '#FFFFFF' }]}>{selectedGroup.joined ? 'Joined' : 'Join'}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setShowGroupMenu(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Group menu"
-                style={[styles.iconBoxBtn, { width: 40, height: 40, backgroundColor: theme.surface, borderColor: theme.border }]}
-              >
-                <Text style={{ fontSize: 22, lineHeight: 22, color: theme.textSecondary }}>⋯</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+        <GroupChatHeader
+          groupName={selectedGroup.name}
+          shortName={selectedGroup.shortName}
+          accentHex={selectedGroup.accentHex}
+          membersCount={selectedGroup.membersCount}
+          memberLimit={selectedGroup.memberLimit}
+          liveMemberCount={liveMemberCount}
+          joined={selectedGroup.joined}
+          joining={joiningGroupId === selectedGroup.id}
+          showSearchButton={detailTab === 'chat'}
+          searchOpen={chatSearchOpen}
+          searchQuery={chatSearchQuery}
+          onBack={() => {
+            if (detailTab !== 'chat' && cameFromChatRef.current) {
+              cameFromChatRef.current = false;
+              setDetailTab('chat');
+              return;
+            }
+            setChatSearchOpen(false);
+            setChatSearchQuery('');
+            setActiveScreen('main');
+          }}
+          onJoin={() => {
+            if (!selectedGroup.joined) void handleInitiateJoin(selectedGroup);
+          }}
+          onOpenMenu={() => setShowGroupMenu(true)}
+          onToggleSearch={() => {
+            setChatSearchOpen((prev) => {
+              if (prev) setChatSearchQuery('');
+              return !prev;
+            });
+          }}
+          onChangeSearchQuery={setChatSearchQuery}
+        />
 
         <Modal visible={showGroupMenu} transparent animationType="fade" onRequestClose={() => setShowGroupMenu(false)}>
           <Pressable style={styles.menuBackdrop} onPress={() => setShowGroupMenu(false)}>
@@ -3305,11 +3609,12 @@ export default function StudySakhaGroupsRN() {
           ref={detailTabScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, marginTop: 6, borderBottomWidth: 1, borderBottomColor: theme.border }}
-          contentContainerStyle={{ gap: 4, paddingHorizontal: 4, minWidth: isTablet ? '100%' : undefined }}
+          style={{ flexGrow: 0, backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.borderSubtle }}
+          contentContainerStyle={{ gap: 2, paddingHorizontal: 8, minWidth: isTablet ? '100%' : undefined }}
         >
           {tabs.map((t) => {
             const active = detailTab === t.id;
+            const badgeCount = t.id === 'chat' ? (totalChatUnread > 0 ? totalChatUnread : undefined) : t.badge;
             return (
               <Pressable
                 key={t.id}
@@ -3317,6 +3622,16 @@ export default function StudySakhaGroupsRN() {
                   detailTabOffsetsRef.current[t.id] = event.nativeEvent.layout.x;
                 }}
                 onPress={() => {
+                  if (detailTab === 'chat' && t.id !== 'chat') {
+                    cameFromChatRef.current = true;
+                  } else if (t.id === 'chat') {
+                    cameFromChatRef.current = false;
+                    setUnreadByChannel((prev) => ({ ...prev, [activeChannel]: 0 }));
+                  }
+                  if (t.id !== 'chat' && chatSearchOpen) {
+                    setChatSearchOpen(false);
+                    setChatSearchQuery('');
+                  }
                   setDetailTab(t.id);
                   requestAnimationFrame(() => {
                     const tabX = detailTabOffsetsRef.current[t.id];
@@ -3330,21 +3645,22 @@ export default function StudySakhaGroupsRN() {
                 style={[
                   styles.detailTabBtn,
                   {
+                    minHeight: 42,
                     borderRadius: 0,
-                    borderBottomWidth: 2,
+                    borderBottomWidth: 2.5,
                     borderBottomColor: active ? theme.primary : 'transparent',
-                    paddingHorizontal: isTablet ? 12 : 9,
+                    paddingHorizontal: isTablet ? 14 : 10,
                     backgroundColor: 'transparent',
                   },
                 ]}
               >
-                <t.icon size={14} color={active ? theme.primary : theme.textSecondary} />
-                <Text style={{ fontSize: 12, fontWeight: active ? '700' : '600', color: active ? theme.primary : theme.textSecondary }}>
+                <t.icon size={16} strokeWidth={1.9} color={active ? theme.primary : theme.textSecondary} />
+                <Text style={{ fontSize: 12.5, fontWeight: active ? '700' : '600', color: active ? theme.primary : theme.textSecondary }}>
                   {t.label}
                 </Text>
-                {t.badge ? (
-                  <View style={[styles.tabCountBadge, { backgroundColor: theme.successSoft }]}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.successText }}>{t.badge}</Text>
+                {badgeCount ? (
+                  <View style={[styles.tabCountBadge, { backgroundColor: t.id === 'chat' ? theme.primarySoft : theme.successSoft }]}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: t.id === 'chat' ? theme.primary : theme.successText }}>{badgeCount}</Text>
                   </View>
                 ) : null}
                 {t.premium && <Lock size={11} color={theme.premium} />}
@@ -3354,14 +3670,14 @@ export default function StudySakhaGroupsRN() {
         </ScrollView>
 
         {detailTab === 'chat' ? (
-          <View style={{ flex: 1, minHeight: 0, marginTop: 12, overflow: 'hidden' }}>
+          <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {renderChatTab()}
           </View>
         ) : (
           <ScrollView
             key={detailTab}
-            style={{ flex: 1, minHeight: 0, marginTop: 12 }}
-            contentContainerStyle={{ gap: 12, paddingBottom: activeRoom ? 92 : 12 }}
+            style={{ flex: 1, minHeight: 0 }}
+            contentContainerStyle={{ gap: 12, padding: 16, paddingBottom: Math.max(insets.bottom + 16, activeRoom ? 96 : 24) }}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
           >
@@ -3566,7 +3882,7 @@ export default function StudySakhaGroupsRN() {
                           : joined
                             ? <Play size={14} color={theme.successText} />
                             : room.isCam
-                              ? <Shield size={14} color={theme.primary} />
+                              ? <ShieldCheck size={14} strokeWidth={1.9} color={theme.primary} />
                               : <Play size={14} color={theme.primary} />}
                         <Text style={{ fontSize: 12, fontWeight: '700', color: joined ? theme.successText : theme.primaryText }}>
                           {joiningRoomId === room.id ? 'Joining…' : joined ? 'Return' : room.isCam ? 'Privacy & join' : 'Join room'}
@@ -3624,12 +3940,12 @@ export default function StudySakhaGroupsRN() {
   const renderChatTab = () => {
     if (!isPremium) {
       return (
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: 12, padding: 16 }}>
           <PremiumFeatureCard
             featureName="Structured Group Chat"
             benefits={[
-              '6 dedicated exam channels (#doubt-corner, #pyq-discussion, #study-resources, #announcements)',
-              'Threaded discussions, quick study polls, pinned mentor notes, and PDF sharing',
+              'Dedicated exam channels (#general-chat, #announcements, #motivation)',
+              'Replies, quick study polls, pinned mentor notes, and PDF/image sharing',
               'Free users retain full access to Doubt Board, Live Study Rooms, PYQs, and Safety Reporting',
             ]}
             onUpgrade={() => {
@@ -3643,267 +3959,86 @@ export default function StudySakhaGroupsRN() {
     }
 
     const channelMsgs = messagesByChannel[activeChannel] || [];
-    const currentChan = CHAT_CHANNELS.find((c) => c.id === activeChannel);
+    const currentChan = CHAT_CHANNELS.find((c) => c.id === activeChannel) || CHAT_CHANNELS[0];
+    const totalUnreadOther = Object.entries(unreadByChannel)
+      .filter(([id]) => id !== activeChannel)
+      .reduce((sum, [, count]) => sum + count, 0);
 
     return (
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, minHeight: 0 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+        style={{ flex: 1, minHeight: 0, backgroundColor: theme.canvas }}
       >
-      <View style={[styles.card, { flex: 1, minHeight: 0, backgroundColor: theme.surface, borderColor: theme.border, padding: 0, overflow: 'hidden', flexDirection: isTablet ? 'row' : 'column' }]}>
-        {isTablet ? (
-          <View style={{ width: 224, padding: 10, borderRightWidth: 1, borderRightColor: theme.border }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: theme.textMuted, marginHorizontal: 6, marginBottom: 8, letterSpacing: 0.6 }}>CHANNELS</Text>
-            {CHAT_CHANNELS.map((c) => {
-              const active = activeChannel === c.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  onPress={() => { setActiveChannel(c.id); setThreadMessage(null); }}
-                  style={{
-                    minHeight: 40,
-                    paddingHorizontal: 8,
-                    marginBottom: 4,
-                    borderRadius: 10,
-                    backgroundColor: active ? theme.primarySoft : 'transparent',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Hash size={12} color={active ? theme.primary : theme.textSecondary} />
-                  <Text numberOfLines={1} style={{ flex: 1, fontSize: 11, fontWeight: active ? '700' : '600', color: active ? theme.primaryText : theme.textSecondary }}>{c.name}</Text>
-                  {c.unread > 0 && <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primary }}>{c.unread}</Text>}
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: theme.border, padding: 10 }} contentContainerStyle={{ gap: 6 }}>
-            {CHAT_CHANNELS.map((c) => {
-              const active = activeChannel === c.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  onPress={() => { setActiveChannel(c.id); setThreadMessage(null); }}
-                  style={[styles.miniChip, { backgroundColor: active ? theme.primary : theme.surfaceElevated, borderColor: active ? theme.primary : theme.border, flexDirection: 'row', alignItems: 'center', gap: 4 }]}
-                >
-                  <Hash size={12} color={active ? '#FFFFFF' : theme.textSecondary} />
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: active ? '#FFFFFF' : theme.textPrimary }}>{c.name}</Text>
-                  {c.unread > 0 && <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FFFFFF' : theme.primary }}>{c.unread}</Text>}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
+        <ChannelBar
+          currentChannel={currentChan}
+          unreadTotal={totalUnreadOther}
+          messageCount={channelMsgs.length}
+          onOpenSelector={() => setChannelSelectorVisible(true)}
+        />
 
-        <View style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-        <View style={[styles.spaceBetweenRowTight, { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.borderSubtle }]}>
-          <View>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textPrimary }}># {activeChannel}</Text>
-            <Text style={{ fontSize: 10, color: theme.textSecondary }}>{currentChan?.desc}</Text>
-          </View>
-          <Text style={{ fontSize: 10, color: theme.textMuted }}>{channelMsgs.length} messages</Text>
-        </View>
-        {/* Messages */}
-        <ScrollView
-          ref={chatScrollRef}
-          style={{ flex: 1, minHeight: 0 }}
-          contentContainerStyle={{ padding: 14, gap: 14 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          scrollEventThrottle={16}
-        >
-          {channelMsgs.length === 0 ? (
-            <EmptyState
-              icon={MessageSquare}
-              title={`No messages in #${activeChannel} yet`}
-              description="Start a focused discussion, share a PYQ trick, or drop a revision poll."
-              theme={theme}
-            />
-          ) : (
-            channelMsgs.map((m) => {
-              const isMine = m.sender.endsWith(' (You)');
-              return (
-              <View key={m.id} style={{ flexDirection: isMine ? 'row-reverse' : 'row', gap: 8, alignItems: 'flex-start', justifyContent: isMine ? 'flex-start' : 'flex-start' }}>
-                <MemberAvatar
-                  initials={m.initials}
-                  size="sm"
-                  status="none"
-                  accent={m.role === 'Mentor' ? '#0D9488' : '#2563EB'}
-                  theme={theme}
-                />
-                <View style={{ maxWidth: '86%', paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderTopLeftRadius: isMine ? 16 : 5, borderTopRightRadius: isMine ? 5 : 16, backgroundColor: isMine ? theme.primarySoft : theme.surfaceElevated, borderWidth: 1, borderColor: isMine ? `${theme.primary}33` : theme.borderSubtle }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                    {!isMine && <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>{m.sender}</Text>}
-                    {isMine && <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primaryText }}>You</Text>}
-                    {m.role !== 'Member' && (() => {
-                      const roleColors: Record<string, { bg: string; fg: string }> = {
-                        Owner: { bg: '#EEF2FF', fg: '#4338CA' },
-                        Mentor: { bg: theme.successSoft, fg: theme.successText },
-                        Admin: { bg: theme.warningSoft, fg: theme.warning },
-                        Moderator: { bg: theme.premiumSoft, fg: theme.premium },
-                      };
-                      const colors = roleColors[m.role] || { bg: theme.surfaceElevated, fg: theme.textSecondary };
-                      return <View style={[styles.tagChip, { backgroundColor: colors.bg }]}><Text style={{ fontSize: 10, fontWeight: '700', color: colors.fg }}>{m.role}</Text></View>;
-                    })()}
-                    <Text style={{ fontSize: 10, color: theme.textMuted }}>{m.time}</Text>
-                  </View>
-                  <Text style={{ fontSize: 13, color: theme.textPrimary, marginTop: 4, lineHeight: 19 }}>
-                    {m.text}
-                  </Text>
+        <GroupMessageList
+          listRef={chatListRef}
+          channelId={activeChannel}
+          messages={channelMsgs}
+          isLoading={Boolean(chatLoadingByChannel[activeChannel])}
+          isLoadingOlder={chatLoadingOlder}
+          hasMoreOlder={Boolean(chatHasMoreByChannel[activeChannel])}
+          loadError={chatErrorByChannel[activeChannel] ?? null}
+          isOffline={!supabaseConfigured}
+          searchQuery={chatSearchQuery}
+          firstUnreadId={firstUnreadIdByChannel[activeChannel] ?? null}
+          onRetryLoad={() => setChatRetryNonce((n) => n + 1)}
+          onLoadOlder={() => { void handleLoadOlderMessages(); }}
+          onLongPressMessage={setActionSheetMessage}
+          onVotePoll={(msgId, optionId) => handlePollVote(activeChannel, msgId, optionId)}
+          onToggleReaction={(msgId, reactionIdx) => toggleMessageReaction(activeChannel, msgId, reactionIdx)}
+          onPreviewAttachment={(msg) => showToast(`Previewing ${msg.attachment?.name ?? 'attachment'}`)}
+          onSaveAttachment={handleSaveAttachmentToResources}
+          onDownloadAttachment={() => showToast('Download started.')}
+          onRetryFailedMessage={(failedMsg) => {
+            void handleSendMessage(failedMsg.text, failedMsg.id);
+          }}
+        />
 
-                  {m.attachment && (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 8,
-                        marginTop: 8,
-                        padding: 10,
-                        borderRadius: 10,
-                        backgroundColor: theme.surfaceElevated,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                      }}
-                    >
-                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: theme.dangerSoft, alignItems: 'center', justifyContent: 'center' }}>
-                        <FileText size={16} color={theme.danger} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: theme.textPrimary }}>
-                          {m.attachment.name}
-                        </Text>
-                        <Text style={{ fontSize: 10, color: theme.textSecondary }}>{m.attachment.size} · 8 pages</Text>
-                      </View>
-                      <Pressable onPress={() => showToast(`Previewing ${m.attachment?.name}`)} accessibilityLabel="Preview attachment" style={styles.iconBtn}><Eye size={15} color={theme.textSecondary} /></Pressable>
-                      <Pressable
-                        onPress={() => {
-                          const attachment = m.attachment;
-                          if (!attachment) return;
-                          setResources((prev) => prev.some((resource) => resource.id === `chat-${m.id}`)
-                            ? prev
-                            : [...prev, { id: `chat-${m.id}`, title: attachment.name, type: 'PDF', subject: selectedGroup.subject, size: attachment.size, uploader: m.sender, bookmarked: true }]);
-                          showToast('Saved to group resources.');
-                        }}
-                        accessibilityLabel="Save attachment to resources"
-                        style={styles.iconBtn}
-                      >
-                        <Bookmark size={15} color={theme.textSecondary} />
-                      </Pressable>
-                      <Pressable onPress={() => showToast('Download started.')} accessibilityLabel="Download attachment" style={styles.iconBtn}><Download size={15} color={theme.textSecondary} /></Pressable>
-                    </View>
-                  )}
+        <GroupChatComposer
+          channelName={currentChan.name}
+          lockedWrite={currentChan.lockedWrite}
+          value={chatInput}
+          onChangeText={setChatInput}
+          onSend={() => { void handleSendMessage(); }}
+          sending={isSendingMessage}
+          keyboardVisible={keyboardVisible}
+          replyingTo={threadMessage}
+          onClearReply={() => setThreadMessage(null)}
+          pendingAttachment={pendingAttachment}
+          onPickImage={() => { void handlePickImage(); }}
+          onPickDocument={() => { void handlePickDocument(); }}
+          onClearAttachment={() => setPendingAttachment(null)}
+        />
 
-                  {m.poll && (
-                    <View
-                      style={{
-                        marginTop: 8,
-                        padding: 10,
-                        borderRadius: 12,
-                        backgroundColor: theme.surfaceElevated,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        gap: 6,
-                      }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>
-                        {m.poll.question}
-                      </Text>
-                      <Text style={{ fontSize: 10, color: theme.textSecondary }}>
-                        {m.poll.options.reduce((total, option) => total + option.votes, 0)} votes · Ends in 4h
-                      </Text>
-                      {m.poll.options.map((opt) => {
-                        const total = m.poll!.options.reduce((s, o) => s + o.votes, 0);
-                        const pct = Math.round((opt.votes / Math.max(1, total)) * 100);
-                        const picked = m.poll!.votedId === opt.id;
-                        return (
-                          <Pressable
-                            key={opt.id}
-                            onPress={() => handlePollVote(activeChannel, m.id, opt.id)}
-                            style={{ minHeight: 36, position: 'relative', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: picked ? theme.primary : theme.border, backgroundColor: theme.surface }}
-                          >
-                            <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, backgroundColor: picked ? theme.primarySoft : theme.surfaceElevated, opacity: 0.8 }} />
-                            <Text style={{ fontSize: 11, fontWeight: picked ? '700' : '500', color: theme.textPrimary, flex: 1 }}>{opt.label}</Text>
-                            {picked && <Check size={12} color={theme.primary} />}
-                            <Text style={[styles.tabularText, { fontSize: 11, fontWeight: '700', color: theme.primary }]}>
-                              {pct}%
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  )}
+        <ChannelSelectorSheet
+          visible={channelSelectorVisible}
+          channels={CHAT_CHANNELS}
+          activeChannelId={activeChannel}
+          unreadByChannel={unreadByChannel}
+          onSelectChannel={(channelId) => {
+            setActiveChannel(channelId);
+            setThreadMessage(null);
+            setUnreadByChannel((prev) => ({ ...prev, [channelId]: 0 }));
+            setFirstUnreadIdByChannel((prev) => ({ ...prev, [channelId]: null }));
+          }}
+          onClose={() => setChannelSelectorVisible(false)}
+        />
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                    {m.reactions.map((r, i) => (
-                      <Pressable key={i} onPress={() => toggleMessageReaction(activeChannel, m.id, i)} style={[styles.tagChip, { backgroundColor: r.reacted ? theme.primarySoft : theme.surfaceElevated }]}>
-                        <Text style={{ fontSize: 11, color: r.reacted ? theme.primaryText : theme.textPrimary }}>
-                          {r.emoji} {r.count}
-                        </Text>
-                      </Pressable>
-                    ))}
-                    <Pressable onPress={() => setThreadMessage(m)}>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: theme.primary }}>
-                        {m.replies > 0 ? `${m.replies} replies` : 'Reply'}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => showToast('Message reported to Group Moderators (Free safety tool).')}
-                      accessibilityRole="button"
-                      accessibilityLabel="Report message"
-                      style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', padding: 6 }}
-                    >
-                      <Flag size={13} color={theme.textMuted} />
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-              );
-            })
-          )}
-        </ScrollView>
-
-        {threadMessage && (
-          <View style={[styles.spaceBetweenRowTight, { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: theme.primarySoft }]}>
-            <Text numberOfLines={1} style={{ fontSize: 11, color: theme.primaryText, flex: 1 }}>
-              Replying to {threadMessage.sender}: {threadMessage.text}
-            </Text>
-            <Pressable onPress={() => setThreadMessage(null)}>
-              <X size={14} color={theme.primaryText} />
-            </Pressable>
-          </View>
-        )}
-
-        {/* Composer */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, paddingBottom: 10 + (Platform.OS === 'web' || !isTablet ? 0 : Math.min(insets.bottom, 12)), borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface }}>
-          <Pressable onPress={() => showToast('Native PDF / Image picker ready.')} style={styles.iconBtn}>
-            <Paperclip size={18} color={theme.textSecondary} />
-          </Pressable>
-          <TextInput
-            editable={!currentChan?.lockedWrite}
-            value={chatInput}
-            onChangeText={setChatInput}
-            onSubmitEditing={handleSendMessage}
-            placeholder={
-              currentChan?.lockedWrite ? 'Admins & Mentors only' : `Message #${activeChannel}...`
-            }
-            placeholderTextColor={theme.textMuted}
-            style={[
-              styles.input,
-              { flex: 1, backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary },
-            ]}
-          />
-          <Pressable
-            disabled={currentChan?.lockedWrite}
-            onPress={handleSendMessage}
-            style={[styles.iconBoxBtn, { backgroundColor: theme.primary, borderColor: theme.primary, opacity: currentChan?.lockedWrite ? 0.4 : 1 }]}
-          >
-            <Send size={15} color="#FFFFFF" />
-          </Pressable>
-        </View>
-        </View>
-      </View>
+        <MessageActionSheet
+          message={actionSheetMessage}
+          onClose={() => setActionSheetMessage(null)}
+          onReply={(msg) => setThreadMessage(msg)}
+          onReact={handleReactWithEmoji}
+          onCopy={handleCopyMessage}
+          onSaveAttachment={handleSaveAttachmentToResources}
+          onReport={() => showToast('Message reported to Group Moderators.')}
+        />
       </KeyboardAvoidingView>
     );
   };
@@ -3982,8 +4117,9 @@ export default function StudySakhaGroupsRN() {
 
           <View style={[styles.card, { width: isTablet ? '48%' : '100%', backgroundColor: theme.surface, borderColor: theme.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }]}>
             <View style={{ flex: 1, gap: 8 }}>
-              <View style={[styles.badgePill, { alignSelf: 'flex-start', backgroundColor: theme.warningSoft }]}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>🔥 19-Day Streak</Text>
+              <View style={[styles.badgePill, { alignSelf: 'flex-start', backgroundColor: theme.warningSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                <Flame size={12} strokeWidth={2} color={theme.warning} />
+                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>19-Day Streak</Text>
               </View>
               <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Your Contribution</Text>
               <Text style={{ fontSize: 20, fontWeight: '800', color: theme.textPrimary }}>
@@ -4228,8 +4364,9 @@ export default function StudySakhaGroupsRN() {
             <View key={d.id} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={styles.rowWrapGap8}>
                 {d.isDoubtOfDay && (
-                  <View style={[styles.badgePill, { backgroundColor: theme.warningSoft }]}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>★ Doubt of the Day</Text>
+                  <View style={[styles.badgePill, { backgroundColor: theme.warningSoft, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                    <Star size={12} strokeWidth={2} color={theme.warning} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>Doubt of the Day</Text>
                   </View>
                 )}
                 <View style={[styles.badgePill, { backgroundColor: d.status === 'Solved' ? theme.successSoft : theme.surfaceElevated }]}>
@@ -4245,9 +4382,12 @@ export default function StudySakhaGroupsRN() {
               <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 4, lineHeight: 18 }}>{d.body}</Text>
               {d.bestAnswer && (
                 <View style={{ marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: theme.successSoft, borderWidth: 1, borderColor: theme.successBorder }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: theme.successText, marginBottom: 4 }}>
-                    ✓ Best Answer · {d.bestAnswer.author}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                    <CheckCircle2 size={13} strokeWidth={2} color={theme.successText} />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: theme.successText }}>
+                      Best Answer · {d.bestAnswer.author}
+                    </Text>
+                  </View>
                   <Text style={{ fontSize: 12, color: theme.textPrimary, lineHeight: 18 }}>{d.bestAnswer.text}</Text>
                 </View>
               )}
@@ -4741,11 +4881,12 @@ export default function StudySakhaGroupsRN() {
                   {memberRoom[m.id] && <Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '600', color: theme.successText, marginTop: 2 }}>{memberRoom[m.id]}</Text>}
                 </View>
               </View>
-              <View style={[styles.badgePill, { paddingHorizontal: 7, backgroundColor: theme.warningSoft }]}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>🔥 {m.streak}d</Text>
+              <View style={[styles.badgePill, { paddingHorizontal: 7, backgroundColor: theme.warningSoft, flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
+                <Flame size={12} strokeWidth={2} color={theme.warning} />
+                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.warning }}>{m.streak}d</Text>
               </View>
               <Pressable onPress={() => { setActiveChannel('general-chat'); setDetailTab('chat'); showToast(`Opening chat with ${m.name}.`); }} style={[styles.iconBoxBtn, { width: 34, height: 34, backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <MessageSquare size={14} color={theme.textSecondary} />
+                <MessageCircle size={16} strokeWidth={1.9} color={theme.textSecondary} />
               </Pressable>
             </View>
           ))}
@@ -4799,7 +4940,10 @@ export default function StudySakhaGroupsRN() {
             <MemberAvatar initials="RS" size="lg" status="online" accent="#0D9488" theme={theme} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Dr. Rajesh Sharma</Text>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: theme.tealText }}>Verified Peer Mentor · 4.9★</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: theme.tealText }}>Verified Peer Mentor · 4.9</Text>
+                <Star size={12} strokeWidth={2} color={theme.tealText} />
+              </View>
               <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
                 RAS Mains Paper-I & II, Answer Structuring, Indian Polity
               </Text>
@@ -4888,9 +5032,10 @@ export default function StudySakhaGroupsRN() {
                       if (m.actionTab === 'learn') setLearnModule(m.title?.includes('Quiz') ? 'quiz' : 'resources');
                       showToast(`${m.actionLabel} selected.`);
                     }}
-                    style={[styles.smallOutlineBtn, { alignSelf: 'flex-start', marginTop: 8, minHeight: 34, paddingVertical: 5, borderColor: theme.primary + '55', backgroundColor: theme.primarySoft }]}
+                    style={[styles.smallOutlineBtn, { alignSelf: 'flex-start', marginTop: 8, minHeight: 34, paddingVertical: 5, borderColor: theme.primary + '55', backgroundColor: theme.primarySoft, flexDirection: 'row', alignItems: 'center', gap: 4 }]}
                   >
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primaryText }}>{m.actionLabel} →</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primaryText }}>{m.actionLabel}</Text>
+                    <ArrowRight size={12} strokeWidth={2} color={theme.primaryText} />
                   </Pressable>
                 )}
               </View>
@@ -4900,9 +5045,10 @@ export default function StudySakhaGroupsRN() {
                 <Pressable
                   key={chip}
                   onPress={() => handleAiPrompt(chip)}
-                  style={[styles.miniChip, { backgroundColor: theme.primarySoft, borderColor: theme.primary + '40' }]}
+                  style={[styles.miniChip, { backgroundColor: theme.primarySoft, borderColor: theme.primary + '40', flexDirection: 'row', alignItems: 'center', gap: 4 }]}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: theme.primaryText }}>✨ {chip}</Text>
+                  <Sparkles size={12} strokeWidth={2} color={theme.primaryText} />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: theme.primaryText }}>{chip}</Text>
                 </Pressable>
               ))}
             </ScrollView>
@@ -4927,14 +5073,17 @@ export default function StudySakhaGroupsRN() {
         <View style={{ gap: 12 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             {[
-              { label: 'Group Goal Completion', value: '89%', detail: '↑ 6% vs last wk', color: theme.successText },
-              { label: 'Peak Study Window', value: '6–9 AM', detail: '18 active avg', color: theme.primary },
-              { label: 'Top Weak Topic', value: 'Art. 356 vs 365', detail: '4 open doubts', color: theme.warning },
+              { label: 'Group Goal Completion', value: '89%', detail: '6% vs last wk', hasTrendUp: true, color: theme.successText },
+              { label: 'Peak Study Window', value: '6–9 AM', detail: '18 active avg', hasTrendUp: false, color: theme.primary },
+              { label: 'Top Weak Topic', value: 'Art. 356 vs 365', detail: '4 open doubts', hasTrendUp: false, color: theme.warning },
             ].map((item) => (
               <View key={item.label} style={[styles.card, { width: isTablet ? undefined : '100%', minWidth: isTablet ? 180 : undefined, flexGrow: isTablet ? 1 : 0, backgroundColor: theme.surface, borderColor: theme.border, gap: 5 }]}>
                 <Text style={{ fontSize: 10, color: theme.textSecondary }}>{item.label}</Text>
                 <Text numberOfLines={1} style={{ fontSize: 18, fontWeight: '800', color: theme.textPrimary }}>{item.value}</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: item.color }}>{item.detail}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  {item.hasTrendUp && <TrendingUp size={12} strokeWidth={2} color={item.color} />}
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: item.color }}>{item.detail}</Text>
+                </View>
               </View>
             ))}
           </View>
@@ -5210,10 +5359,10 @@ export default function StudySakhaGroupsRN() {
   // 8. ROOT RENDER & MODALS
   // --------------------------------------------------------------------------
   return (
-    <Shell active="Groups" title="" scroll={false} contentPadding={0}>
+    <Shell active="Groups" title="" scroll={false} contentPadding={0} hideChrome={activeScreen === 'detail'}>
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={activeScreen === 'detail' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
           {openingDirectHall && !activeRoom ? (
@@ -5222,7 +5371,7 @@ export default function StudySakhaGroupsRN() {
               <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>Opening Group Hall…</Text>
             </View>
           ) : activeScreen === 'detail' ? (
-            <View style={{ flex: 1, padding: 16, paddingBottom: 8 }}>
+            <View style={{ flex: 1, paddingTop: insets.top }}>
               {renderGroupDetail()}
             </View>
           ) : (
@@ -5267,7 +5416,7 @@ export default function StudySakhaGroupsRN() {
               },
             ]}
           >
-            <Plus size={22} color="#FFFFFF" />
+            <Plus size={24} strokeWidth={2} color="#FFFFFF" />
           </Pressable>
         )}
 
@@ -6126,7 +6275,7 @@ export default function StudySakhaGroupsRN() {
           <View style={[styles.modalSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Shield size={18} color={theme.teal} />
+                <ShieldCheck size={18} strokeWidth={1.9} color={theme.teal} />
                 <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Desk-Cam Privacy Consent</Text>
               </View>
               <Pressable onPress={() => setCamConsentRoom(null)} disabled={Boolean(joiningRoomId)} accessibilityRole="button" accessibilityLabel="Close privacy consent" style={[styles.iconBoxBtn, { width: 44, height: 44, borderColor: theme.border, backgroundColor: theme.surfaceElevated, opacity: joiningRoomId ? 0.5 : 1 }]}>
@@ -6267,8 +6416,9 @@ export default function StudySakhaGroupsRN() {
                       },
                     });
                   }}
-                  style={{ padding: 12, borderRadius: 10, backgroundColor: theme.dangerSoft }}
+                  style={{ padding: 12, borderRadius: 10, backgroundColor: theme.dangerSoft, flexDirection: 'row', alignItems: 'center', gap: 8 }}
                 >
+                  <Trash2 size={18} strokeWidth={1.9} color={theme.danger} />
                   <Text style={{ fontSize: 13, fontWeight: '700', color: theme.danger }}>Disband Group</Text>
                 </Pressable>
               </View>

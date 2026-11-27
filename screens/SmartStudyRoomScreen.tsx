@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { ChevronRight, Moon, Pause, Play, Square, Sun } from 'lucide-react-native';
 import {
   RoomHeader,
 } from '../components/RoomHeader';
@@ -216,7 +217,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
                 },
               ]}
             >
-              {isDark ? <Text style={{color: '#FCD34D'}}>☀</Text> : <Text style={{color: '#475569'}}>🌙</Text>}
+              {isDark ? <Sun size={20} strokeWidth={1.9} color="#FCD34D" /> : <Moon size={20} strokeWidth={1.9} color="#475569" />}
             </Pressable>
           </View>
 
@@ -247,7 +248,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
               </View>
             </View>
             <View style={styles.lobbyChevronBox}>
-              <Text style={{color: '#FFFFFF'}}>›</Text>
+              <ChevronRight size={20} strokeWidth={2} color="#FFFFFF" />
             </View>
           </Pressable>
         </View>
@@ -415,7 +416,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
               >
                 {isUserFocusing ? (
                   <>
-                    <Text style={{color: isDark ? '#FCD34D' : '#92400E'}}>⏸</Text>
+                    <Pause size={18} strokeWidth={2} color={isDark ? '#FCD34D' : '#92400E'} />
                     {!metrics.isMobile && (
                       <Text
                         style={[
@@ -429,7 +430,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
                   </>
                 ) : (
                   <>
-                    <Text style={{color: '#FFFFFF'}}>▶</Text>
+                    <Play size={18} strokeWidth={2} color="#FFFFFF" />
                     {!metrics.isMobile && (
                       <Text style={[styles.footerControlText, { color: '#FFFFFF' }]}>
                         Resume
@@ -453,7 +454,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
                   },
                 ]}
               >
-                <Text style={{color: isDark ? '#FDA4AF' : '#E11D48'}}>■</Text>
+                <Square size={16} strokeWidth={2} color={isDark ? '#FDA4AF' : '#E11D48'} />
                 {!metrics.isMobile && (
                   <Text
                     style={[

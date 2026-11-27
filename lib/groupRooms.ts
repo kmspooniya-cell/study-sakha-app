@@ -581,19 +581,26 @@ export type StudyGroupChatMessageRecord = {
 export async function getStudyGroupMessages(
   groupId: string,
   channelId = 'general-chat',
-  limit = 100
+  limit = 50,
+  beforeCreatedAt?: string
 ): Promise<StudyGroupChatMessageRecord[]> {
   assertSupabaseConfigured();
-  const { data, error } = await supabase
+  let query = supabase
     .from('study_group_messages')
     .select('id, group_id, channel_id, user_id, sender_name, sender_initials, sender_role, message, attachment, poll, pinned, created_at')
     .eq('group_id', groupId)
-    .eq('channel_id', channelId)
-    .order('created_at', { ascending: true })
+    .eq('channel_id', channelId);
+
+  if (beforeCreatedAt) {
+    query = query.lt('created_at', beforeCreatedAt);
+  }
+
+  const { data, error } = await query
+    .order('created_at', { ascending: false })
     .limit(limit);
 
   if (error) throw new Error(`Could not load group messages: ${error.message}`);
-  return (data ?? []) as StudyGroupChatMessageRecord[];
+  return ((data ?? []) as StudyGroupChatMessageRecord[]).slice().reverse();
 }
 
 export async function sendStudyGroupMessage({

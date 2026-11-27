@@ -14,6 +14,7 @@ export type AppStackParamList = {
   Groups: (HeaderParams & {
     inviteGroupId?: string;
     inviteToken?: string;
+    fullScreen?: boolean;
     openGroupRoom?: {
       groupId: string;
       roomId: GroupRoomId;
@@ -123,6 +124,14 @@ const APP_BACK_TARGETS: Partial<Record<AppStackRouteName, AppStackRouteName>> = 
   TestResult: 'Tests',
   TaskPerformance: 'Statistics',
 };
+
+export function shouldHideAppShell(routeName?: string, params?: unknown): boolean {
+  if (!routeName) return false;
+  if (routeName === 'Groups' && params && typeof params === 'object' && 'fullScreen' in params) {
+    return Boolean((params as { fullScreen?: boolean }).fullScreen);
+  }
+  return false;
+}
 
 export function getAndroidBackTarget(
   currentRoute: AppStackRouteName,

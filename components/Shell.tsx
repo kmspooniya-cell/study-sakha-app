@@ -7,7 +7,7 @@ import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { Logo, LogoMark } from './Logo';
 import { Divider, IconButton, Txt } from './ui';
-import { getAndroidBackTarget } from '../lib/navigation';
+import { getAndroidBackTarget, shouldHideAppShell } from '../lib/navigation';
 import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
 import { translateLabel } from '../lib/i18n';
 import { getAppShareUrl, getDistributionLinkMessage } from '../lib/shareLinks';
@@ -636,6 +636,7 @@ headerRight,
 contentPadding = 20,
 appHeaderActions,
 fitContentToBottomNav = false,
+hideChrome = false,
 }: {
 active: NavKey;
 title: string;
@@ -647,14 +648,17 @@ headerRight?: React.ReactNode;
 contentPadding?: number;
 appHeaderActions?: React.ReactNode;
 fitContentToBottomNav?: boolean;
+hideChrome?: boolean;
 }) {
 const { colors, layoutDensity } = useTheme();
 const nav = useNavigation<AppNavigation>();
+const route = useRoute<AppHeaderRoute>();
 const { isMobile, isTablet, isDesktop } = useLayout();
 const { state, unread } = useStore();
 const language = state.settings.language;
 const [collapsed, setCollapsed] = useState(false);
 const [keyboardVisible, setKeyboardVisible] = useState(false);
+const fullScreenMode = hideChrome || shouldHideAppShell(route?.name, route?.params);
 
 useSmartAndroidBack();
 
@@ -876,6 +880,14 @@ showsVerticalScrollIndicator={false}
 )}
 </View>
 );
+
+if (fullScreenMode) {
+return (
+<View style={{ flex: 1, backgroundColor: colors.bg }}>
+{children}
+</View>
+);
+}
 
 if (isMobile) {
 return (

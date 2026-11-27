@@ -1,5 +1,16 @@
 # Testing Status — Study Sakha
 
+## Groups Module Icon Upgrade — 2026-11-27
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in all Groups module files (`screens/GroupsScreen.tsx`, `screens/SmartStudyRoomScreen.tsx`, `components/groups/*`, `components/RoomHeader.tsx`, `components/ChairDetailBottomSheet.tsx`); repository-wide `tsc` still exits 2 on pre-existing `src/modules/alarm/alarmFriendsApi.ts` and test typing errors.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0).
+- Groups emoji/symbol scan: **PASS** — zero decorative UI emojis or text-glyph icons remain; only functional chat emoji/reaction pickers (`COMMON_EMOJIS`, `QUICK_REACTIONS`) remain.
+
+## Phase 1 Groups & Chat Full-Screen Redesign — 2026-11-27
+- Focused Jest suites (`test/groupChatFullscreenRedesign.test.tsx`, `test/groupChatAndFocusDecoupling.test.tsx`, `test/groupInvitesAndSync.test.tsx`, `test/groupRooms.join.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 6 suites, 43 tests passed (8 new redesign tests + 35 existing group/navigation tests).
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** — 0 errors, 0 warnings.
+- TypeScript (`tsc --noEmit`): **0 errors** in all modified/created files (`lib/navigation.ts`, `lib/groupRooms.ts`, `components/Shell.tsx`, `components/groups/*`, `screens/GroupsScreen.tsx`, `test/groupChatFullscreenRedesign.test.tsx`).
+- Physical Android device runtime (keyboard insets, gesture/3-button system navigation, bottom composer positioning): **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
 ## Left Drawer Removal & Header Three-Dot Menu — 2026-11-27
 - Focused Jest suites (`test/drawerSettingsNavigation.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/navigationBack.test.tsx`): **PASS** — 3 suites, 18 tests passed (including 12 consecutive Android Settings navigation cycles, overflow menu options, outside tap, and Help/Share actions). `test/settingsScreen.test.tsx` failed on pre-existing missing `useRoute` mock in that test file.
 - Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS**.
@@ -272,3 +283,10 @@ Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests 
 | Expo lint | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint` | **PASS** | Exit 0. |
 | Focused Focus Jest | `pnpm test -- test/focusHistory.test.tsx test/focusTimerAccounting.test.tsx test/focusCompletionNavigation.test.tsx test/focusCompletionScreen.test.tsx test/focusUiSurface.test.tsx --runInBand` | **PASS** | 5 suites, 21 tests passed. |
 | APK compilation | Not run | **NOT VERIFIED** | No Android SDK in Codespace and GitHub Actions EAS build was not triggered from here. |
+
+## Production APK Critical UX & Functional Fixes — 2026-11-27
+- Focused Jest regression suites (`test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/focusLockHardening.test.tsx`, `test/sakhaChatUiAndActions.test.tsx`): **PASS** (pending final run confirmation).
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (0 errors, 0 warnings).
+- Expo config (`expo config --type public --json`) & Android CNG prebuild (`expo prebuild --no-install --platform android`): **PASS**.
+- TypeScript (`tsc --noEmit`): **0 errors** in all modified/added files (`App.tsx`, `screens/SakhaAIScreen.tsx`, `screens/StudySakhaAlarmScreen.tsx`, `src/modules/alarm/*`).
+- Android Kotlin compilation & physical device runtime: **BLOCKED / NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb`/device in Codespace).

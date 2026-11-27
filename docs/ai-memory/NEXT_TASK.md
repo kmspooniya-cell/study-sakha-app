@@ -1,5 +1,9 @@
 # Next Task — Study Sakha
 
+## Phase 1 Groups & Chat Full-Screen Redesign follow-up — 2026-11-27
+- Host implementation, modular components (`components/groups/*`), full-screen Shell visibility, Android Back priority, virtualized message list, contextual action sheet, and expandable composer are complete and verified on host.
+- Exact next action: verify on a physical Android device (gesture navigation + three-button navigation) for keyboard insets, bottom composer positioning above the soft keyboard and system bar, smooth FlatList scrolling, and multi-client Supabase Realtime message delivery.
+
 ## Groups header alignment follow-up — 2026-11-27
 - Host alignment patch is complete. Verify the header visually on narrow Android and web widths when a runtime is available.
 
