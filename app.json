@@ -53,6 +53,7 @@
     "backgroundColor": "#F6F8FC",
     "plugins": [
       "./plugins/withFocusLock",
+      "./plugins/withAlarmEngine",
       "expo-audio",
       "expo-notifications",
       [

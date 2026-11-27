@@ -1,5 +1,38 @@
 # Testing Status — Study Sakha
 
+## Groups header alignment patch — 2026-11-27
+- Expo lint: **PASS**.
+- `git diff --check`: **PASS**.
+
+## Groups main screen redesign — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Focused Groups regression tests | **PASS** | 4 suites, 25 tests passed. Existing icon-font `act(...)` warnings only. |
+| Expo lint | **PASS** | No reported errors/warnings. |
+| TypeScript | **FAIL (repository baseline)** | No GroupsScreen diagnostics; existing Jest typing errors remain in test files. |
+| Android/tablet/web visual runtime | **NOT VERIFIED** | No device/emulator/browser capture available. |
+
+## Group Details tab-bar repair — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Focused Groups tests | **PASS** | 2 suites, 8 tests passed. |
+| Expo lint | **PASS** | No reported errors/warnings. |
+| TypeScript | **FAIL (repository baseline)** | No GroupsScreen diagnostics; existing Jest typing errors remain elsewhere. |
+| Android/tablet/web visual runtime | **NOT VERIFIED** | No device/emulator/browser capture was available in this environment. |
+
+## Groups redesign validation — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Focused Groups/chat tests | **PASS** | `pnpm test -- test/groupChatAndFocusDecoupling.test.tsx test/groupRealtimeSubscription.test.tsx --runInBand --forceExit`; 2 suites, 8 tests passed. |
+| Expo lint | **PASS** | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint`; no reported errors/warnings. |
+| TypeScript | **FAIL (repository baseline)** | GroupsScreen has no remaining diagnostics; `pnpm run lint` still fails on existing Jest global/type errors in test files. |
+| Full Jest | **FAIL (repository baseline)** | `pnpm run test:ci`: 46/50 suites passed, 223/232 tests passed. Four existing focus-session setup, planner-focus integration, and notification lifecycle failures remain. |
+| Android/Expo Go runtime | **NOT VERIFIED** | No `adb`, emulator, or physical Android device is available. |
+| Live Supabase multi-client/restart | **NOT VERIFIED** | Requires authenticated live accounts and deployed Realtime/RLS environment. |
+
 ## Alarm Module Integration — 2026-11-27
 - TypeScript (`pnpm run lint`): **FAIL / pre-existing workspace errors** in `screens/GroupsScreen.tsx` and untracked test typings; no errors remain from alarm files or route integration.
 - Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** — 0 errors, 0 warnings.
@@ -83,7 +116,45 @@ Last verified: 2026-11-25
 
 Alarm-specific CRUD/storage/theme/history/statistics/mission behavior was source-audited; no dedicated Alarm Jest suite exists. Device/runtime behavior remains unverified without a running build/device.
 
+## Complete Alarm Audit — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Alarm persistence/schedule tests | **PASS** — 1 suite, 3 tests | Empty state, enabled/skipped filtering, next alarm selection, repeat days, and past one-time handling. |
+| Focused navigation regression tests | **PASS** — 3 suites, 18 tests | Drawer, back navigation, and layout regression coverage. |
+| Expo lint | **PASS** — 0 errors/warnings | Current Alarm/dashboard changes included. |
+| Full Jest | **INCOMPLETE / FAILING** — summary reached 46/50 suites passed, 223/232 tests passed before the process was terminated for persistent open-handle logging | Four unrelated suites failed: focus improvements, planner focus integration, focus session setup, notification lifecycle. Alarm storage suite passed; no Alarm failure was reported. |
+| Android runtime | **NOT VERIFIED** | No emulator/device available. Static audit found no Alarm-specific native scheduling implementation. |
+
+## Native Alarm Engine — 2026-11-27
+
+| Check | Result | Notes |
+|---|---|---|
+| Expo CNG prebuild | **PASS** | `npx expo prebuild --no-install --platform android`; generated Alarm Kotlin sources, manifest permissions/components, and `AlarmEnginePackage` registration. |
+| Native Gradle compile | **BLOCKED** | `android/gradlew :app:compileDebugKotlin` reached Gradle configuration but failed because `ANDROID_HOME`/Android SDK is unavailable. |
+| Full Jest | **FAIL** — 46/50 suites, 223/232 tests passed | Executed with `pnpm exec jest --runInBand --forceExit`; four unrelated existing suites failed. |
+| Focused Alarm/navigation Jest | **PASS** — 4 suites, 21 tests | Alarm storage/scheduling, drawer regression, back navigation, and layout tests. |
+
+## SSDS v1.0 Native Bundle Extraction — 2026-11-27
+
+| Check | Command / scope | Result | Notes |
+|---|---|---|---|
+| Bundle inventory | Complete Master Bundle parser | **PASS** | 69 declarations, 69 fenced source blocks, 69 unique paths. |
+| Destination parity | Non-empty destination check | **PASS** | No missing or empty extracted source files. |
+| Internal imports | Relative resolver across `.ts`, `.tsx`, and barrels | **PASS** | No unresolved internal imports or path adjustments. |
+| Package TypeScript | `tsc --noEmit -p study-sakha-design-system-native/tsconfig.json` | **PASS** | Standalone package scope passed with existing installed dependencies. |
+| Runtime/device validation | Not run | **NOT VERIFIED** | Explicitly outside this source-organization task; no integration performed. |
+
+## Current-session root checks — 2026-11-27
+
+- `pnpm run lint`: **FAIL** (exit 2) on pre-existing application/test errors in `screens/GroupsScreen.tsx` and several test files; the standalone package check passed independently.
+- `pnpm run test:ci`: **FAIL** — Jest reported 4 failing suites, 9 failing tests, 45 passing suites, and 220 passing tests; failures are in existing focus/planner/notification tests and are unrelated to the extracted package. The test process also reported existing asynchronous open-handle logging after completion.
+
 Last verified: 2026-11-27
+
+## Home Alarm Entry — 2026-11-27
+
+The Alarm card implementation was validated with Expo lint (**PASS**) and focused navigation tests (**3 suites / 18 tests PASS**). `pnpm run lint` still fails only on pre-existing `GroupsScreen.tsx` and test typing errors; no dashboard, storage-summary, or Alarm-module errors remain.
 
 ## Executed & Verified in Current Session (2026-11-26)
 
@@ -114,6 +185,20 @@ Physical Android notification and render-loop verification remains **BLOCKED**, 
 | **Focused ESLint** | `docs/PRELAUNCH_TESTING_REPORT.md` / `docs/GLOBAL_STORE_STATE_AUDIT.md` | **PASS** on CI-scoped files; **FAIL** on `lib/store.tsx` | See `BUG_TRACKER.md` (`ISSUE-004`). |
 
 ## Unverified / Blocked Areas
+
+## Alarm Engine Phase 3 Verification — 2026-11-27
+
+| Check | Command | Result | Scope / Notes |
+|---|---|---|---|
+| **CNG prebuild** | `npx expo prebuild --no-install --platform android` twice | **PASS** | Both runs succeeded; generated Alarm source/manifest/MainApplication hashes were identical. |
+| **EAS preview APK submission** | `npx eas-cli@latest build --platform android --profile preview --non-interactive` | **BLOCKED** | Archive uploaded; EAS rejected before build because the account exhausted its Android build quota until 2026-12-01. No APK URL. |
+| **Local Gradle/Kotlin** | `cd android && ./gradlew :app:compileDebugKotlin` | **BLOCKED** | Android SDK missing; failure occurred during project configuration before Alarm Kotlin compilation. |
+| **Expo lint** | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint` | **PASS** | Exit 0. |
+| **Alarm/navigation focused Jest** | `pnpm test -- test/alarmStorage.test.tsx test/drawerSettingsNavigation.test.tsx test/navigationBack.test.tsx test/navigationLayoutFixes.test.tsx --runInBand` | **PASS** | 4 suites, 21 tests. |
+| **TypeScript** | `pnpm run lint` | **FAIL (unrelated)** | Existing `screens/GroupsScreen.tsx` errors and Jest global/type errors; no Alarm-specific diagnostics. |
+| **ADB/device discovery** | `adb devices` | **NOT VERIFIED** | `adb` is not installed; no emulator or physical device available. |
+
+Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests passed; four unrelated Focus/notification suites remained failing. No Alarm-specific suite failure was observed.
 
 | Area | Status | Blocker / Requirement |
 |---|---|---|

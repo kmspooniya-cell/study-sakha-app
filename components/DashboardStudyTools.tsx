@@ -48,6 +48,9 @@ export type PlannerDashboardAction = {
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
   onPress: () => void;
+  subtitle?: string;
+  badge?: string;
+  detail?: string;
 };
 const TASK_TYPES: PlannerTaskType[] = ['Study', 'Revision', 'PYQ', 'Test', 'Current Affairs'];
 const PRIORITIES: PlannerPriority[] = ['High', 'Medium', 'Low'];
@@ -457,10 +460,10 @@ export function CustomStudyPlan({
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         {!dashboardMode ? <>
-        {[
+        {([
           { title: 'Today Plan', icon: 'calendar-outline' as const, color: colors.blue, onPress: () => { setPopup('today'); setFilter('All'); setSuccessMessage(''); } },
           { title: 'Tasks Ahead', icon: 'list-outline' as const, color: colors.teal, onPress: () => { setPopup('ahead'); setAheadScope(null); setFilter('All'); setSuccessMessage(''); } },
-        ].map((item) => (
+        ] as PlannerDashboardAction[]).map((item) => (
           <Pressable
             key={item.title}
             onPress={item.onPress}
@@ -482,7 +485,12 @@ export function CustomStudyPlan({
             <View style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: `${item.color}1A` }}>
               <Ionicons name={item.icon} size={20} color={item.color} />
             </View>
-            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }}>{item.title}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }}>{item.title}</Text>
+              {item.subtitle ? <Text style={{ color: colors.textMuted, fontSize: 10, marginTop: 2 }} numberOfLines={1}>{item.subtitle}</Text> : null}
+              {item.badge ? <Text style={{ color: item.color, fontSize: 10, fontWeight: '800', marginTop: 2 }} numberOfLines={1}>{item.badge}</Text> : null}
+              {item.detail ? <Text style={{ color: colors.textMuted, fontSize: 10, marginTop: 1 }} numberOfLines={1}>{item.detail}</Text> : null}
+            </View>
           </Pressable>
         ))}
         <Pressable
@@ -544,8 +552,8 @@ export function CustomStudyPlan({
             onPress={item.onPress}
             accessibilityRole="button"
             style={({ pressed }) => ({
-              width: dashboardMode && index === dashboardActions.length - 1 ? '100%' : '47.5%',
-              flexGrow: dashboardMode && index === dashboardActions.length - 1 ? 0 : 1,
+              width: dashboardMode && dashboardActions.length === 3 && index === dashboardActions.length - 1 ? '100%' : '47.5%',
+              flexGrow: dashboardMode && dashboardActions.length === 3 && index === dashboardActions.length - 1 ? 0 : 1,
               minHeight: 76,
               flexDirection: 'row',
               alignItems: 'center',

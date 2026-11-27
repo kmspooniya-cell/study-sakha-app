@@ -1,5 +1,29 @@
 # Development Log — Study Sakha
 
+## 2026-11-27 — Groups header alignment patch
+- Corrected the Groups main-screen header order to `Groups` on the left and notification/search controls on the right. No other Groups behavior or content changed.
+
+## 2026-11-27 — Groups main screen redesign
+- Reworked only the Groups main surface in `screens/GroupsScreen.tsx`: WhatsApp Channels-inspired header, joined-only list rows, Supabase-backed Explore screen, and floating create-group action.
+- Main list now shows only avatar, group name, and total member count; removed the main-screen heading/subtitle, search, categories, recommended groups, activity metadata, progress, and card extras from rendered UI.
+- Explore searches the existing backend-backed discovery set by group name, exam, or subject and reuses the existing permission-aware join flow. Group Details, notifications, create-group functionality, Focus Centre logic, and bottom navigation were preserved.
+- Focused group regression validation passed: 4 suites, 25 tests. Expo lint passed; repository TypeScript remains blocked by existing Jest typing errors outside GroupsScreen.
+
+## 2026-11-27 — Group Details tab-bar layout repair
+- Restored all implemented Group Details tabs (Live Study, Chat, Goals, Learn Together, Events, Members, Insights) to one continuous horizontal tab strip in screens/GroupsScreen.tsx.
+- Removed the More state, overflow button, and secondary menu. The strip remains horizontally scrollable on narrow Android screens and web widths, with active-tab auto-scroll and existing icons/indicators preserved.
+- No Group Header or tab content was changed.
+- Focused group/realtime tests passed: 2 suites, 8 tests. Expo lint passed; Android/web runtime visual verification remains unavailable.
+
+## 2026-11-27 — Groups interface redesign, chat persistence repair, and Focus Centre separation
+- Redesigned `screens/GroupsScreen.tsx` group detail header with compact avatar/name/member count, Join/Joined state, group overflow menu, Share Group entry, and Group Settings entry.
+- Reduced the primary group detail rail to Live Study, Chat, Goals, and Learn Together; preserved Events, Members, and Insights in a More menu for backward compatibility.
+- Reworked group chat presentation into left/right message bubbles with sender identity, timestamps, multiline wrapping, keyboard-aware composer, auto-scroll, and existing attachment/reply/report controls retained.
+- Fixed the chat disappearance race: initial Supabase queries now merge with local/realtime inserts by server message id and `created_at`, so an older fetch cannot overwrite a just-sent message. Removed fabricated offline send fallback; failed sends restore the draft.
+- Removed Groups-owned studying state. Group Hall presence remains separate while visible personal focus status is derived from `useOptionalFocusSession`; room focus controls delegate to Focus Centre.
+- Made Silent Focus Hall's full card the direct-entry surface and retained no separate Enter Hall button.
+- Verification: focused group/realtime suites passed (2 suites, 8 tests); Expo lint passed. Full Jest remains failing in four pre-existing focus/planner/notification suites (46/50 suites, 223/232 tests); no Android device/runtime available.
+
 ## 2026-11-27 — Study Sakha alarm module integration
 - Added the supplied `src/modules/alarm/StudySakhaAlarmModule.tsx` as an independent typed `Alarm` route in the authenticated stack, with `alarm` deep-link mapping.
 - Added `screens/StudySakhaAlarmScreen.tsx` as a thin host adapter using the existing `StoreProvider` and `ThemeProvider`; dark/light toggles persist through the existing settings reducer, and Study Planner opens through the existing `StudyPlanner` route.
@@ -177,3 +201,24 @@ Chronological record of significant development work. **Append new entries; do n
 - Verified the Alarm route, typed navigation adapter, `alarm` deep-link path, back callback, Study Planner callback, and ThemeProvider dark/light bridge.
 - Fixed an integration-only Jest regression: eager Alarm import caused Jest to parse `lucide-react-native` ESM while loading `App.tsx`. The adapter now lazy-loads the module only when the route opens.
 - Full Jest after the fix: 44/49 suites passed, 208/229 tests passed; the drawer/navigation suite now passes. Expo lint passes; TypeScript remains blocked by unrelated existing errors.
+- Added the missing Home Study Planner Alarm card using the existing dashboard action renderer. The card reads the Alarm Module's shared persisted storage, shows active count and next enabled alarm, and navigates to the existing typed `Alarm` route. The four dashboard tools now use the requested 2×2 layout.
+- Completed a functional audit/repair pass: fresh Alarm state no longer displays prototype demo alarms/history/tasks; repeat-day and one-time scheduling calculations now share the storage summary logic; save/task time validation and snooze limits were added; fabricated analytics were replaced with persisted-history calculations; and focused storage tests were added.
+- Confirmed no Alarm-specific Android `AlarmManager`, exact-alarm permission, notification scheduling, boot recovery, audio playback, camera/QR, motion, or pedometer implementation exists. Those capabilities remain explicitly partial/simulated or not implemented.
+
+## 2026-11-27 — Native Android Alarm Engine Phase 2
+- Added a separate CNG/config-plugin native engine under `native/alarm/android/` and `plugins/withAlarmEngine.js`; it registers `AlarmEnginePackage`, exact-alarm/boot/notification/vibration permissions, a stable-ID `AlarmManager` scheduler, alarm/time-change boot receiver, broadcast receiver, foreground playback service, and JS bridge events.
+- Wired the existing Alarm store to synchronize minimal scheduling metadata after hydration, reschedule on CRUD/enable/disable/skip changes, consume pending alarms after process restart, stop native playback on dismiss, and schedule native snoozes. UI was not redesigned.
+- CNG prebuild succeeded and generated all native Alarm files/manifest entries. Gradle compilation could not run because the environment has no Android SDK/`ANDROID_HOME`.
+- Focused Alarm/navigation tests pass 4 suites / 21 tests. Full Jest with forced teardown: 46/50 suites passed, 223/232 tests passed; four existing unrelated suites remain failing.
+
+## 2026-11-27 — SSDS v1.0 Native Master Bundle Extraction
+- Located and fully parsed `Study Sakha Design System Native Bundle.md/Study Sakha Design System Native Bundle.md`.
+- Extracted all 69 explicitly declared TypeScript/TSX modules across five batches into the independent `study-sakha-design-system-native/` package.
+- Added package README, dependency inventory, conversion manifest, source mapping, organization report, and package-local `tsconfig.json`.
+- No application integration, dependency installation, root configuration change, or application-source rewrite was performed.
+
+## 2026-11-27 — Alarm Engine Phase 3 Build and Device Verification
+- Ran Expo prebuild twice with `--no-install --platform android`; both runs passed and generated Alarm hashes were identical. Registration counts were one `AlarmEnginePackage`, two Alarm receivers, one playback service, and one each of the exact-alarm/full-screen permissions.
+- Confirmed EAS authentication and submitted the configured `preview` Android APK build. EAS loaded the preview Supabase/API variables and uploaded the 227 MB archive, but rejected the build before compilation because the account's Android build quota is exhausted until 2026-12-01. No APK or build URL was produced.
+- Local `:app:compileDebugKotlin` reached Expo/Gradle configuration but was blocked before Kotlin compilation because this environment has no Android SDK or `ANDROID_HOME`/`android/local.properties`.
+- Final focused Alarm/navigation Jest checks passed (4 suites, 21 tests); Expo lint passed. Full TypeScript remains blocked by unrelated existing `GroupsScreen.tsx` and Jest typing errors. No `adb` executable or Android device/emulator is available, so runtime verification remains pending.

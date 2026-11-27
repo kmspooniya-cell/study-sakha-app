@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { CustomStudyPlan } from '../components/DashboardStudyTools';
+import { CustomStudyPlan, type PlannerDashboardAction } from '../components/DashboardStudyTools';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell, useLayout } from '../components/Shell';
@@ -14,6 +14,7 @@ import { TODAY_PLAN } from '../lib/data';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
 import { shadow, useTheme } from '../lib/theme';
 import { translateLabel } from '../lib/i18n';
+import { readAlarmSummary, type AlarmSummary } from '../src/modules/alarm/alarmStorage';
 
 const greeting = () => {
   const hour = new Date().getHours();
@@ -23,6 +24,14 @@ const greeting = () => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+
+function formatDashboardAlarmTime(alarm: AlarmSummary['nextAlarm'], use24h: boolean) {
+  if (!alarm) return 'No upcoming alarm';
+  if (use24h) return `Next ${String(alarm.hour).padStart(2, '0')}:${String(alarm.minute).padStart(2, '0')}`;
+  const period = alarm.hour >= 12 ? 'PM' : 'AM';
+  const hour = alarm.hour % 12 || 12;
+  return `Next ${hour}:${String(alarm.minute).padStart(2, '0')} ${period}`;
+}
 
 const stitchLight = {
   bg: '#F2F2F7', surface: '#FFFFFF', surfaceAlt: '#F2F2F7', border: '#E5E5EA', separator: '#C6C6C8',
@@ -50,6 +59,7 @@ export default function DashboardScreen() {
   const target = clamp(safeTodayMinutes / goal, 0, 1);
   const [anim, setAnim] = useState(0);
   const [focusSetupVisible, setFocusSetupVisible] = useState(false);
+  const [alarmSummary, setAlarmSummary] = useState<AlarmSummary>({ activeCount: 0, nextAlarm: null, use24h: false });
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
     durationMinutes: state.settings.focusDurationMinutes,
@@ -90,6 +100,16 @@ export default function DashboardScreen() {
     return () => subscription.remove();
   }, []));
 
+  useFocusEffect(useCallback(() => {
+    let mounted = true;
+    readAlarmSummary().then((summary) => {
+      if (mounted) setAlarmSummary(summary);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []));
+
   const first = getDisplayName(state.user).split(/\s+/)[0];
 
   const openPlanItem = (item: (typeof TODAY_PLAN)[number]) => {
@@ -105,10 +125,19 @@ export default function DashboardScreen() {
     'Daily PYQ': { title: 'Daily PYQ', icon: 'albums-outline', color: colors.blue, onPress: () => nav.navigate('PYQ') },
     'Add Task': { title: 'Add Task', icon: 'add-circle-outline', color: colors.teal, onPress: () => nav.navigate('StudyPlanner') },
   };
-  const dashboardActions = [
+  const dashboardActions: PlannerDashboardAction[] = [
     { title: 'Add Task', icon: 'add-circle-outline' as const, color: colors.teal, onPress: () => nav.navigate('StudyPlanner') },
     { title: 'Focus Lock', icon: 'lock-closed-outline' as const, color: colors.rose, onPress: () => nav.navigate('FocusLock') },
     quickActionHandlers['Focus Timer'],
+    {
+      title: 'Alarm',
+      subtitle: 'Manage your alarms',
+      badge: `${alarmSummary.activeCount} active`,
+      detail: formatDashboardAlarmTime(alarmSummary.nextAlarm, alarmSummary.use24h),
+      icon: 'alarm-outline' as const,
+      color: colors.amber,
+      onPress: () => nav.navigate('Alarm'),
+    },
   ];
 
   const radius = 15.9;

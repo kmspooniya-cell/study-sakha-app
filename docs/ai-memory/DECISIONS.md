@@ -1,5 +1,19 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-016 — 2026-11-27 — Groups main is joined-only; discovery is separate
+
+The Groups landing surface displays only active memberships and only the minimum identity data needed for scanning: avatar, name, and member count. Discovery/search stays on a dedicated internal Explore surface backed by the existing Supabase discovery query, preventing recommended or unjoined groups from mixing with the user's main list.
+
+## DEC-015 — 2026-11-27 — Group navigation stays in one scrollable strip
+
+Keep every implemented Group Details section in the same horizontal tab strip. Narrow screens scroll horizontally rather than collapsing navigation into a secondary menu, preserving direct discoverability and touch access for all sections.
+
+## DEC-014 — 2026-11-27 — Group chat state is server-idempotent and Focus Centre-authoritative
+
+Keep group chat history in Supabase `study_group_messages` and reconcile all sources by the server message id. Initial fetches merge with realtime and send responses instead of replacing the channel array, preventing stale query responses from clearing recent messages or creating duplicates.
+
+Keep Group Hall presence/membership separate from personal studying activity. `useOptionalFocusSession()` is the only source used to derive the current user's studying state; Hall entry/exit and group membership changes must not start, pause, or end a Focus Centre session.
+
 ## DEC-012 — 2026-11-27
 
 Keep the supplied alarm module isolated behind a thin host screen adapter. It owns alarm CRUD/history/theme persistence under `@study_sakha_alarm_module_v1`, while the adapter bridges only navigation and the existing app-level light/dark setting. This avoids duplicate providers and prevents overwriting `sakha-store-v1` or planner storage.
@@ -27,3 +41,6 @@ Last verified: 2026-11-25
 | **DEC-007** | Use `pnpm` (`12.16.1`) and `npx expo install` for dependency management | `pnpm-lock.yaml` is the workspace lockfile; `npx expo install` guarantees SDK 57 compatible package versions. | Always run `pnpm run lint` and `pnpm run test:ci` before completing tasks. |
 | **DEC-009** | Render `AppBottomNav` in normal flex layout inside `Shell` (hiding when native soft keyboard is open) instead of `position: 'absolute'` | Guarantees no screen content or bottom CTAs render behind the bottom tab bar regardless of screen `scroll` mode or `insets.bottom` height, while avoiding double safe-area padding. | Screens inside `Shell` must not add `insets.bottom` or large bottom-nav clearance offsets on mobile (`FloatingFocusBar` remains positioned above the bar). |
 | **DEC-010** | Synchronize native drawer navigation via `Drawer.Navigator` `screenListeners` (`transitionEnd`) instead of `InteractionManager.runAfterInteractions` | `InteractionManager` is a `setImmediate` stub in RN `0.86.3`; waiting for `transitionEnd` (`closing: true`) prevents Android native stack transitions from colliding with `Drawer.native.tsx`'s closing spring/overlay. | Clear pending targets on `transitionStart` (`!closing`) and drawer `open` state; execute immediately on Web or when drawer is already closed. |
+## DEC-013 — Classify Alarm hardware behavior explicitly
+
+The Alarm module must not claim device reliability beyond the implemented native boundary. The separate Android engine owns AlarmManager scheduling, boot/time-change recovery, notification delivery, system alarm audio, and vibration; the React Native module remains the source of truth and UI event consumer. Manual mission flows for QR/photo/shake/steps and sleep-stage behavior remain simulated/UI-only until supported by device APIs.

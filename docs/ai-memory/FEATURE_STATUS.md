@@ -1,13 +1,22 @@
 # Feature Status — Study Sakha
 
+## 2026-11-27 Groups main screen
+- **Groups main screen:** **Complete (Host UI) / Not Verified (Device)**. Main view is joined-only with a compact header, Supabase-backed Explore screen, and safe floating create action.
+
+## 2026-11-27 Group Details tab bar
+- **Group navigation tab bar:** **Complete (Host UI) / Not Verified (Device)**. All implemented tabs are directly available in one horizontally scrollable row; no tab is hidden behind an overflow menu.
+
+## 2026-11-27 Groups redesign status
+- **Study Groups & Live Study Rooms:** **Complete (Host UI/logic) / Not Verified (Android, live multi-client)**. Group header/menu/join state, four primary tabs with backward-compatible More sections, WhatsApp-inspired chat bubbles/composer, stale-fetch chat merge repair, full Silent Focus Hall card entry, and Focus Centre-only personal study status are implemented in `screens/GroupsScreen.tsx`.
+
 ## Alarm Module — 2026-11-27
-- **In Progress (Host) / Not Verified (Device):** The supplied alarm module is registered as `Alarm`, uses isolated AsyncStorage, exactly four alarm themes, existing app theme synchronization, and Study Planner navigation. Existing dashboard sources did not contain an Alarm button handler, so no new Home button was created. Device/runtime alarm behavior remains unverified.
+- **Partially Implemented (Host) / Not Verified (Device):** The supplied alarm module is registered as `Alarm`, uses isolated AsyncStorage, exactly four alarm themes, existing app theme synchronization, Study Planner navigation, and a persisted Home summary card. A separate native Android engine now schedules exact/inexact alarms, restores schedules after boot/time changes, and plays system alarm audio/vibration through a foreground service. Physical Android behavior, permission UX, custom sounds, sleep sensing, and hardware missions remain unverified or incomplete.
 
 ## Deployment update — 2026-11-25
 
 Cross-Device Account Sync is schema/RLS/host verified after production deployment; second-client Realtime delivery remains runtime-unverified. Study Groups and Live Study Rooms have live RPCs, room objects, RLS, and publication entries verified; device/multi-client realtime remains untested.
 
-Last verified: 2026-11-25
+Last verified: 2026-11-27
 
 Status legend:
 - **Complete**: Implemented, code/tests verified in host environment (note: Android device runtime checks are tracked separately in `TESTING_STATUS.md`).
@@ -34,3 +43,4 @@ Status legend:
 | **Statistics & Task Performance** | **Complete** (Host) | `StatisticsScreen.tsx`, `TaskPerformanceScreen.tsx`, `lib/statistics.ts`, `lib/focusHistory.ts`. Covered by Jest. |
 | **Profile, Settings, App Guide, Admin** | **Complete** (Host) / **Not Verified** (Device) | Exam catalog includes `ras` and `rpsc_rssb`. Uncommitted fixes in `SettingsScreen.tsx`, `SearchScreen.tsx`, `NotificationsScreen.tsx`, `CurrentAffairsScreen.tsx`. |
 | **Android Release Build & Security** | **Blocked / Pending** | `app.config.js`, `eas.json`, `validate:release` ready. Blocked locally (no Android SDK) and awaiting EAS cloud build + physical device + MobSF + Maestro + Flashlight validation. |
+| **Alarm Engine (Android native)** | **Partially Implemented / Not Verified (Android)** | CNG plugin, AlarmManager scheduling, receivers, foreground playback service, boot/time-change recovery, and JS bridge are present. Prebuild is idempotent and host-focused tests pass; EAS preview submission was blocked by exhausted build quota before compilation, and no Android device/emulator is available. |

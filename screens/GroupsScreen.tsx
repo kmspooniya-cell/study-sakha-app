@@ -233,6 +233,7 @@ interface GoalItem {
 
 interface ChatMessageItem {
   id: string;
+  createdAt?: string;
   sender: string;
   initials: string;
   role: string;
@@ -1435,7 +1436,7 @@ export default function StudySakhaGroupsRN() {
 
   // Screen state
   const [isPremium, setIsPremium] = useState(true);
-  const [activeScreen, setActiveScreen] = useState<'main' | 'detail' | 'notifications'>('main');
+  const [activeScreen, setActiveScreen] = useState<'main' | 'detail' | 'notifications' | 'explore'>('main');
   const theme = useMemo<ThemeColors>(() => ({
     canvas: appColors.bg,
     surface: appColors.surface,
@@ -1473,13 +1474,15 @@ export default function StudySakhaGroupsRN() {
   const [groupMembershipLoadError, setGroupMembershipLoadError] = useState<string | null>(null);
   const [groupMembershipRetry, setGroupMembershipRetry] = useState(0);
   const [refreshingGroups, setRefreshingGroups] = useState(false);
-  const [mainCategory, setMainCategory] = useState('my_groups');
-  const [recommendedCategory, setRecommendedCategory] = useState('recommended');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [exploreQuery, setExploreQuery] = useState('');
 
   // Selected Group & Detail Tabs
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [detailTab, setDetailTab] = useState('live');
+  const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const detailTabScrollRef = useRef<ScrollView | null>(null);
+  const detailTabOffsetsRef = useRef<Record<string, number>>({});
+  const [joiningGroupId, setJoiningGroupId] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [activeInvite, setActiveInvite] = useState<StudyGroupInvite | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -1533,7 +1536,6 @@ export default function StudySakhaGroupsRN() {
     });
     return () => globalFocus.registerHallOpener(null);
   }, [globalFocus, navigation]);
-  const [roomFocusing, setRoomFocusing] = useState(false);
   const [roomSubject, setRoomSubject] = useState('Current Affairs');
   const [showRoomFocusSetup, setShowRoomFocusSetup] = useState(false);
   const [roomFocusSetup, setRoomFocusSetup] = useState<FocusSessionSetup>({
@@ -1589,6 +1591,8 @@ export default function StudySakhaGroupsRN() {
   const [activeChannel, setActiveChannel] = useState('general-chat');
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChatMessageItem[]>>({});
   const [chatInput, setChatInput] = useState('');
+  const chatScrollRef = useRef<ScrollView | null>(null);
+  const chatLoadRequestRef = useRef(0);
   const [threadMessage, setThreadMessage] = useState<ChatMessageItem | null>(null);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
@@ -1663,6 +1667,11 @@ export default function StudySakhaGroupsRN() {
     roomFocusActivity.roomSessionId === roomSessionId
     ? roomFocusActivity
     : null;
+  // Focus Centre is the only source of the user's studying state. Hall presence
+  // and room membership remain separate from personal focus activity.
+  const roomFocusing = Boolean(
+    globalFocus?.isRunning && !globalFocus.isOnBreak
+  );
   const focusBarSession = currentRoomFocusActivity
     ? {
         sessionId: currentRoomFocusActivity.focusSessionId ?? openedFocusSession?.sessionId ?? '',
@@ -1842,6 +1851,7 @@ export default function StudySakhaGroupsRN() {
   useEffect(() => {
     if (!selectedGroupId || !activeChannel) return;
     let active = true;
+    const requestId = ++chatLoadRequestRef.current;
 
     // Helper to map DB row to ChatMessageItem
     const mapRowToMessage = (row: StudyGroupChatMessageRecord): ChatMessageItem => {
@@ -1850,27 +1860,39 @@ export default function StudySakhaGroupsRN() {
       const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       return {
         id: row.id,
+        createdAt: row.created_at,
         sender: isMe ? `${row.sender_name} (You)` : row.sender_name,
         initials: row.sender_initials,
         role: row.sender_role as ChatMessageItem['role'],
         time: isNaN(createdAt.getTime()) ? 'Just now' : timeStr,
         text: row.message,
         attachment: row.attachment ?? undefined,
-        poll: row.poll ?? undefined,
+        poll: row.poll ? { ...row.poll, votedId: row.poll.votedId ?? null } : undefined,
         pinned: row.pinned,
         reactions: [],
         replies: 0,
       };
     };
 
-    // Load initial messages for active channel
+    const mergeMessages = (current: ChatMessageItem[], incoming: ChatMessageItem[]) => {
+      const byId = new Map<string, ChatMessageItem>();
+      [...current, ...incoming].forEach((message) => byId.set(message.id, message));
+      return [...byId.values()].sort((a, b) => {
+        const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.MAX_SAFE_INTEGER;
+        const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.MAX_SAFE_INTEGER;
+        return aTime - bTime;
+      });
+    };
+
+    // Load initial messages for active channel. Merge with anything received or
+    // sent while the request was in flight; never replace newer local state.
     void getStudyGroupMessages(selectedGroupId, activeChannel)
       .then((records) => {
-        if (!active) return;
+        if (!active || requestId !== chatLoadRequestRef.current) return;
         const mapped = records.map(mapRowToMessage);
         setMessagesByChannel((prev) => ({
           ...prev,
-          [activeChannel]: mapped,
+          [activeChannel]: mergeMessages(prev[activeChannel] || [], mapped),
         }));
       })
       .catch((error) => {
@@ -1899,11 +1921,11 @@ export default function StudySakhaGroupsRN() {
         setMessagesByChannel((prev) => {
           const currentList = prev[activeChannel] || [];
           if (currentList.some((m) => m.id === mapped.id)) {
-            return currentList;
+            return prev;
           }
           return {
             ...prev,
-            [activeChannel]: [...currentList, mapped],
+            [activeChannel]: mergeMessages(currentList, [mapped]),
           };
         });
       }
@@ -1920,6 +1942,12 @@ export default function StudySakhaGroupsRN() {
       }
     };
   }, [activeChannel, roomUser?.id, selectedGroupId]);
+
+  useEffect(() => {
+    const messages = messagesByChannel[activeChannel] ?? [];
+    if (!messages.length) return;
+    requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: true }));
+  }, [activeChannel, messagesByChannel]);
 
   useEffect(() => {
     if (!roomUser?.id) return;
@@ -1969,26 +1997,16 @@ export default function StudySakhaGroupsRN() {
     }, [activeScreen, navigation, refreshGroups])
   );
 
-  const filteredGroups = useMemo(() => {
-    return groups.filter((g) => {
-      if (mainCategory === 'my_groups' && !g.joined) return false;
-      if (mainCategory === 'recommended') {
-        if (recommendedCategory === 'recommended' && (g.joined || !/match/i.test(g.matchReason))) return false;
-        if (recommendedCategory === 'discover' && g.joined) return false;
-        if (recommendedCategory === 'live' && !(g.liveStudying && g.liveStudying > 0)) return false;
-        if (recommendedCategory === 'cam' && g.type !== 'Cam Study') return false;
-      }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          g.name.toLowerCase().includes(q) ||
-          g.exam.toLowerCase().includes(q) ||
-          g.subject.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [groups, mainCategory, recommendedCategory, searchQuery]);
+  const joinedGroups = useMemo(() => groups.filter((group) => group.joined), [groups]);
+  const exploredGroups = useMemo(() => {
+    const query = exploreQuery.trim().toLowerCase();
+    if (!query) return groups;
+    return groups.filter((group) => (
+      group.name.toLowerCase().includes(query) ||
+      group.exam.toLowerCase().includes(query) ||
+      group.subject.toLowerCase().includes(query)
+    ));
+  }, [exploreQuery, groups]);
 
   const unreadNotifCount = notifications.filter((n) => !n.read).length;
 
@@ -2000,15 +2018,18 @@ export default function StudySakhaGroupsRN() {
 
   // Join Group Flow
   const handleInitiateJoin = async (group: GroupItem) => {
+    if (joiningGroupId) return;
     if (group.joined) {
       handleOpenGroupDetail(group);
       return;
     }
     if (group.joinMethod === 'Open Join') {
+      setJoiningGroupId(group.id);
       try {
         await joinOpenStudyGroup(group.id);
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Could not join this group.');
+        setJoiningGroupId(null);
         return;
       }
       groupMembershipRequest.current += 1;
@@ -2019,6 +2040,7 @@ export default function StudySakhaGroupsRN() {
       );
       showToast(`Joined ${group.name}!`);
       handleOpenGroupDetail(group);
+      setJoiningGroupId(null);
     } else {
       setJoinModalGroup(group);
     }
@@ -2085,7 +2107,6 @@ export default function StudySakhaGroupsRN() {
       const { activity } = event;
       if (activity.groupId !== activeRoomGroupId || activity.roomSessionId !== roomSessionId) return;
       setRoomFocusActivity(activity);
-      setRoomFocusing(activity.status === 'focusing');
       setRoomSubject(activity.subject);
       focusLaunchRef.current = false;
       persistRoomUpdate(activity.roomSessionId, {
@@ -2098,7 +2119,6 @@ export default function StudySakhaGroupsRN() {
     if (event.roomSessionId !== roomSessionId) return;
     setRoomFocusActivity(null);
     setOpenedFocusSession(null);
-    setRoomFocusing(false);
     setRoomMinimized(false);
     focusLaunchRef.current = false;
     persistRoomUpdate(event.roomSessionId, { focusing: false });
@@ -2116,7 +2136,6 @@ export default function StudySakhaGroupsRN() {
     setActiveRoomGroupId(null);
     setRoomSessionId(null);
     setRoomMinimized(false);
-    setRoomFocusing(false);
     setRoomAmbientAudio('muted');
     setShowRoomFocusSetup(false);
     setRoomMicroGoals([]);
@@ -2258,7 +2277,6 @@ export default function StudySakhaGroupsRN() {
       setActiveRoomGroupId(groupId);
       setActiveRoom(room);
       setRoomMinimized(false);
-      setRoomFocusing(false);
       const preview = openGroupRoomParam?.focusSession;
       if (preview && room.id === 'silent-focus' && groupId === openGroupRoomParam?.groupId) {
         const activity: GroupRoomFocusActivity = {
@@ -2273,7 +2291,6 @@ export default function StudySakhaGroupsRN() {
           updatedAt: new Date().toISOString(),
         };
         setRoomFocusActivity(activity);
-        setRoomFocusing(preview.status === 'focusing');
         setRoomSubject(preview.subject);
         setOpenedFocusSession(preview);
         publishGroupRoomFocus(activity, 'start');
@@ -2373,7 +2390,6 @@ export default function StudySakhaGroupsRN() {
               updatedAt: new Date().toISOString(),
             };
             setRoomFocusActivity(activity);
-            setRoomFocusing(target.focusSession.status === 'focusing');
             setRoomSubject(target.focusSession.subject);
             publishGroupRoomFocus(activity, 'update');
           }
@@ -2443,10 +2459,14 @@ export default function StudySakhaGroupsRN() {
   };
 
   const handleToggleFocusing = () => {
-    if (!roomSessionId) return;
-    const next = !roomFocusing;
-    setRoomFocusing(next);
-    persistRoomUpdate(roomSessionId, { focusing: next });
+    if (!activeRoom || !activeRoomGroupId || !roomSessionId) return;
+    if (globalFocus?.session) {
+      globalFocus.togglePause();
+      return;
+    }
+    navigation.navigate('FocusCenter', {
+      roomFocus: { groupId: activeRoomGroupId, roomId: activeRoom.id, roomSessionId },
+    });
   };
 
   const handleSubjectChange = (nextSubject: string) => {
@@ -2505,14 +2525,12 @@ export default function StudySakhaGroupsRN() {
     if (activeRoom?.id !== 'pomodoro' || roomRealtime.phase !== 'break' || !roomFocusing || !roomSessionId) return;
     // Break phase may be started by another member, so stop this local focus session.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRoomFocusing(false);
     persistRoomUpdate(roomSessionId, { focusing: false });
   }, [activeRoom?.id, persistRoomUpdate, roomFocusing, roomRealtime.phase, roomSessionId]);
 
   const handleRoomFocusButton = async () => {
     if (activeRoom?.id === 'pomodoro' && roomRealtime.phase === 'break' && !roomFocusing) {
       if (await syncPomodoroPhase('focus')) {
-        setRoomFocusing(true);
         if (roomSessionId) persistRoomUpdate(roomSessionId, { focusing: true });
       }
       return;
@@ -2580,7 +2598,13 @@ export default function StudySakhaGroupsRN() {
       state,
       subject: globalFocus?.session?.subject ?? currentRoomFocusActivity?.subject ?? roomSubject ?? null,
       topic: globalFocus?.session?.topic ?? null,
-      mode: globalFocus?.session?.mode ?? null,
+      mode: globalFocus?.session?.mode === 'timer'
+        ? 'Timer'
+        : globalFocus?.session?.mode === 'stopwatch'
+          ? 'Stopwatch'
+          : globalFocus?.session?.mode === 'pomodoro'
+            ? 'Pomodoro'
+            : null,
       targetSeconds: globalFocus?.session?.plannedSeconds ?? null,
       elapsedSeconds: globalFocus?.session?.focusedMilliseconds ? Math.floor(globalFocus.session.focusedMilliseconds / 1000) : (currentRoomFocusActivity?.elapsedSeconds ?? 0),
       startedAt: globalFocus?.session?.startedAt ?? currentRoomFocusActivity?.startedAt ?? null,
@@ -2745,6 +2769,7 @@ export default function StudySakhaGroupsRN() {
         const timeStr = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const newMsg: ChatMessageItem = {
           id: record.id,
+          createdAt: record.created_at,
           sender: `${record.sender_name} (You)`,
           initials: record.sender_initials,
           role: record.sender_role as ChatMessageItem['role'],
@@ -2763,21 +2788,7 @@ export default function StudySakhaGroupsRN() {
           };
         });
       } else {
-        // Fallback for offline / demo mode
-        const msg: ChatMessageItem = {
-          id: `m-${Date.now()}`,
-          sender: `${senderName} (You)`,
-          initials: senderInitials,
-          role: 'Member',
-          time: 'Just now',
-          text: textToSend,
-          reactions: [],
-          replies: 0,
-        };
-        setMessagesByChannel((prev) => ({
-          ...prev,
-          [activeChannel]: [...(prev[activeChannel] || []), msg],
-        }));
+        throw new Error('Connect Supabase before sending a group message.');
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not send message.');
@@ -2979,28 +2990,94 @@ export default function StudySakhaGroupsRN() {
     );
   };
 
+  const renderJoinedGroupRow = (group: GroupItem) => (
+    <Pressable
+      key={group.id}
+      onPress={() => handleOpenGroupDetail(group)}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${group.name}`}
+      style={({ pressed }) => [
+        styles.groupListRow,
+        {
+          backgroundColor: pressed ? theme.surfaceElevated : theme.surface,
+          borderBottomColor: theme.borderSubtle,
+          opacity: pressed ? 0.86 : 1,
+        },
+      ]}
+    >
+      <View style={[styles.groupAvatar, { backgroundColor: group.accentHex }]}>
+        <Text style={styles.groupAvatarText}>{group.shortName}</Text>
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text numberOfLines={1} style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '700' }}>
+          {group.name}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>
+          {group.membersCount ?? 0} members
+        </Text>
+      </View>
+    </Pressable>
+  );
+
+  const renderExploreGroupRow = (group: GroupItem) => (
+    <View key={group.id} style={[styles.exploreGroupRow, { borderBottomColor: theme.borderSubtle }]}>
+      <Pressable
+        onPress={() => handleOpenGroupDetail(group)}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${group.name}`}
+        style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 72 }}
+      >
+        <View style={[styles.groupAvatar, { backgroundColor: group.accentHex }]}>
+          <Text style={styles.groupAvatarText}>{group.shortName}</Text>
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '700' }}>
+            {group.name}
+          </Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>
+            {group.membersCount ?? 0} members
+          </Text>
+        </View>
+      </Pressable>
+      <Pressable
+        onPress={(event) => {
+          event.stopPropagation();
+          if (!group.joined) void handleInitiateJoin(group);
+        }}
+        disabled={group.joined || joiningGroupId === group.id}
+        accessibilityRole="button"
+        accessibilityLabel={group.joined ? `Joined ${group.name}` : `Join ${group.name}`}
+        style={({ pressed }) => [
+          styles.exploreJoinButton,
+          {
+            backgroundColor: group.joined ? theme.successSoft : theme.primary,
+            borderColor: group.joined ? theme.successBorder : theme.primary,
+            opacity: pressed || joiningGroupId === group.id ? 0.72 : 1,
+          },
+        ]}
+      >
+        {joiningGroupId === group.id ? <ActivityIndicator size="small" color={group.joined ? theme.successText : '#FFFFFF'} /> : null}
+        <Text style={{ color: group.joined ? theme.successText : '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
+          {group.joined ? 'Joined' : group.joinMethod === 'Open Join' ? 'Join' : 'Request'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+
   /** MAIN GROUPS SCREEN */
   const renderMainScreen = () => {
-    const isCompact = width < 380;
-
     return (
-      <View style={{ gap: 16 }}>
-        {/* Header Row */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.screenTitle, { color: theme.textPrimary }]}>Study Groups</Text>
-            <Text style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>
-              Focus rooms, peer accountability & exam prep circles
-            </Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ gap: 8 }}>
+        <View style={styles.groupsMainHeader}>
+          <Text style={[styles.screenTitle, { color: theme.textPrimary }]}>Groups</Text>
+          <View style={styles.groupsHeaderActions}>
             <Pressable
               onPress={() => setActiveScreen('notifications')}
               accessibilityRole="button"
               accessibilityLabel={`Group notifications${unreadNotifCount ? `, ${unreadNotifCount} unread` : ''}`}
               style={[styles.iconBoxBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
-              <Bell size={17} color={theme.textPrimary} />
+              <Bell size={18} color={theme.textPrimary} />
               {unreadNotifCount > 0 && (
                 <View style={[styles.notifBadge, { backgroundColor: theme.primary }]}>
                   <Text style={styles.notifBadgeText}>{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</Text>
@@ -3008,106 +3085,15 @@ export default function StudySakhaGroupsRN() {
               )}
             </Pressable>
             <Pressable
-              onPress={() => {
-                setCreateStep(1);
-                setShowCreateModal(true);
-              }}
+              onPress={() => { setExploreQuery(''); setActiveScreen('explore'); }}
               accessibilityRole="button"
-              accessibilityLabel="Create study group"
-              style={[
-                isCompact ? styles.iconBoxBtn : styles.primaryBtn,
-                {
-                  backgroundColor: theme.primary,
-                  borderColor: theme.primary,
-                  flexDirection: 'row',
-                  gap: 5,
-                  paddingHorizontal: isCompact ? 0 : 14,
-                },
-              ]}
+              accessibilityLabel="Explore groups"
+              style={[styles.iconBoxBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             >
-              <Plus size={15} color="#FFFFFF" />
-              {!isCompact && <Text style={styles.primaryBtnText}>Create</Text>}
+              <Search size={18} color={theme.textPrimary} />
             </Pressable>
           </View>
         </View>
-
-        {/* Search Input */}
-        <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Search size={16} color={theme.textMuted} />
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search groups, exams (RAS, UPSC), subjects..."
-            placeholderTextColor={theme.textMuted}
-            style={{ flex: 1, fontSize: 13, color: theme.textPrimary, paddingVertical: 8 }}
-          />
-          {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')}>
-              <X size={15} color={theme.textMuted} />
-            </Pressable>
-          )}
-        </View>
-
-        {/* Category Pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {[
-            { id: 'my_groups', label: 'My Groups' },
-            { id: 'recommended', label: 'Recommended' },
-          ].map((cat) => {
-            const active = mainCategory === cat.id;
-            return (
-              <Pressable
-                key={cat.id}
-                onPress={() => setMainCategory(cat.id)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                style={[
-                  styles.pillTab,
-                  {
-                    backgroundColor: active ? theme.primary : theme.surface,
-                    borderColor: active ? theme.primary : theme.border,
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#FFFFFF' : theme.textSecondary }}>
-                  {cat.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {mainCategory === 'recommended' && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {[
-              { id: 'recommended', label: 'For You' },
-              { id: 'discover', label: 'Discover' },
-              { id: 'live', label: 'Live Study' },
-              { id: 'cam', label: 'Cam Study' },
-            ].map((category) => {
-              const active = recommendedCategory === category.id;
-              return (
-                <Pressable
-                  key={category.id}
-                  onPress={() => setRecommendedCategory(category.id)}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  style={[
-                    styles.pillTab,
-                    {
-                      backgroundColor: active ? theme.primary : theme.surface,
-                      borderColor: active ? theme.primary : theme.border,
-                    },
-                  ]}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#FFFFFF' : theme.textSecondary }}>
-                    {category.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
 
         {!groupMembershipsLoaded ? (
           <View style={{ padding: 28, alignItems: 'center', gap: 10 }}>
@@ -3127,23 +3113,82 @@ export default function StudySakhaGroupsRN() {
             }}
             theme={theme}
           />
-        ) : filteredGroups.length === 0 ? (
+        ) : joinedGroups.length === 0 ? (
           <EmptyState
-            icon={Search}
-            title="No matching groups found"
-            description="Try a different search or explore another category—or create a dedicated circle."
-            primaryLabel="Clear Search"
-            onPrimary={() => setSearchQuery('')}
-            secondaryLabel="Create This Group"
-            onSecondary={() => setShowCreateModal(true)}
+            icon={Users}
+            title="No joined groups yet"
+            description="Explore a study group to find your next focused circle."
+            primaryLabel="Explore groups"
+            onPrimary={() => { setExploreQuery(''); setActiveScreen('explore'); }}
             theme={theme}
           />
         ) : (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{filteredGroups.map(renderGroupCard)}</View>
+          <View style={[styles.groupList, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            {joinedGroups.map(renderJoinedGroupRow)}
+          </View>
         )}
       </View>
     );
   };
+
+  const renderExploreScreen = () => (
+    <View style={{ gap: 12 }}>
+      <View style={styles.exploreHeader}>
+        <Pressable
+          onPress={() => setActiveScreen('main')}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Groups"
+          style={styles.iconBtn}
+        >
+          <ChevronLeft size={20} color={theme.textPrimary} />
+        </Pressable>
+        <Text style={{ flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: '800' }}>Explore groups</Text>
+      </View>
+      <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Search size={17} color={theme.textMuted} />
+        <TextInput
+          value={exploreQuery}
+          onChangeText={setExploreQuery}
+          autoFocus
+          placeholder="Search by group, exam or subject"
+          placeholderTextColor={theme.textMuted}
+          style={{ flex: 1, fontSize: 16, color: theme.textPrimary, paddingVertical: 9 }}
+          returnKeyType="search"
+        />
+        {exploreQuery.length > 0 && (
+          <Pressable onPress={() => setExploreQuery('')} accessibilityLabel="Clear group search" style={styles.iconBtn}>
+            <X size={16} color={theme.textMuted} />
+          </Pressable>
+        )}
+      </View>
+      {!groupMembershipsLoaded ? (
+        <View style={{ padding: 28, alignItems: 'center', gap: 10 }}>
+          <ActivityIndicator color={theme.primary} />
+          <Text style={{ color: theme.textSecondary }}>Loading discoverable groups…</Text>
+        </View>
+      ) : groupMembershipLoadError ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Groups could not be loaded"
+          description={groupMembershipLoadError}
+          primaryLabel="Retry"
+          onPrimary={() => { setGroupMembershipsLoaded(false); setGroupMembershipRetry((value) => value + 1); }}
+          theme={theme}
+        />
+      ) : exploredGroups.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="No groups found"
+          description="Try a different group name, exam or subject."
+          theme={theme}
+        />
+      ) : (
+        <View style={[styles.groupList, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          {exploredGroups.map(renderExploreGroupRow)}
+        </View>
+      )}
+    </View>
+  );
 
   // --------------------------------------------------------------------------
   // 6. GROUP DETAIL SCREEN & 7 TABS
@@ -3221,37 +3266,66 @@ export default function StudySakhaGroupsRN() {
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Pressable
-                onPress={() => setShowInviteModal(true)}
+                onPress={() => { if (!selectedGroup.joined) void handleInitiateJoin(selectedGroup); }}
+                disabled={Boolean(joiningGroupId) || selectedGroup.joined}
                 accessibilityRole="button"
-                style={[styles.smallPrimaryBtn, { backgroundColor: theme.primary }]}
+                accessibilityLabel={selectedGroup.joined ? 'Joined group' : 'Join group'}
+                style={[styles.smallPrimaryBtn, { backgroundColor: selectedGroup.joined ? theme.successSoft : theme.primary, opacity: joiningGroupId ? 0.7 : 1 }]}
               >
-                <Share2 size={13} color="#FFFFFF" />
-                <Text style={styles.smallPrimaryBtnText}>Invite</Text>
+                {joiningGroupId === selectedGroup.id ? <ActivityIndicator size="small" color={theme.primary} /> : selectedGroup.joined ? <Check size={14} color={theme.successText} /> : <Plus size={14} color="#FFFFFF" />}
+                <Text style={[styles.smallPrimaryBtnText, { color: selectedGroup.joined ? theme.successText : '#FFFFFF' }]}>{selectedGroup.joined ? 'Joined' : 'Join'}</Text>
               </Pressable>
               <Pressable
-                onPress={() => { setSettingsTab('general'); setShowSettingsModal(true); }}
+                onPress={() => setShowGroupMenu(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Group settings"
+                accessibilityLabel="Group menu"
                 style={[styles.iconBoxBtn, { width: 40, height: 40, backgroundColor: theme.surface, borderColor: theme.border }]}
               >
-                <Settings size={16} color={theme.textSecondary} />
+                <Text style={{ fontSize: 22, lineHeight: 22, color: theme.textSecondary }}>⋯</Text>
               </Pressable>
             </View>
           </View>
         </View>
 
+        <Modal visible={showGroupMenu} transparent animationType="fade" onRequestClose={() => setShowGroupMenu(false)}>
+          <Pressable style={styles.menuBackdrop} onPress={() => setShowGroupMenu(false)}>
+            <View style={[styles.groupMenu, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}>
+              <Pressable style={styles.groupMenuItem} onPress={() => { setShowGroupMenu(false); setShowInviteModal(true); }}>
+                <Share2 size={17} color={theme.primary} />
+                <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>Share Group</Text>
+              </Pressable>
+              <Pressable style={styles.groupMenuItem} onPress={() => { setShowGroupMenu(false); setSettingsTab('general'); setShowSettingsModal(true); }}>
+                <Settings size={17} color={theme.textSecondary} />
+                <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>Group Settings</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+
         <ScrollView
+          ref={detailTabScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0, marginTop: 6, borderBottomWidth: 1, borderBottomColor: theme.border }}
-          contentContainerStyle={{ gap: 4, minWidth: isTablet ? '100%' : undefined, justifyContent: 'space-between' }}
+          contentContainerStyle={{ gap: 4, paddingHorizontal: 4, minWidth: isTablet ? '100%' : undefined }}
         >
           {tabs.map((t) => {
             const active = detailTab === t.id;
             return (
               <Pressable
                 key={t.id}
-                onPress={() => setDetailTab(t.id)}
+                onLayout={(event) => {
+                  detailTabOffsetsRef.current[t.id] = event.nativeEvent.layout.x;
+                }}
+                onPress={() => {
+                  setDetailTab(t.id);
+                  requestAnimationFrame(() => {
+                    const tabX = detailTabOffsetsRef.current[t.id];
+                    if (tabX !== undefined) {
+                      detailTabScrollRef.current?.scrollTo({ x: Math.max(0, tabX - 24), animated: true });
+                    }
+                  });
+                }}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
                 style={[
@@ -3573,6 +3647,10 @@ export default function StudySakhaGroupsRN() {
     const currentChan = CHAT_CHANNELS.find((c) => c.id === activeChannel);
 
     return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1, minHeight: 0 }}
+      >
       <View style={[styles.card, { flex: 1, minHeight: 0, backgroundColor: theme.surface, borderColor: theme.border, padding: 0, overflow: 'hidden', flexDirection: isTablet ? 'row' : 'column' }]}>
         {isTablet ? (
           <View style={{ width: 224, padding: 10, borderRightWidth: 1, borderRightColor: theme.border }}>
@@ -3630,6 +3708,7 @@ export default function StudySakhaGroupsRN() {
         </View>
         {/* Messages */}
         <ScrollView
+          ref={chatScrollRef}
           style={{ flex: 1, minHeight: 0 }}
           contentContainerStyle={{ padding: 14, gap: 14 }}
           showsVerticalScrollIndicator={false}
@@ -3644,8 +3723,10 @@ export default function StudySakhaGroupsRN() {
               theme={theme}
             />
           ) : (
-            channelMsgs.map((m) => (
-              <View key={m.id} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+            channelMsgs.map((m) => {
+              const isMine = m.sender.endsWith(' (You)');
+              return (
+              <View key={m.id} style={{ flexDirection: isMine ? 'row-reverse' : 'row', gap: 8, alignItems: 'flex-start', justifyContent: isMine ? 'flex-start' : 'flex-start' }}>
                 <MemberAvatar
                   initials={m.initials}
                   size="sm"
@@ -3653,9 +3734,10 @@ export default function StudySakhaGroupsRN() {
                   accent={m.role === 'Mentor' ? '#0D9488' : '#2563EB'}
                   theme={theme}
                 />
-                <View style={{ flex: 1 }}>
+                <View style={{ maxWidth: '86%', paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderTopLeftRadius: isMine ? 16 : 5, borderTopRightRadius: isMine ? 5 : 16, backgroundColor: isMine ? theme.primarySoft : theme.surfaceElevated, borderWidth: 1, borderColor: isMine ? `${theme.primary}33` : theme.borderSubtle }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textPrimary }}>{m.sender}</Text>
+                    {!isMine && <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>{m.sender}</Text>}
+                    {isMine && <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primaryText }}>You</Text>}
                     {m.role !== 'Member' && (() => {
                       const roleColors: Record<string, { bg: string; fg: string }> = {
                         Owner: { bg: '#EEF2FF', fg: '#4338CA' },
@@ -3666,7 +3748,7 @@ export default function StudySakhaGroupsRN() {
                       const colors = roleColors[m.role] || { bg: theme.surfaceElevated, fg: theme.textSecondary };
                       return <View style={[styles.tagChip, { backgroundColor: colors.bg }]}><Text style={{ fontSize: 10, fontWeight: '700', color: colors.fg }}>{m.role}</Text></View>;
                     })()}
-                    <Text style={{ fontSize: 11, color: theme.textMuted }}>{m.time}</Text>
+                    <Text style={{ fontSize: 10, color: theme.textMuted }}>{m.time}</Text>
                   </View>
                   <Text style={{ fontSize: 13, color: theme.textPrimary, marginTop: 4, lineHeight: 19 }}>
                     {m.text}
@@ -3778,7 +3860,8 @@ export default function StudySakhaGroupsRN() {
                   </View>
                 </View>
               </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
 
@@ -3822,6 +3905,7 @@ export default function StudySakhaGroupsRN() {
         </View>
         </View>
       </View>
+      </KeyboardAvoidingView>
     );
   };
 
@@ -5161,10 +5245,32 @@ export default function StudySakhaGroupsRN() {
               }
             >
               {activeScreen === 'main' && renderMainScreen()}
+              {activeScreen === 'explore' && renderExploreScreen()}
               {activeScreen === 'notifications' && renderNotificationsScreen()}
             </ScrollView>
           )}
         </KeyboardAvoidingView>
+
+        {activeScreen === 'main' && (
+          <Pressable
+            onPress={() => {
+              setCreateStep(1);
+              setShowCreateModal(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Create study group"
+            style={({ pressed }) => [
+              styles.floatingCreateButton,
+              {
+                backgroundColor: theme.primary,
+                opacity: pressed ? 0.82 : 1,
+                bottom: 16,
+              },
+            ]}
+          >
+            <Plus size={22} color="#FFFFFF" />
+          </Pressable>
+        )}
 
         <Modal
           visible={Boolean(activeRoom && !roomMinimized)}
@@ -6231,6 +6337,14 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   screenTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  groupsMainHeader: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
+  groupsHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  exploreHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  groupList: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  groupListRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  exploreGroupRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderBottomWidth: 1 },
+  exploreJoinButton: { minWidth: 70, minHeight: 40, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
+  floatingCreateButton: { position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   sectionTitle: { fontSize: 16, fontWeight: '700' },
   cardTitle: { fontSize: 14, fontWeight: '700' },
   tabularText: { fontVariant: ['tabular-nums'] },
@@ -6385,6 +6499,9 @@ const styles = StyleSheet.create({
   },
   notifBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
   heroCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.18)', alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 112, paddingRight: 16 },
+  groupMenu: { minWidth: 190, borderRadius: 14, borderWidth: 1, paddingVertical: 6, elevation: 6, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  groupMenuItem: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
   heroAvatar: {
     width: 48,
     height: 48,

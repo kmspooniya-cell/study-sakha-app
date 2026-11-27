@@ -26,6 +26,8 @@ Vibration,
 View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ALARM_STORAGE_KEY, getSecondsUntilAlarm as getStoredSecondsUntilAlarm } from './alarmStorage';
+import { consumePendingNativeAlarm, scheduleNativeSnooze, stopNativeAlarm, subscribeToNativeAlarm, syncNativeAlarms } from './alarmNative';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
 Circle,
@@ -135,6 +137,7 @@ vibrationPattern: 'Pulse' | 'Escalating' | 'Strong';
 snoozeEnabled: boolean;
 snoozeDuration: number;
 maxSnooze: number;
+snoozeCount?: number;
 antiSnooze: boolean;
 smartWakeup: boolean;
 smartWindow: number;
@@ -166,6 +169,7 @@ export interface AlarmHistoryItem {
 id: string;
 date: string;
 time: string;
+timestamp?: string;
 label: string;
 category: AlarmCategoryId;
 status: 'Successful' | 'Missed' | 'Snoozed' | 'Skipped';
@@ -245,7 +249,6 @@ initialScreen?: AlarmScreenId;
 // ============================================================================
 // 2. STATIC LIBRARIES: CATEGORIES, SOUNDS, FOUR THEMES, MISSIONS, DEMO DATA
 // ============================================================================
-const STORAGE_KEY = '@study_sakha_alarm_module_v1';
 const ALARM_CATEGORIES: {
 id: AlarmCategoryId;
 label: string;
@@ -486,22 +489,6 @@ specificDate: '',
 sharedWithFriends: false,
 },
 ];
-const INITIAL_PLANNER_TASKS: PlannerTaskItem[] = [
-{ id: 't-1', time: '06:00 AM', title: 'Rajasthan History — Praja Mandal', subject: 'History', completed: true, alarmId: 'alm-1', missed: false },
-{ id: 't-2', time: '08:00 AM', title: 'Indian Polity — Fundamental Rights', subject: 'Polity', completed: false, alarmId: 'alm-2', missed: false },
-{ id: 't-3', time: '11:00 AM', title: 'Geography Revision — Rivers & Lakes', subject: 'Geography', completed: false, alarmId: null, missed: true },
-{ id: 't-4', time: '04:00 PM', title: 'PYQ Practice — 50 Questions', subject: 'PYQ', completed: false, alarmId: 'alm-3', missed: false },
-{ id: 't-5', time: '08:00 PM', title: 'Mock Test — RAS Paper I', subject: 'Mock Test', completed: false, alarmId: 'alm-4', missed: false },
-];
-const INITIAL_HISTORY: AlarmHistoryItem[] = [
-{ id: 'h-1', date: 'Today', time: '06:00 AM', label: 'Wake Up — RAS Preparation', category: 'wakeup', status: 'Successful', mission: 'Math (Medium)', snoozes: 0, linkedTask: 'Rajasthan History' },
-{ id: 'h-2', date: 'Today', time: '08:00 AM', label: 'Indian Polity Revision', category: 'revision', status: 'Snoozed', mission: 'None', snoozes: 1, linkedTask: 'Indian Polity' },
-{ id: 'h-3', date: 'Yesterday', time: '06:00 AM', label: 'Wake Up — RAS Preparation', category: 'wakeup', status: 'Successful', mission: 'Math (Medium)', snoozes: 0, linkedTask: 'Rajasthan History' },
-{ id: 'h-4', date: 'Yesterday', time: '11:00 AM', label: 'Geography Revision', category: 'study', status: 'Missed', mission: 'None', snoozes: 2, linkedTask: 'Geography Revision' },
-{ id: 'h-5', date: '25 Nov', time: '06:00 AM', label: 'Wake Up — RAS Preparation', category: 'wakeup', status: 'Successful', mission: 'Memory (Easy)', snoozes: 0, linkedTask: 'Current Affairs' },
-{ id: 'h-6', date: '24 Nov', time: '08:00 PM', label: 'RAS Prelims Full Mock Test', category: 'mocktest', status: 'Successful', mission: 'Shake (40)', snoozes: 0, linkedTask: 'RAS Mock Test' },
-{ id: 'h-7', date: '23 Nov', time: '06:00 AM', label: 'Wake Up — RAS Preparation', category: 'wakeup', status: 'Skipped', mission: 'None', snoozes: 0, linkedTask: null },
-];
 const INITIAL_SLEEP_DATA: SleepRecordItem[] = [
 { day: 'Mon', hours: 7.4, bedtime: '10:40 PM', wakeup: '06:05 AM', quality: 88 },
 { day: 'Tue', hours: 6.8, bedtime: '11:15 PM', wakeup: '06:00 AM', quality: 80 },
@@ -571,14 +558,7 @@ if (days.length === 2 && we.every((d) => days.includes(d))) return 'Weekends';
 if (days.length === 6 && !days.includes('Sun')) return 'Mon to Sat';
 return days.join(', ');
 }
-function getSecondsUntilAlarm(alarm: Pick<AlarmItem, 'hour' | 'minute'>, now = new Date()) {
-const target = new Date(now);
-target.setHours(alarm.hour, alarm.minute, 0, 0);
-if (target <= now) {
-target.setDate(target.getDate() + 1);
-}
-return Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
-}
+const getSecondsUntilAlarm = getStoredSecondsUntilAlarm;
 function formatCountdown(totalSec: number) {
 const h = Math.floor(totalSec / 3600);
 const m = Math.floor((totalSec % 3600) / 60);
@@ -1355,11 +1335,11 @@ hydrated: boolean;
 }
 const AlarmStoreContext = createContext<AlarmStoreValue | null>(null);
 export function AlarmStoreProvider({ children }: { children: React.ReactNode }) {
-const [alarms, setAlarms] = useState<AlarmItem[]>(INITIAL_ALARMS);
-const [plannerTasks, setPlannerTasks] = useState<PlannerTaskItem[]>(INITIAL_PLANNER_TASKS);
-const [history, setHistory] = useState<AlarmHistoryItem[]>(INITIAL_HISTORY);
+const [alarms, setAlarms] = useState<AlarmItem[]>([]);
+const [plannerTasks, setPlannerTasks] = useState<PlannerTaskItem[]>([]);
+const [history, setHistory] = useState<AlarmHistoryItem[]>([]);
 const [friends, setFriends] = useState<FriendBuddyItem[]>([]);
-const [studyStreak, setStudyStreak] = useState<number>(2);
+const [studyStreak, setStudyStreak] = useState<number>(0);
 const [activeThemeId, setActiveThemeId] = useState<string>('starry_sky');
 const [themeAnimated, setThemeAnimated] = useState<boolean>(true);
 const [themeIntensity, setThemeIntensity] = useState<number>(85);
@@ -1371,7 +1351,7 @@ useEffect(() => {
 let mounted = true;
 (async () => {
 try {
-const raw = await AsyncStorage.getItem(STORAGE_KEY);
+const raw = await AsyncStorage.getItem(ALARM_STORAGE_KEY);
 if (raw && mounted) {
 const parsed = JSON.parse(raw);
 if (Array.isArray(parsed.alarms)) setAlarms(parsed.alarms);
@@ -1399,7 +1379,7 @@ mounted = false;
 useEffect(() => {
 if (!hydrated) return;
 AsyncStorage.setItem(
-STORAGE_KEY,
+ALARM_STORAGE_KEY,
 JSON.stringify({
 alarms,
 plannerTasks,
@@ -1502,6 +1482,7 @@ settings,
 setSettings,
 bedtimeConfig,
 setBedtimeConfig,
+hydrated,
 } = useAlarmStore();
 const [localDark, setLocalDark] = useState(Boolean(isDarkMode));
 const darkMode = isDarkMode !== undefined ? isDarkMode : localDark;
@@ -1590,14 +1571,19 @@ const activeAlarms = useMemo(
 );
 const nextAlarm = useMemo(() => {
 if (activeAlarms.length === 0) return null;
-return [...activeAlarms].sort(
-(a, b) => getSecondsUntilAlarm(a, now) - getSecondsUntilAlarm(b, now)
-)[0];
+return activeAlarms
+  .map((alarm) => ({ alarm, seconds: getSecondsUntilAlarm(alarm, now) }))
+  .filter((entry) => Number.isFinite(entry.seconds))
+  .sort((a, b) => a.seconds - b.seconds)[0]?.alarm || null;
 }, [activeAlarms, now]);
 const nextAlarmCountdown = useMemo(
 () => (nextAlarm ? formatCountdown(getSecondsUntilAlarm(nextAlarm, now)) : null),
 [nextAlarm, now]
 );
+useEffect(() => {
+if (!hydrated) return;
+void syncNativeAlarms(alarms, settings).catch(() => {});
+}, [alarms, hydrated, settings]);
 const analytics = useMemo(() => {
 const total = history.length;
 const successful = history.filter((h) => h.status === 'Successful').length;
@@ -1606,15 +1592,30 @@ const totalSnoozes = history.reduce((acc, h) => acc + (h.snoozes || 0), 0);
 const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
 const studyItems = history.filter((h) => ['study', 'revision', 'mocktest', 'focus'].includes(h.category));
 const studySuccess = studyItems.filter((h) => h.status === 'Successful').length;
-const studyRate = studyItems.length > 0 ? Math.round((studySuccess / studyItems.length) * 100) : 85;
+const studyRate = studyItems.length > 0 ? Math.round((studySuccess / studyItems.length) * 100) : 0;
 return {
 successful,
 missed,
 totalSnoozes,
 successRate,
 studyRate,
-avgWakeup: '06:04 AM',
-streak: studyStreak + 3,
+avgWakeup: (() => {
+const successfulTimes = history
+  .filter((h) => h.status === 'Successful')
+  .map((h) => h.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i))
+  .filter((match): match is RegExpMatchArray => Boolean(match))
+  .map((match) => {
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (match[3]?.toUpperCase() === 'PM' && hour < 12) hour += 12;
+    if (match[3]?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+    return hour * 60 + minute;
+  });
+if (successfulTimes.length === 0) return '—';
+const average = Math.round(successfulTimes.reduce((sum, value) => sum + value, 0) / successfulTimes.length);
+return `${String(Math.floor(average / 60)).padStart(2, '0')}:${String(average % 60).padStart(2, '0')}`;
+})(),
+streak: studyStreak,
 };
 }, [history, studyStreak]);
 // --- Sound Preview Simulation (tactile + visual playback state; hook expo-av Sound here for bundled MP3s) ---
@@ -1679,6 +1680,14 @@ setActiveScreen('editor');
 };
 const commitSaveAlarm = (testImmediately = false) => {
 if (!editingAlarm) return;
+if (!Number.isInteger(editingAlarm.hour) || editingAlarm.hour < 0 || editingAlarm.hour > 23 || !Number.isInteger(editingAlarm.minute) || editingAlarm.minute < 0 || editingAlarm.minute > 59) {
+showToast('Choose a valid alarm time');
+return;
+}
+if (editingAlarm.specificDate && !/^\d{4}-\d{2}-\d{2}$/.test(editingAlarm.specificDate)) {
+showToast('Use a valid date in YYYY-MM-DD format');
+return;
+}
 const cleaned: AlarmItem = {
 ...editingAlarm,
       id: editingAlarm.id || `alm-${Date.now()}`,
@@ -1686,7 +1695,10 @@ const cleaned: AlarmItem = {
 };
 setAlarms((prev) => {
 const exists = prev.some((a) => a.id === cleaned.id);
-return exists ? prev.map((a) => (a.id === cleaned.id ? cleaned : a)) : [cleaned, ...prev];
+if (editingAlarm.id) return exists ? prev.map((a) => (a.id === cleaned.id ? cleaned : a)) : [cleaned, ...prev];
+let next = cleaned;
+while (prev.some((a) => a.id === next.id)) next = { ...next, id: `alm-${Date.now()}-${Math.floor(Math.random() * 1000)}` };
+return [next, ...prev];
 });
 setShowSaveConfirm(false);
 showToast(editingAlarm.id ? 'Alarm updated successfully' : 'New Smart Alarm created');
@@ -1703,7 +1715,7 @@ prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled, skippedOnce: false }
 };
 const duplicateAlarm = (alarm: AlarmItem) => {
 setAlarms((prev) => [
-        { ...alarm, id: `alm-${Date.now()}`, title: `${alarm.title} (Copy)`, enabled: true, skippedOnce: false },
+        { ...alarm, id: `alm-${Date.now()}`, title: `${alarm.title} (Copy)`, enabled: true, skippedOnce: false, snoozeCount: 0 },
 ...prev,
 ]);
 setOpenMenuId(null);
@@ -1734,9 +1746,41 @@ if (alarm.vibration) {
 Vibration.vibrate([400, 600, 400, 600], true);
 }
 };
+useEffect(() => {
+let mounted = true;
+const handleNativeAlarm = (payload: { alarmId: string }) => {
+const alarm = alarms.find((item) => item.id === payload.alarmId);
+if (mounted && alarm) triggerAlarmRinging(alarm);
+};
+const unsubscribe = subscribeToNativeAlarm(handleNativeAlarm);
+void consumePendingNativeAlarm().then((payload) => {
+if (mounted && payload) handleNativeAlarm(payload);
+});
+return () => {
+mounted = false;
+unsubscribe();
+};
+}, [alarms]);
 const handleSnoozeAlarm = (alarm: AlarmItem) => {
 Vibration.cancel();
+const snoozeCount = alarm.snoozeCount || 0;
+if (alarm.maxSnooze > 0 && snoozeCount >= alarm.maxSnooze) {
+showToast(`Maximum snoozes reached (${alarm.maxSnooze})`);
+return;
+}
 const mins = alarm.snoozeDuration || 5;
+setAlarms((prev) => prev.map((item) => (item.id === alarm.id ? { ...item, snoozeCount: snoozeCount + 1 } : item)));
+void stopNativeAlarm(alarm.id).catch(() => {});
+void scheduleNativeSnooze({
+alarmId: alarm.id,
+atMillis: Date.now() + mins * 60 * 1000,
+title: alarm.title,
+soundId: alarm.soundId,
+volume: alarm.volume,
+vibration: alarm.vibration,
+gradualVolume: alarm.gradualVolume,
+vibrationPattern: alarm.vibrationPattern,
+}).catch(() => {});
 setSnoozedBanner({ alarmTitle: alarm.title, mins, secondsLeft: mins * 60 });
 const { timeStr, period } = formatAlarmTime(alarm.hour, alarm.minute, settings.use24h);
 setHistory((prev) => [
@@ -1744,11 +1788,12 @@ setHistory((prev) => [
       id: `h-${Date.now()}`,
 date: 'Just now',
       time: `${timeStr} ${period}`.trim(),
+timestamp: new Date().toISOString(),
 label: alarm.title,
 category: alarm.category,
 status: 'Snoozed',
 mission: 'None',
-snoozes: 1,
+snoozes: snoozeCount + 1,
 linkedTask: alarm.linkedModule || null,
 },
 ...prev,
@@ -1759,12 +1804,15 @@ setActiveScreen('dashboard');
 };
 const handleDismissAlarm = (alarm: AlarmItem, missionName = 'None') => {
 Vibration.cancel();
+void stopNativeAlarm(alarm.id).catch(() => {});
+setAlarms((prev) => prev.map((item) => (item.id === alarm.id ? { ...item, snoozeCount: 0 } : item)));
 const { timeStr, period } = formatAlarmTime(alarm.hour, alarm.minute, settings.use24h);
 setHistory((prev) => [
 {
       id: `h-${Date.now()}`,
 date: 'Just now',
       time: `${timeStr} ${period}`.trim(),
+timestamp: new Date().toISOString(),
 label: alarm.title,
 category: alarm.category,
 status: 'Successful',
@@ -1798,7 +1846,11 @@ showToast('Removed from Wake-Up Squad');
 const handleCreateTask = (withAlarm: boolean) => {
 if (!newTaskTitle.trim()) return;
 const [hh, mm] = newTaskTime.split(':').map(Number);
-const { timeStr, period } = formatAlarmTime(hh || 7, mm || 0, false);
+if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+showToast('Enter a valid task time in HH:MM format');
+return;
+}
+const { timeStr, period } = formatAlarmTime(hh, mm, false);
 let createdAlarmId: string | null = null;
 if (withAlarm) {
     createdAlarmId = `alm-${Date.now()}`;
@@ -1806,8 +1858,8 @@ setAlarms((prev) => [
 {
 ...INITIAL_ALARMS[1],
 id: createdAlarmId as string,
-hour: hh || 7,
-minute: mm || 0,
+hour: hh,
+minute: mm,
 title: newTaskTitle.trim(),
 category: 'study',
 enabled: true,
@@ -3464,15 +3516,24 @@ dark={darkMode}
 };
 // --- SCREEN 7: ALARM STATISTICS & PERFORMANCE ANALYTICS ---
 const renderStatsScreen = () => {
-const weeklyTrend = [
-{ day: 'Mon', success: 3, missed: 0, snoozes: 1 },
-{ day: 'Tue', success: 2, missed: 1, snoozes: 2 },
-{ day: 'Wed', success: 3, missed: 0, snoozes: 0 },
-{ day: 'Thu', success: 3, missed: 0, snoozes: 1 },
-{ day: 'Fri', success: 2, missed: 0, snoozes: 0 },
-{ day: 'Sat', success: 3, missed: 0, snoozes: 0 },
-{ day: 'Sun', success: Math.max(1, analytics.successful - 2), missed: analytics.missed, snoozes: analytics.totalSnoozes },
-];
+const weeklyTrend = Array.from({ length: 7 }, (_, index) => {
+const date = new Date();
+date.setHours(0, 0, 0, 0);
+date.setDate(date.getDate() - (6 - index));
+return { date: date.toISOString().slice(0, 10), day: date.toLocaleDateString(undefined, { weekday: 'short' }), success: 0, missed: 0, snoozes: 0 };
+}).map((day) => {
+const dayHistory = history.filter((item) => {
+if (item.timestamp) return item.timestamp.slice(0, 10) === day.date;
+if (item.date === 'Today') return day.date === new Date().toISOString().slice(0, 10);
+return false;
+});
+return {
+day: day.day,
+success: dayHistory.filter((item) => item.status === 'Successful').length,
+missed: dayHistory.filter((item) => item.status === 'Missed').length,
+ snoozes: dayHistory.reduce((sum, item) => sum + item.snoozes, 0),
+};
+});
 return (
 <View style={{ flex: 1 }}>
 <View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle }]}>
@@ -3519,13 +3580,13 @@ SMART INSIGHTS
 </Text>
 </View>
 <Text style={{ fontSize: 12, color: P.text }}>
-• You successfully woke up before 6:00 AM on 5 of the last 7 days.
+• Successful wake-ups: {analytics.successful} · Missed alarms: {analytics.missed}.
 </Text>
 <Text style={{ fontSize: 12, color: P.text }}>
-• Your Study Alarm completion rate is {analytics.studyRate}% — highest in Rajasthan History.
+• Study reminder completion rate: {analytics.studyRate}%.
 </Text>
 <Text style={{ fontSize: 12, color: P.text }}>
-• Heavy Sleeper Math Missions reduced your snoozes by 62% this week.
+• Snoozes recorded: {analytics.totalSnoozes}.
 </Text>
 </View>
 </ScrollView>
@@ -3652,7 +3713,10 @@ const renderThemesScreen = () => (
 </View>
 </View>
 <Pressable
-onPress={() => triggerAlarmRinging(alarms[0] || INITIAL_ALARMS[0])}
+onPress={() => {
+if (alarms[0]) triggerAlarmRinging(alarms[0]);
+else showToast('Create an alarm to preview the ringing theme');
+}}
 style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4 }]}
 >
 <Eye size={13} color="#FFFFFF" />
@@ -3665,9 +3729,9 @@ style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4 }]}
 <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Active Theme</Text>
 <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>{activeTheme.name}</Text>
 </View>
-<Text style={{ color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 12 }}>06:00 AM</Text>
+<Text style={{ color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 12 }}>{nextAlarm ? `${formatAlarmTime(nextAlarm.hour, nextAlarm.minute, settings.use24h).timeStr} ${formatAlarmTime(nextAlarm.hour, nextAlarm.minute, settings.use24h).period}`.trim() : 'No alarm'}</Text>
 <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 }}>
-Wake Up — RAS Preparation
+{nextAlarm?.title || 'Create an alarm to preview this theme'}
 </Text>
 </LinearGradient>
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
