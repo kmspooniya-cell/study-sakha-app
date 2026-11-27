@@ -62,6 +62,7 @@ import SignUpScreen from './screens/SignUpScreen';
 import StatisticsScreen from './screens/StatisticsScreen';
 import TaskPerformanceScreen from './screens/TaskPerformanceScreen';
 import StudyPlannerScreen from './screens/StudyPlannerScreen';
+import StudySakhaAlarmScreen from './screens/StudySakhaAlarmScreen';
 import TestPlayerScreen from './screens/TestPlayerScreen';
 import TestResultScreen from './screens/TestResultScreen';
 import TestsScreen from './screens/TestsScreen';
@@ -133,6 +134,7 @@ const linking: AppLinkingOptions = {
               Statistics: 'statistics',
               TaskPerformance: 'statistics/tasks',
               StudyPlanner: 'study-planner',
+              Alarm: 'alarm',
               FocusCenter: 'focus/center',
               FocusCompletion: 'focus/completed',
               Profile: 'profile',
@@ -379,6 +381,7 @@ function AuthenticatedStackNavigator() {
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
       <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
+      <AppStack.Screen name="Alarm" component={StudySakhaAlarmScreen} />
       <AppStack.Screen name="FocusCenter" component={FocusCenterScreen} />
       <AppStack.Screen name="FocusCompletion" component={FocusCompletionScreen} />
       <AppStack.Screen name="FocusLock" component={FocusLockScreen} />

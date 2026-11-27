@@ -1,5 +1,9 @@
 # Bug Tracker — Study Sakha
 
+## 2026-11-27 — Alarm integration source repair
+- **Resolved for integration:** the supplied alarm module contained zero-width characters, malformed comments, and stripped template-literal delimiters that prevented TypeScript parsing. The source was normalized without changing the module’s screen structure or interactions.
+- **Remaining:** real-device alarm notification/ringing behavior, AsyncStorage persistence across app restarts, and four-theme rendering are not device-verified in this Codespace.
+
 ## 2026-11-26 Runtime Error Investigation
 
 | ID | Summary | Root Cause | Fix | Verification |
@@ -25,6 +29,7 @@ Last verified: 2026-11-25
 | **BUG-007** | Bottom navigation (`AppBottomNav`) overlapped bottom content/CTAs on `ProfileScreen`, `SakhaAIScreen`, and `scroll={false}` screens | High | `AppBottomNav` in `components/Shell.tsx` used `position: 'absolute', bottom: 0` while `Shell` mobile `scroll={false}` gave content `flex: 1, paddingBottom: 0`. | Moved `AppBottomNav` into normal flex flow in `Shell.tsx` with `insets.bottom`, keyboard hide/show on native, and cleaned redundant bottom paddings / double safe-area insets across screens. | **Partially Verified**: Jest/RNTL (`test/navigationLayoutFixes.test.tsx`) & `tsc` pass; physical Android device visual check **Not Verified**. |
 | **BUG-008** | Duplicate Focus Lock entry on Home Dashboard | Low | `screens/DashboardScreen.tsx` rendered a standalone `focusLockCard` above `Study Planner` in addition to the `Focus Lock` button inside `Study Planner`. | Removed standalone `focusLockCard` and unused card styles while keeping `Study Planner` `Focus Lock` button and route intact. | **Verified (Jest)**: `test/navigationLayoutFixes.test.tsx` passes. |
 | **BUG-009** | Drawer Settings button stopped responding after ~2–3 open/close cycles and `goHome` from nested Settings levels could be blocked | High | `CustomDrawerContent` (`App.tsx`) used `InteractionManager.runAfterInteractions`, which is `InteractionManagerStub` (`setImmediate`) in RN `0.86.3`, colliding with `Drawer.native.tsx` Reanimated close transition; drawer items lacked `collapsable={false}` and `keyboardShouldPersistTaps="handled"`; `SettingsScreen.tsx` `beforeRemove` read stale `navLevel` during `goHome`. | Synchronized native drawer navigation with `Drawer.Navigator` `screenListeners` (`transitionStart`/`transitionEnd`), added `StackActions.popTo` deduplication, `collapsable={false}`, memoized `drawerContent`, and fixed `SettingsScreen` `bypassBeforeRemoveRef`/`navLevelRef`. | **Partially Verified**: Jest/RNTL (`test/drawerSettingsNavigation.test.tsx`, `test/navigationLayoutFixes.test.tsx`) pass across 12 cycles; physical Android gesture/Fragment runtime **Not Verified**. |
+| **BUG-012** | Alarm route import broke drawer navigation Jest suite | High | `App.tsx` eagerly imported the Alarm module, whose `lucide-react-native` ESM entry was not transformed by Jest. | Route adapter now lazy-loads `StudySakhaAlarmModule` only when the Alarm screen renders. | **Verified**: focused drawer/navigation tests pass (18/18); full suite no longer reports the drawer suite failure. |
 
 ## Known Limitations & Unresolved Issues
 

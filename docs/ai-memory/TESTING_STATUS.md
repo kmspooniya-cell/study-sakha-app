@@ -1,5 +1,12 @@
 # Testing Status — Study Sakha
 
+## Alarm Module Integration — 2026-11-27
+- TypeScript (`pnpm run lint`): **FAIL / pre-existing workspace errors** in `screens/GroupsScreen.tsx` and untracked test typings; no errors remain from alarm files or route integration.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** — 0 errors, 0 warnings.
+- Focused Jest: **PASS** — 2 suites, 12 tests.
+- Full Jest (`pnpm run test:ci`): **FAIL** — 43 suites passed, 6 failed; 202 tests passed, 21 failed. Existing focus/group/planner/notification/stability suites failed.
+- Device/runtime navigation, alarm scheduling/ringing, CRUD persistence, dark/light behavior, and four-theme visual checks: **NOT VERIFIED** — no connected Android device/emulator in Codespace.
+
 ## Preferred Subjects & Study Planner Integration — 2026-11-26
 
 - Focused Jest suites (`test/preferredSubjects.test.tsx`, `test/settingsScreen.test.tsx`, `test/studyPlannerFilters.test.tsx`): **PASS** — **3/3 suites passed, 10/10 tests passed**.
@@ -64,6 +71,19 @@
 - Expo config validation: PASS with pnpm exec expo config --type public --json. expo-doctor is unavailable in this workspace.
 
 Last verified: 2026-11-25
+
+## Alarm Integration Audit — 2026-11-27
+
+| Check | Command | Result | Notes |
+|---|---|---|---|
+| TypeScript | `pnpm run lint` | **FAIL** | Existing errors in `screens/GroupsScreen.tsx` and test typing; no Alarm/App/navigation errors reported. |
+| Expo lint | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint` | **PASS** | 0 warnings/errors. |
+| Focused navigation regression | `pnpm test -- test/drawerSettingsNavigation.test.tsx test/navigationBack.test.tsx test/navigationLayoutFixes.test.tsx --runInBand` | **PASS** — 3 suites, 18 tests | Includes the suite that previously failed from the Alarm import. |
+| Full Jest | `pnpm run test:ci` | **FAIL** — 44/49 suites passed, 208/229 tests passed | Five existing suites remain failing. |
+
+Alarm-specific CRUD/storage/theme/history/statistics/mission behavior was source-audited; no dedicated Alarm Jest suite exists. Device/runtime behavior remains unverified without a running build/device.
+
+Last verified: 2026-11-27
 
 ## Executed & Verified in Current Session (2026-11-26)
 

@@ -46,6 +46,7 @@ export type AppStackParamList = {
   Statistics: OptionalScreenParams;
   TaskPerformance: (HeaderParams & { startDate?: string; endDate?: string }) | undefined;
   StudyPlanner: (HeaderParams & { openPlanId?: string; openDate?: string }) | undefined;
+  Alarm: OptionalScreenParams;
   FocusCenter: (HeaderParams & {
     focusSession?: FocusSessionSetup;
     roomFocus?: { groupId: string; roomId: GroupRoomId; roomSessionId: string };

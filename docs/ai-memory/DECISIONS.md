@@ -1,5 +1,11 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-012 — 2026-11-27
+
+Keep the supplied alarm module isolated behind a thin host screen adapter. It owns alarm CRUD/history/theme persistence under `@study_sakha_alarm_module_v1`, while the adapter bridges only navigation and the existing app-level light/dark setting. This avoids duplicate providers and prevents overwriting `sakha-store-v1` or planner storage.
+
+Constraints: preserve existing Home, planner, focus, header, and bottom navigation UI; register one `Alarm` route; retain only the four requested alarm themes.
+
 ## DEC-011 — 2026-11-26
 
 Treat Expo Go Android as a local-notification fallback runtime: do not invoke Android channel management or attach a channel ID when `Constants.executionEnvironment` is `StoreClient`. Retain channel setup for standalone/development builds where the native provider exists, and retain local scheduling in Expo Go without claiming remote push support.

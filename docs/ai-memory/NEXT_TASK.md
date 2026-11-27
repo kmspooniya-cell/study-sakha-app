@@ -1,5 +1,10 @@
 # Next Task — Study Sakha
 
+## Alarm module follow-up — 2026-11-27
+- Host integration is complete: typed `Alarm` route, theme/planner adapter, isolated storage, and four-theme catalog.
+- Exact next action: run the authenticated app on a development build, open the `Alarm` route from the existing caller when available, and verify back navigation, planner navigation, dark/light synchronization, CRUD, persistence, and all four themes.
+- No existing Home/Dashboard Alarm button or handler was present in the inspected source, and no new Home button was added per task restrictions.
+
 ## Runtime error follow-up — 2026-11-26
 - Code fixes and host regressions for route updates and Expo Go notification channels are complete.
 - Exact next action: open the fresh tunnel URL in Android Expo Go, cold start and navigate repeatedly, then capture Metro/device logs while enabling Planner reminders and running repeated planner syncs.
@@ -12,7 +17,7 @@ Production Supabase deployment and live schema verification are complete. Contin
 Last verified: 2026-11-25
 
 ## Current Task
-Await explicit user approval of `docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md` before creating `202611250002_reconcile_auth_storage_and_room_gaps.sql`, running `supabase migration repair --status applied`, or running `supabase db push --remote`.
+Complete the Alarm Module handoff. The source contains no Home Alarm card, so no Home entry was added under the user's no-redesign restriction. Device/runtime verification remains pending.
 
 ## Completed Steps
 - [x] Inspected complete repository, git history, package/Expo/EAS/Android configs, and existing `docs/` audits.
@@ -33,4 +38,4 @@ Await explicit user approval of `docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md` befor
 - **No Supabase CLI/service-role credentials in workspace:** Live DB migration status cannot be queried from this container.
 
 ## Exact Next Action
-Push `supabase/migrations/202611260001_group_invites_discovery_and_realtime.sql` to the linked Supabase project (`supabase db push --remote`), ensure `EXPO_PUBLIC_API_BASE_URL` (and optionally `EXPO_PUBLIC_GROUP_INVITE_BASE_URL`) is set in EAS `preview` / `production` environments, and verify cross-account group discovery + invitation deep linking on an EAS Android build.
+If the Alarm card is restored in the actual source revision, wire that existing card's `onPress` to the typed `Alarm` route; otherwise run the registered Alarm route on an Expo development/release build and verify device navigation, persistence, theme switching, and native alarm behavior.

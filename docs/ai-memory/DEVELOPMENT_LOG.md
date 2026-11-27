@@ -1,5 +1,12 @@
 # Development Log — Study Sakha
 
+## 2026-11-27 — Study Sakha alarm module integration
+- Added the supplied `src/modules/alarm/StudySakhaAlarmModule.tsx` as an independent typed `Alarm` route in the authenticated stack, with `alarm` deep-link mapping.
+- Added `screens/StudySakhaAlarmScreen.tsx` as a thin host adapter using the existing `StoreProvider` and `ThemeProvider`; dark/light toggles persist through the existing settings reducer, and Study Planner opens through the existing `StudyPlanner` route.
+- Kept alarm persistence isolated under `@study_sakha_alarm_module_v1`; no package installation was required because all requested packages were already installed.
+- Restricted the module theme catalog to exactly Starry Sky, Cozy Study, Midnight Blue, and Obsidian. Repaired source encoding/template-literal corruption in the supplied file so it compiles without changing its UI structure or feature model.
+- Validation: Expo lint passed; focused navigation tests passed (2 suites, 12 tests). Full Jest has 43 passing suites / 202 passing tests and 6 pre-existing failing suites / 21 failing tests.
+
 ## 2026-11-26 — Runtime loop and Expo Go notification hardening
 - Made `FocusSessionProvider.setCurrentRouteName` idempotent so repeated React Navigation route callbacks cannot update focus context for the same route.
 - Added Expo Go detection using Expo SDK 57 `Constants.executionEnvironment`; Android channel creation and `channelId` are skipped in Expo Go while local scheduling remains enabled through the fallback channel.
@@ -164,3 +171,9 @@ Chronological record of significant development work. **Append new entries; do n
 - Verified `202611250001_account_sync_documents.sql` compatibility with `lib/sync/` and `lib/store.tsx`.
 - Created [docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md](file:///workspaces/study-sakha-app/docs/SUPABASE_MIGRATION_RECOVERY_PLAN.md) (no remote changes or corrective `.sql` file created yet; awaiting explicit user approval).
 - **Verified in session:** `pnpm run lint` passed; `pnpm run test:ci` passed (35 suites, 156 tests).
+
+## 2026-11-27 — Alarm Module Final Integration Audit
+- Audited the current Home dashboard sources (`DashboardScreen`, `DashboardStudyTools`, `Shell`) and confirmed there is no Alarm card, label, icon, or handler in the checked-in source. No Home UI was changed; the screenshot is inconsistent with this source revision.
+- Verified the Alarm route, typed navigation adapter, `alarm` deep-link path, back callback, Study Planner callback, and ThemeProvider dark/light bridge.
+- Fixed an integration-only Jest regression: eager Alarm import caused Jest to parse `lucide-react-native` ESM while loading `App.tsx`. The adapter now lazy-loads the module only when the route opens.
+- Full Jest after the fix: 44/49 suites passed, 208/229 tests passed; the drawer/navigation suite now passes. Expo lint passes; TypeScript remains blocked by unrelated existing errors.

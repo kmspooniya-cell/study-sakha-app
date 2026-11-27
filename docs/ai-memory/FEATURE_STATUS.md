@@ -1,5 +1,8 @@
 # Feature Status — Study Sakha
 
+## Alarm Module — 2026-11-27
+- **In Progress (Host) / Not Verified (Device):** The supplied alarm module is registered as `Alarm`, uses isolated AsyncStorage, exactly four alarm themes, existing app theme synchronization, and Study Planner navigation. Existing dashboard sources did not contain an Alarm button handler, so no new Home button was created. Device/runtime alarm behavior remains unverified.
+
 ## Deployment update — 2026-11-25
 
 Cross-Device Account Sync is schema/RLS/host verified after production deployment; second-client Realtime delivery remains runtime-unverified. Study Groups and Live Study Rooms have live RPCs, room objects, RLS, and publication entries verified; device/multi-client realtime remains untested.
