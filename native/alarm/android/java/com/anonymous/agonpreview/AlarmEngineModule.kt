@@ -49,6 +49,7 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
         config.getString("title") ?: "Study Sakha Alarm",
         config.getString("soundId") ?: "default",
         config.getInt("volume"),
+        if (config.hasKey("gradualVolume")) config.getBoolean("gradualVolume") else false,
         config.getBoolean("vibration"),
         config.getString("vibrationPattern") ?: "Pulse",
       )

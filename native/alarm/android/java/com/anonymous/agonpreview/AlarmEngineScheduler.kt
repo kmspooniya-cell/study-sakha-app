@@ -49,7 +49,7 @@ object AlarmEngineScheduler {
 
   fun scheduleSnooze(context: Context, alarmId: String, atMillis: Long, title: String, soundId: String, volume: Int, gradualVolume: Boolean, vibration: Boolean, vibrationPattern: String) {
     val manager = context.getSystemService(AlarmManager::class.java) ?: return
-    val intent = pendingIntent(context, ACTION_SNOOZE, alarmId, stableRequestCode(alarmId, true)).apply {
+    val intent = pendingIntent(context, ACTION_SNOOZE, alarmId, stableRequestCode(alarmId, true)) {
       putExtra(EXTRA_TITLE, title)
       putExtra(EXTRA_SOUND_ID, soundId)
       putExtra(EXTRA_VOLUME, volume)
@@ -71,7 +71,7 @@ object AlarmEngineScheduler {
       if (!alarm.optBoolean("enabled", false) || alarm.optBoolean("skippedOnce", false)) continue
       val id = alarm.optString("id").takeIf { it.isNotBlank() } ?: continue
       val triggerAt = nextOccurrence(alarm) ?: continue
-      val intent = pendingIntent(context, ACTION_FIRE, id, stableRequestCode(id, false)).apply {
+      val intent = pendingIntent(context, ACTION_FIRE, id, stableRequestCode(id, false)) {
         putExtra(EXTRA_TITLE, alarm.optString("title", "Study Sakha Alarm"))
         putExtra(EXTRA_SOUND_ID, alarm.optString("soundId", "default"))
         putExtra(EXTRA_VOLUME, alarm.optInt("volume", 100))
@@ -154,13 +154,23 @@ object AlarmEngineScheduler {
   private fun stableRequestCode(alarmId: String, snooze: Boolean): Int =
     (alarmId.hashCode() xor if (snooze) 0x40000000 else 0).and(0x7fffffff)
 
-  private fun pendingIntent(context: Context, action: String, alarmId: String, requestCode: Int): PendingIntent =
+  private fun pendingIntent(
+    context: Context,
+    action: String,
+    alarmId: String,
+    requestCode: Int,
+    configureIntent: Intent.() -> Unit = {},
+  ): PendingIntent =
     PendingIntent.getBroadcast(
       context,
       requestCode,
-      Intent(context, AlarmEngineReceiver::class.java).setAction(action).setData(Uri.parse("studysakha-alarm://$action/$alarmId")).apply {
-        putExtra(EXTRA_ALARM_ID, alarmId)
-      },
+      Intent(context, AlarmEngineReceiver::class.java)
+        .setAction(action)
+        .setData(Uri.parse("studysakha-alarm://$action/$alarmId"))
+        .apply {
+          putExtra(EXTRA_ALARM_ID, alarmId)
+          configureIntent()
+        },
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 }
