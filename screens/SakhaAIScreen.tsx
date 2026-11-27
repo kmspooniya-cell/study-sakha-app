@@ -4,6 +4,7 @@ import type { AppNavigation, AppRoute } from '../lib/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -31,12 +32,15 @@ export default function SakhaAIScreen() {
 
   const [input, setInput] = useState('');
   const [inputHeight, setInputHeight] = useState(46);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [androidKeyboardOverlap, setAndroidKeyboardOverlap] = useState(0);
   const [typing, setTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState<GeminiModelId>(GEMINI_MODEL_OPTIONS[0].id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState<boolean>(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
+  const containerRef = useRef<View>(null);
   const scrollRef = useRef<ScrollView>(null);
   const handledPrompt = useRef(false);
   const activeRequest = useRef<{ requestId: string; controller: AbortController } | null>(null);
@@ -388,12 +392,50 @@ export default function SakhaAIScreen() {
 
   const empty = state.chat.length === 0;
 
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardOpen(true);
+      if (Platform.OS === 'android') {
+        const keyboardTopY = event?.endCoordinates?.screenY;
+        const containerNode = containerRef.current;
+        if (typeof keyboardTopY === 'number' && containerNode && typeof containerNode.measureInWindow === 'function') {
+          requestAnimationFrame(() => {
+            containerNode.measureInWindow((_x, y, _w, height) => {
+              const overlap = Math.max(0, Math.round(y + height - keyboardTopY));
+              setAndroidKeyboardOverlap(overlap);
+            });
+          });
+        }
+      }
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardOpen(false);
+      setAndroidKeyboardOverlap(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   return (
     <Shell active="SakhaAI" title="" scroll={false}>
+      <View
+        ref={containerRef}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          paddingBottom: Platform.OS === 'android' ? androidKeyboardOverlap : 0,
+        }}
+      >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        style={{ flex: 1 }}
+        style={{ flex: 1, minHeight: 0 }}
       >
         {needsKey && (
           <View style={{ margin: 14, marginBottom: 0 }}>
@@ -827,7 +869,7 @@ export default function SakhaAIScreen() {
             backgroundColor: colors.surface,
             paddingHorizontal: isMobile ? 12 : 20,
             paddingTop: 10,
-            paddingBottom: Math.max(10, insets.bottom + 8),
+            paddingBottom: keyboardOpen ? 10 : Math.max(10, insets.bottom + 8),
             flexDirection: 'row',
             alignItems: 'flex-end',
             gap: 8,
@@ -849,13 +891,20 @@ export default function SakhaAIScreen() {
             <TextInput
               value={input}
               onChangeText={setInput}
-              onContentSizeChange={(event) => setInputHeight(Math.min(128, Math.max(46, event.nativeEvent.contentSize.height + 20)))}
+              onContentSizeChange={(event) => {
+                const nextHeight = Math.min(128, Math.max(46, event.nativeEvent.contentSize.height + 20));
+                setInputHeight(nextHeight);
+                if (keyboardOpen) {
+                  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 40);
+                }
+              }}
               placeholder="Ask Sakha anything (e.g. explain a concept, pull PYQs, mock analysis)…"
               placeholderTextColor={colors.textFaint}
               onSubmitEditing={() => send(input)}
               returnKeyType="send"
               blurOnSubmit={false}
               multiline
+              scrollEnabled={inputHeight >= 128}
               maxLength={1000}
               style={
                 {
@@ -864,7 +913,7 @@ export default function SakhaAIScreen() {
                   color: colors.text,
                   paddingVertical: 10,
                   minHeight: 46,
-                  maxHeight: 108,
+                  maxHeight: 118,
                   textAlignVertical: 'top',
                   outlineStyle: 'none',
                 } as any
@@ -936,6 +985,7 @@ export default function SakhaAIScreen() {
           onCancel={() => setClearDialogOpen(false)}
         />
       </KeyboardAvoidingView>
+      </View>
     </Shell>
   );
 }

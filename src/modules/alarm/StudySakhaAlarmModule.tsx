@@ -11,13 +11,12 @@ useState,
 } from 'react';
 import {
 Animated,
+BackHandler,
 Easing,
 Modal,
 Platform,
 Pressable,
-SafeAreaView,
 ScrollView,
-Share,
 StatusBar,
 StyleSheet,
 Text,
@@ -25,9 +24,33 @@ TextInput,
 Vibration,
 View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ALARM_STORAGE_KEY, getSecondsUntilAlarm as getStoredSecondsUntilAlarm } from './alarmStorage';
-import { consumePendingNativeAlarm, scheduleNativeSnooze, stopNativeAlarm, subscribeToNativeAlarm, syncNativeAlarms } from './alarmNative';
+import {
+  clearPendingNativeAlarm,
+  consumePendingNativeAction,
+  peekPendingNativeAlarm,
+  scheduleNativeSnooze,
+  stopNativeAlarm,
+  subscribeToNativeAlarm,
+  subscribeToNativeAlarmAction,
+  syncNativeAlarms,
+} from './alarmNative';
+import {
+  type AlarmFriendsDashboard,
+  type AlarmUserSearchResult,
+  createAlarmWakeSquad,
+  fetchAlarmFriendsDashboard,
+  markAlarmNotificationsRead,
+  removeAlarmFriend,
+  respondAlarmFriendRequest,
+  respondAlarmSquadInvite,
+  searchAlarmUsers,
+  sendAlarmFriendNudge,
+  sendAlarmFriendRequest,
+  upsertMyAlarmWakeStatus,
+} from './alarmFriendsApi';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
 Circle,
@@ -77,9 +100,7 @@ QrCode,
 RefreshCw,
 RotateCcw,
 Search,
-Send,
 Settings,
-Share2,
 SkipForward,
 Smartphone,
 Sparkles,
@@ -498,12 +519,7 @@ const INITIAL_SLEEP_DATA: SleepRecordItem[] = [
 { day: 'Sat', hours: 8.1, bedtime: '10:50 PM', wakeup: '06:55 AM', quality: 94 },
 { day: 'Sun', hours: 7.8, bedtime: '10:45 PM', wakeup: '06:30 AM', quality: 91 },
 ];
-const SUGGESTED_STUDY_BUDDIES: FriendBuddyItem[] = [
-{ id: 'fr-1', name: 'Aarav Sharma', handle: '@aarav_ras', exam: 'RAS 2026', avatarType: 'circle', status: 'Awake · 05:56 AM', statusType: 'awake', streak: 9, targetTime: '06:00 AM', nudged: false },
-{ id: 'fr-2', name: 'Priya Rathore', handle: '@priya_studies', exam: 'RAS Prelims', avatarType: 'square', status: 'Snoozing (5m)', statusType: 'snoozing', streak: 6, targetTime: '06:00 AM', nudged: false },
-{ id: 'fr-3', name: 'Vikram Choudhary', handle: '@vikram_jdp', exam: 'REET / RAS', avatarType: 'clover', status: 'Studying Polity', statusType: 'studying', streak: 14, targetTime: '05:45 AM', nudged: false },
-{ id: 'fr-4', name: 'Sneha Verma', handle: '@sneha_notes', exam: 'UPSC / RAS', avatarType: 'cloud', status: 'Sleeping · 06:30 AM', statusType: 'sleeping', streak: 4, targetTime: '06:30 AM', nudged: false },
-];
+// Demo buddy arrays removed: Friends tab uses real authenticated Supabase data only.
 const DEFAULT_SETTINGS: AlarmSettingsState = {
 use24h: false,
 weekStartsMonday: true,
@@ -1062,7 +1078,7 @@ return next;
 };
 return (
 <LinearGradient colors={[...activeTheme.colors]} style={styles.fullScreen}>
-<SafeAreaView style={{ flex: 1 }}>
+<View style={{ flex: 1, padding: 24, justifyContent: 'space-between' }}>
 <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between', padding: 20 }}>
 <View>
 {/* Header pills */}
@@ -1303,7 +1319,7 @@ style={[styles.tealPrimaryBtn, { flex: 1, paddingVertical: 10, backgroundColor: 
 )}
 </View>
 </ScrollView>
-</SafeAreaView>
+</View>
 </LinearGradient>
 );
 }
@@ -1357,9 +1373,10 @@ const parsed = JSON.parse(raw);
 if (Array.isArray(parsed.alarms)) setAlarms(parsed.alarms);
 if (Array.isArray(parsed.plannerTasks)) setPlannerTasks(parsed.plannerTasks);
 if (Array.isArray(parsed.history)) setHistory(parsed.history);
-if (Array.isArray(parsed.friends)) setFriends(parsed.friends);
+// Do not hydrate legacy local/demo friend entries (fr-*); Friends are loaded from Supabase.
+setFriends([]);
 if (typeof parsed.studyStreak === 'number') setStudyStreak(parsed.studyStreak);
-if (typeof parsed.activeThemeId === 'string') setActiveThemeId(parsed.activeThemeId);
+if (typeof parsed.activeThemeId === 'string' && ALARM_THEMES.some((t) => t.id === parsed.activeThemeId)) setActiveThemeId(parsed.activeThemeId);
 if (typeof parsed.themeAnimated === 'boolean') setThemeAnimated(parsed.themeAnimated);
 if (typeof parsed.themeIntensity === 'number') setThemeIntensity(parsed.themeIntensity);
 if (parsed.settings) setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
@@ -1484,6 +1501,7 @@ bedtimeConfig,
 setBedtimeConfig,
 hydrated,
 } = useAlarmStore();
+const insets = useSafeAreaInsets();
 const [localDark, setLocalDark] = useState(Boolean(isDarkMode));
 const darkMode = isDarkMode !== undefined ? isDarkMode : localDark;
 const setDarkMode = (next: boolean) => {
@@ -1522,6 +1540,17 @@ const [newTaskTitle, setNewTaskTitle] = useState('');
 const [newTaskTime, setNewTaskTime] = useState('07:00');
 const [newTaskSubject, setNewTaskSubject] = useState('Rajasthan History');
 const [inviteInput, setInviteInput] = useState('');
+// Real Supabase Friends & Accountability state
+const [friendsDashboard, setFriendsDashboard] = useState<AlarmFriendsDashboard | null>(null);
+const [friendsLoading, setFriendsLoading] = useState(false);
+const [friendsError, setFriendsError] = useState<string | null>(null);
+const [userSearchResults, setUserSearchResults] = useState<AlarmUserSearchResult[]>([]);
+const [userSearchLoading, setUserSearchLoading] = useState(false);
+const [targetWakeInput, setTargetWakeInput] = useState('06:00');
+const [showCreateSquadModal, setShowCreateSquadModal] = useState(false);
+const [squadNameInput, setSquadNameInput] = useState('');
+const [squadTimeInput, setSquadTimeInput] = useState('06:00');
+const [squadSelectedIds, setSquadSelectedIds] = useState<string[]>([]);
 // Live Clock & Ringing Pulse Animation
 const [now, setNow] = useState(() => new Date());
 const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -1557,10 +1586,30 @@ if (activeScreen !== 'ringing') {
 Vibration.cancel();
 }
 }, [activeScreen]);
+const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 const showToast = useCallback((msg: string) => {
+if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
 setToastMsg(msg);
-setTimeout(() => setToastMsg(null), 2600);
+toastTimerRef.current = setTimeout(() => {
+setToastMsg(null);
+toastTimerRef.current = null;
+}, 2600);
 }, []);
+useEffect(() => () => {
+if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+}, []);
+useEffect(() => {
+if (Platform.OS !== 'android') return undefined;
+const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+if (activeScreen === 'ringing') return true;
+if (activeScreen !== 'dashboard') {
+setActiveScreen('dashboard');
+return true;
+}
+return false;
+});
+return () => sub.remove();
+}, [activeScreen]);
 const activeTheme = useMemo(
 () => ALARM_THEMES.find((t) => t.id === activeThemeId) || ALARM_THEMES[0],
 [activeThemeId]
@@ -1737,7 +1786,9 @@ setAlarms((prev) => prev.map((a) => ({ ...a, enabled: enable, skippedOnce: false
 showToast(enable ? 'All alarms enabled' : 'All alarms disabled');
 };
 // --- Ringing Operations ---
-const triggerAlarmRinging = (alarm: AlarmItem) => {
+const dismissingAlarmIdRef = useRef<string | null>(null);
+const triggerAlarmRinging = useCallback((alarm: AlarmItem) => {
+dismissingAlarmIdRef.current = null;
 setOpenMenuId(null);
 setRingingAlarm(alarm);
 setMissionRunnerMode(null);
@@ -1745,23 +1796,46 @@ setActiveScreen('ringing');
 if (alarm.vibration) {
 Vibration.vibrate([400, 600, 400, 600], true);
 }
-};
-useEffect(() => {
-let mounted = true;
-const handleNativeAlarm = (payload: { alarmId: string }) => {
-const alarm = alarms.find((item) => item.id === payload.alarmId);
-if (mounted && alarm) triggerAlarmRinging(alarm);
-};
-const unsubscribe = subscribeToNativeAlarm(handleNativeAlarm);
-void consumePendingNativeAlarm().then((payload) => {
-if (mounted && payload) handleNativeAlarm(payload);
-});
-return () => {
-mounted = false;
-unsubscribe();
-};
-}, [alarms]);
-const handleSnoozeAlarm = (alarm: AlarmItem) => {
+}, []);
+
+const buildFallbackAlarm = useCallback((alarmId: string, title?: string): AlarmItem => ({
+id: alarmId,
+hour: new Date().getHours(),
+minute: new Date().getMinutes(),
+title: title?.trim() || 'Study Sakha Alarm',
+description: '',
+category: 'wakeup',
+days: [],
+enabled: true,
+skippedOnce: false,
+soundId: settings.defaultRingtone,
+volume: settings.defaultVolume,
+gradualVolume: settings.gradualVolume,
+vibration: settings.vibration,
+vibrationPattern: settings.vibrationPattern,
+snoozeEnabled: true,
+snoozeDuration: settings.defaultSnooze,
+maxSnooze: 3,
+antiSnooze: false,
+smartWakeup: false,
+smartWindow: settings.smartWindow,
+heavySleeper: false,
+missions: [],
+missionDifficulty: 'Medium',
+missionCount: 1,
+randomMission: false,
+missionBeforeSnooze: false,
+motivationalMsg: 'Stay consistent. Every session counts!',
+spokenMessage: false,
+flashAlert: false,
+preventAccidental: false,
+holidayExclusion: false,
+linkedModule: 'planner',
+specificDate: '',
+sharedWithFriends: false,
+}), [settings]);
+
+const handleSnoozeAlarm = useCallback((alarm: AlarmItem) => {
 Vibration.cancel();
 const snoozeCount = alarm.snoozeCount || 0;
 if (alarm.maxSnooze > 0 && snoozeCount >= alarm.maxSnooze) {
@@ -1770,6 +1844,7 @@ return;
 }
 const mins = alarm.snoozeDuration || 5;
 setAlarms((prev) => prev.map((item) => (item.id === alarm.id ? { ...item, snoozeCount: snoozeCount + 1 } : item)));
+void clearPendingNativeAlarm(alarm.id).catch(() => {});
 void stopNativeAlarm(alarm.id).catch(() => {});
 void scheduleNativeSnooze({
 alarmId: alarm.id,
@@ -1800,12 +1875,27 @@ linkedTask: alarm.linkedModule || null,
 ]);
 setRingingAlarm(null);
 setActiveScreen('dashboard');
-    showToast(`Snoozed for ${mins} minutes`);
-};
-const handleDismissAlarm = (alarm: AlarmItem, missionName = 'None') => {
+void upsertMyAlarmWakeStatus(targetWakeInput, 'snoozing', studyStreak).catch(() => {});
+showToast(`Snoozed for ${mins} minutes`);
+}, [setAlarms, setHistory, settings.use24h, showToast, studyStreak, targetWakeInput]);
+
+const handleDismissAlarm = useCallback((alarm: AlarmItem, missionName = 'None') => {
+if (dismissingAlarmIdRef.current === alarm.id) return;
+dismissingAlarmIdRef.current = alarm.id;
 Vibration.cancel();
+void clearPendingNativeAlarm(alarm.id).catch(() => {});
 void stopNativeAlarm(alarm.id).catch(() => {});
-setAlarms((prev) => prev.map((item) => (item.id === alarm.id ? { ...item, snoozeCount: 0 } : item)));
+setAlarms((prev) =>
+prev.map((item) => {
+if (item.id !== alarm.id) return item;
+const isOneTime = item.days.length === 0 && !item.specificDate;
+return {
+...item,
+snoozeCount: 0,
+enabled: isOneTime ? false : item.enabled,
+};
+})
+);
 const { timeStr, period } = formatAlarmTime(alarm.hour, alarm.minute, settings.use24h);
 setHistory((prev) => [
 {
@@ -1822,26 +1912,219 @@ linkedTask: alarm.title,
 },
 ...prev,
 ]);
-setStudyStreak((s) => s + 1);
+const nextStreak = studyStreak + 1;
+setStudyStreak(nextStreak);
+void upsertMyAlarmWakeStatus(targetWakeInput, 'awake', nextStreak).catch(() => {});
 setDismissedAlarm(alarm);
 setRingingAlarm(null);
 setActiveScreen('morning');
+}, [setAlarms, setHistory, setStudyStreak, settings.use24h, studyStreak, targetWakeInput]);
+
+useEffect(() => {
+if (!hydrated) return undefined;
+let mounted = true;
+const handleNativeAlarm = (payload: { alarmId: string; title?: string }) => {
+if (!mounted || !payload?.alarmId) return;
+const alarm = alarms.find((item) => item.id === payload.alarmId) || buildFallbackAlarm(payload.alarmId, payload.title);
+triggerAlarmRinging(alarm);
 };
-// --- Friends Operations ---
-const addFriendToSquad = (buddy: FriendBuddyItem) => {
-setFriends((prev) => (prev.some((f) => f.id === buddy.id) ? prev : [buddy, ...prev]));
-    showToast(`${buddy.name} joined your Wake-Up Squad!`);
+const handleNativeAction = (payload: { alarmId: string; action: 'dismissed' | 'snoozed'; snoozeMinutes: number }) => {
+if (!mounted || !payload?.alarmId) return;
+Vibration.cancel();
+const target = alarms.find((item) => item.id === payload.alarmId) || buildFallbackAlarm(payload.alarmId);
+if (payload.action === 'dismissed') {
+handleDismissAlarm(target, 'Notification Stop');
+} else if (payload.action === 'snoozed') {
+const mins = payload.snoozeMinutes || target.snoozeDuration || 5;
+setSnoozedBanner({ alarmTitle: target.title, mins, secondsLeft: mins * 60 });
+setRingingAlarm(null);
+setActiveScreen('dashboard');
+showToast(`Snoozed for ${mins} minutes`);
+}
 };
-const nudgeFriend = (friendId: string) => {
-Vibration.vibrate(50);
-setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, nudged: true } : f)));
-const target = friends.find((f) => f.id === friendId);
-    showToast(`Sent wake-up nudge to ${target?.name || 'friend'}!`);
+const unsubscribeTrigger = subscribeToNativeAlarm(handleNativeAlarm);
+const unsubscribeAction = subscribeToNativeAlarmAction(handleNativeAction);
+void consumePendingNativeAction().then((actionPayload) => {
+if (mounted && actionPayload) handleNativeAction(actionPayload);
+});
+void peekPendingNativeAlarm().then((payload) => {
+if (mounted && payload) handleNativeAlarm(payload);
+});
+return () => {
+mounted = false;
+unsubscribeTrigger();
+unsubscribeAction();
 };
-const removeFriend = (friendId: string) => {
-setFriends((prev) => prev.filter((f) => f.id !== friendId));
-showToast('Removed from Wake-Up Squad');
-};
+}, [alarms, buildFallbackAlarm, handleDismissAlarm, hydrated, showToast, triggerAlarmRinging]);
+// --- Real Supabase Friends Operations ---
+const loadFriendsDashboard = useCallback(async () => {
+setFriendsLoading(true);
+setFriendsError(null);
+const res = await fetchAlarmFriendsDashboard();
+setFriendsLoading(false);
+if (!res.ok) {
+setFriendsDashboard(null);
+setFriends([]);
+setFriendsError(res.message);
+return;
+}
+setFriendsDashboard(res.data);
+if (res.data.my_status?.target_wake_time) {
+setTargetWakeInput(res.data.my_status.target_wake_time);
+}
+const avatarTypes: FriendBuddyItem['avatarType'][] = ['circle', 'square', 'clover', 'cloud'];
+setFriends(
+res.data.friends.map((item, idx) => ({
+id: item.user_id,
+name: item.display_name,
+handle: item.exam_id ? item.exam_id.toUpperCase() : 'Aspirant',
+exam: item.exam_id ? item.exam_id.toUpperCase() : 'Study Sakha',
+avatarType: avatarTypes[idx % avatarTypes.length],
+status:
+item.last_wake_status === 'awake'
+? 'Awake'
+: item.last_wake_status === 'snoozing'
+? 'Snoozing'
+: item.last_wake_status === 'sleeping'
+? 'Sleeping'
+: 'No wake-up recorded',
+statusType:
+item.last_wake_status === 'awake'
+? 'awake'
+: item.last_wake_status === 'snoozing'
+? 'snoozing'
+: 'sleeping',
+streak: item.current_streak,
+targetTime: item.target_wake_time || 'Not set',
+nudged: item.recently_nudged,
+}))
+);
+}, [setFriends]);
+
+useEffect(() => {
+if (activeScreen === 'friends') {
+void loadFriendsDashboard();
+}
+}, [activeScreen, loadFriendsDashboard]);
+
+const handleSearchUsers = useCallback(async (q: string) => {
+setInviteInput(q);
+if (q.trim().length < 2) {
+setUserSearchResults([]);
+return;
+}
+setUserSearchLoading(true);
+const res = await searchAlarmUsers(q);
+setUserSearchLoading(false);
+if (res.ok) {
+setUserSearchResults(res.users);
+} else {
+setUserSearchResults([]);
+showToast(res.message);
+}
+}, [showToast]);
+
+const handleSendFriendRequest = useCallback(async (targetUserId: string) => {
+const res = await sendAlarmFriendRequest(targetUserId);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast('Friend request sent');
+setUserSearchResults((prev) =>
+prev.map((u) => (u.user_id === targetUserId ? { ...u, relationship_status: 'outgoing_pending' } : u))
+);
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast]);
+
+const handleRespondFriendRequest = useCallback(async (requestId: string, decision: 'accept' | 'reject' | 'cancel') => {
+const res = await respondAlarmFriendRequest(requestId, decision);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast(
+decision === 'accept'
+? 'Friend request accepted'
+: decision === 'reject'
+? 'Friend request declined'
+: 'Friend request cancelled'
+);
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast]);
+
+const handleRemoveFriend = useCallback(async (friendUserId: string) => {
+const res = await removeAlarmFriend(friendUserId);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast('Friend removed');
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast]);
+
+const handleSaveTargetWakeTime = useCallback(async () => {
+if (!/^\d{2}:\d{2}$/.test(targetWakeInput.trim())) {
+showToast('Enter wake time in HH:MM (24h) format');
+return;
+}
+const res = await upsertMyAlarmWakeStatus(targetWakeInput.trim(), friendsDashboard?.my_status?.last_wake_status || 'unknown', studyStreak);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast('Target wake-up time updated');
+void loadFriendsDashboard();
+}, [friendsDashboard?.my_status?.last_wake_status, loadFriendsDashboard, showToast, studyStreak, targetWakeInput]);
+
+const handleCheerOrNudgeFriend = useCallback(async (friendUserId: string, kind: 'cheer' | 'nudge') => {
+Vibration.vibrate(40);
+const res = await sendAlarmFriendNudge(friendUserId, kind);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast(kind === 'cheer' ? 'Sent morning cheer!' : 'Sent wake-up nudge!');
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast]);
+
+const handleCreateSquad = useCallback(async () => {
+if (squadNameInput.trim().length < 2) {
+showToast('Enter a squad name');
+return;
+}
+if (!/^\d{2}:\d{2}$/.test(squadTimeInput.trim())) {
+showToast('Enter target time in HH:MM format');
+return;
+}
+const res = await createAlarmWakeSquad(squadNameInput.trim(), squadTimeInput.trim(), squadSelectedIds);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+setShowCreateSquadModal(false);
+setSquadNameInput('');
+setSquadSelectedIds([]);
+showToast('Wake-Up Squad created & invites sent');
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast, squadNameInput, squadSelectedIds, squadTimeInput]);
+
+const handleRespondSquadInvite = useCallback(async (squadId: string, acceptInvite: boolean) => {
+const res = await respondAlarmSquadInvite(squadId, acceptInvite);
+if (!res.ok) {
+showToast(res.message);
+return;
+}
+showToast(acceptInvite ? 'Joined Wake-Up Squad!' : 'Declined squad invite');
+void loadFriendsDashboard();
+}, [loadFriendsDashboard, showToast]);
+
+const handleMarkNotificationsRead = useCallback(async () => {
+const unreadIds = (friendsDashboard?.notifications || []).filter((n) => !n.read_at).map((n) => n.id);
+if (unreadIds.length === 0) return;
+await markAlarmNotificationsRead(unreadIds);
+void loadFriendsDashboard();
+}, [friendsDashboard?.notifications, loadFriendsDashboard]);
 // --- Study Planner Task Creation ---
 const handleCreateTask = (withAlarm: boolean) => {
 if (!newTaskTitle.trim()) return;
@@ -2914,7 +3197,7 @@ const ringScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85
 const ringOpacity = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
 return (
 <LinearGradient colors={[...activeTheme.colors]} style={styles.fullScreen}>
-<SafeAreaView style={{ flex: 1, justifyContent: 'space-between', padding: 24 }}>
+<View style={{ flex: 1, justifyContent: 'space-between', padding: 24 }}>
 {themeAnimated && (
 <Animated.View
 pointerEvents="none"
@@ -3006,7 +3289,7 @@ Start Mission to Dismiss
 )}
 </Pressable>
 </View>
-</SafeAreaView>
+</View>
 </LinearGradient>
 );
 };
@@ -3701,8 +3984,8 @@ Task: {item.linkedTask}
 const renderThemesScreen = () => (
 <View style={{ flex: 1 }}>
 <View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle }]}>
-<View style={styles.rowCenter}>
-<Pressable onPress={() => setActiveScreen('dashboard')} style={styles.iconBtn}>
+<View style={[styles.rowCenter, { flex: 1 }]}>
+<Pressable onPress={() => setActiveScreen('dashboard')} style={styles.iconBtn} accessibilityLabel="Back to Smart Alarm">
 <ChevronLeft size={22} color={P.text} />
 </Pressable>
 <View style={{ marginLeft: 4 }}>
@@ -3712,16 +3995,27 @@ const renderThemesScreen = () => (
 </Text>
 </View>
 </View>
+<View style={styles.rowGap8}>
 <Pressable
 onPress={() => {
 if (alarms[0]) triggerAlarmRinging(alarms[0]);
 else showToast('Create an alarm to preview the ringing theme');
 }}
-style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4 }]}
+style={[styles.smallChipBtn, styles.rowCenter, { gap: 4, backgroundColor: P.cardAlt }]}
 >
-<Eye size={13} color="#FFFFFF" />
-<Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Test Live</Text>
+<Eye size={13} color={P.text} />
+<Text style={{ color: P.text, fontSize: 12, fontWeight: '700' }}>Preview</Text>
 </Pressable>
+<Pressable
+onPress={() => setActiveScreen('dashboard')}
+style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4 }]}
+accessibilityRole="button"
+accessibilityLabel="Done selecting alarm theme"
+>
+<CheckCircle2 size={13} color="#FFFFFF" />
+<Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Done</Text>
+</Pressable>
+</View>
 </View>
 <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
 <LinearGradient colors={[...activeTheme.colors]} style={styles.heroCard}>
@@ -3767,8 +4061,11 @@ return (
 key={t.id}
 onPress={() => {
 setActiveThemeId(t.id);
-    showToast(`Applied "${t.name}" theme`);
+showToast(`Selected "${t.name}" theme`);
 }}
+accessibilityRole="button"
+accessibilityState={{ selected }}
+accessibilityLabel={`Select ${t.name} theme`}
 style={[
 styles.themeCardWrap,
 selected && { borderColor: '#2DD4BF', borderWidth: 2.5 },
@@ -3945,9 +4242,15 @@ style={[styles.footerBtn, { backgroundColor: '#F43F5E' }]}
 </View>
 );
 };
-// --- SCREEN 11: FRIENDS — WAKE UP TOGETHER ---
+// --- SCREEN 11: FRIENDS — WAKE UP TOGETHER (REAL SUPABASE BACKED) ---
 const renderFriendsScreen = () => {
+const incoming = friendsDashboard?.incoming_requests || [];
+const outgoing = friendsDashboard?.outgoing_requests || [];
+const squads = friendsDashboard?.squads || [];
+const notifications = friendsDashboard?.notifications || [];
+const unreadNotifCount = notifications.filter((n) => !n.read_at).length;
 const awakeCount = friends.filter((f) => f.statusType === 'awake' || f.statusType === 'studying').length;
+
 return (
 <View style={{ flex: 1 }}>
 <View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle }]}>
@@ -3960,84 +4263,207 @@ return (
 <Text style={[styles.headerSub, { color: P.textSecondary }]}>Wake up together & stay accountable</Text>
 </View>
 </View>
-<Pressable onPress={() => setShowInviteFriendModal(true)} style={[styles.shortcutIconBox, { backgroundColor: P.cardAlt }]}>
+<View style={styles.rowGap8}>
+<Pressable onPress={() => void loadFriendsDashboard()} style={[styles.shortcutIconBox, { backgroundColor: P.cardAlt }]} accessibilityLabel="Refresh friends">
+<RefreshCw size={16} color={P.text} />
+</Pressable>
+<Pressable onPress={() => setShowInviteFriendModal(true)} style={[styles.shortcutIconBox, { backgroundColor: P.cardAlt }]} accessibilityLabel="Find and add friends">
 <UserPlus size={18} color={P.text} />
 </Pressable>
 </View>
-{friends.length === 0 ? (
+</View>
+
+{friendsLoading && !friendsDashboard ? (
+<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 }}>
+<Text style={{ fontSize: 14, color: P.textSecondary, fontWeight: '600' }}>Loading friends & wake-up squad…</Text>
+</View>
+) : friendsError ? (
 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingBottom: 80 }}>
+<Users size={42} color={P.textMuted} />
+<Text style={{ fontSize: 18, fontWeight: '800', color: P.text, marginTop: 16, textAlign: 'center' }}>Friends Unavailable</Text>
+<Text style={{ fontSize: 13, color: P.textSecondary, marginTop: 6, textAlign: 'center' }}>{friendsError}</Text>
+<Pressable
+onPress={() => void loadFriendsDashboard()}
+style={[styles.inviteMainBtn, { backgroundColor: darkMode ? P.teal : '#333847' }]}
+>
+<Text style={{ color: darkMode ? '#020617' : '#FFFFFF', fontSize: 14, fontWeight: '800' }}>Retry</Text>
+</Pressable>
+</View>
+) : (
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 14 }}>
+{/* My Target Wake-Up Time */}
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
+<View style={styles.rowBetween}>
+<View>
+<Text style={{ fontSize: 13, fontWeight: '800', color: P.text }}>My Target Wake-Up Time</Text>
+<Text style={{ fontSize: 11, color: P.textSecondary }}>
+Shared only with accepted friends (24h HH:MM)
+</Text>
+</View>
+<View style={styles.rowGap8}>
+<TextInput
+value={targetWakeInput}
+onChangeText={setTargetWakeInput}
+placeholder="06:00"
+placeholderTextColor={P.textMuted}
+maxLength={5}
+style={[styles.inputBox, { width: 72, paddingVertical: 6, textAlign: 'center', backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
+/>
+<Pressable onPress={() => void handleSaveTargetWakeTime()} style={[styles.smallChipBtn, { backgroundColor: darkMode ? P.teal : '#0F172A' }]}>
+<Text style={{ fontSize: 11, fontWeight: '800', color: darkMode ? '#020617' : '#FFFFFF' }}>Save</Text>
+</Pressable>
+</View>
+</View>
+</View>
+
+{/* Notifications */}
+{notifications.length > 0 && (
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle, gap: 8 }]}>
+<View style={styles.rowBetween}>
+<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>
+Activity & Alerts {unreadNotifCount > 0 ? `(${unreadNotifCount} new)` : ''}
+</Text>
+{unreadNotifCount > 0 && (
+<Pressable onPress={() => void handleMarkNotificationsRead()}>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.teal }}>Mark read</Text>
+</Pressable>
+)}
+</View>
+{notifications.slice(0, 4).map((n) => (
+<View key={n.id} style={{ backgroundColor: P.cardAlt, padding: 10, borderRadius: 12, opacity: n.read_at ? 0.7 : 1 }}>
+<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>{n.title}</Text>
+<Text style={{ fontSize: 11, color: P.textSecondary, marginTop: 2 }}>{n.body}</Text>
+</View>
+))}
+</View>
+)}
+
+{/* Pending Incoming Requests */}
+{incoming.length > 0 && (
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle, gap: 8 }]}>
+<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>Incoming Requests ({incoming.length})</Text>
+{incoming.map((req) => (
+<View key={req.request_id} style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 14 }]}>
+<View style={{ flex: 1, paddingRight: 8 }}>
+<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>{req.display_name}</Text>
+<Text style={{ fontSize: 11, color: P.textSecondary }}>{req.exam_id ? req.exam_id.toUpperCase() : 'Study Sakha Learner'}</Text>
+</View>
+<View style={styles.rowGap8}>
+<Pressable onPress={() => void handleRespondFriendRequest(req.request_id, 'accept')} style={[styles.smallChipBtn, { backgroundColor: '#10B981' }]}>
+<Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Accept</Text>
+</Pressable>
+<Pressable onPress={() => void handleRespondFriendRequest(req.request_id, 'reject')} style={[styles.smallChipBtn, { backgroundColor: P.card }]}>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Decline</Text>
+</Pressable>
+</View>
+</View>
+))}
+</View>
+)}
+
+{/* Pending Outgoing Requests */}
+{outgoing.length > 0 && (
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle, gap: 8 }]}>
+<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>Sent Requests ({outgoing.length})</Text>
+{outgoing.map((req) => (
+<View key={req.request_id} style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 14 }]}>
+<View style={{ flex: 1, paddingRight: 8 }}>
+<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>{req.display_name}</Text>
+<Text style={{ fontSize: 11, color: P.textSecondary }}>Pending acceptance</Text>
+</View>
+<Pressable onPress={() => void handleRespondFriendRequest(req.request_id, 'cancel')} style={[styles.smallChipBtn, { backgroundColor: P.card }]}>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Cancel</Text>
+</Pressable>
+</View>
+))}
+</View>
+)}
+
+{/* Wake-Up Squads */}
+{squads.length > 0 && (
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle, gap: 10 }]}>
+<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>Wake-Up Squads ({squads.length})</Text>
+{squads.map((sq) => (
+<View key={sq.squad_id} style={{ backgroundColor: P.cardAlt, padding: 12, borderRadius: 14, gap: 6 }}>
+<View style={styles.rowBetween}>
+<Text style={{ fontSize: 13, fontWeight: '800', color: P.text }}>{sq.name}</Text>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.teal }}>Target {sq.target_wake_time}</Text>
+</View>
+<Text style={{ fontSize: 11, color: P.textSecondary }}>
+Members: {sq.members.map((m) => `${m.display_name} (${m.status})`).join(', ')}
+</Text>
+{sq.my_status === 'invited' && (
+<View style={[styles.rowGap8, { marginTop: 4 }]}>
+<Pressable onPress={() => void handleRespondSquadInvite(sq.squad_id, true)} style={[styles.smallChipBtn, { backgroundColor: '#10B981' }]}>
+<Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Join Squad</Text>
+</Pressable>
+<Pressable onPress={() => void handleRespondSquadInvite(sq.squad_id, false)} style={[styles.smallChipBtn, { backgroundColor: P.card }]}>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Decline</Text>
+</Pressable>
+</View>
+)}
+</View>
+))}
+</View>
+)}
+
+{friends.length === 0 ? (
+<View style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 28 }}>
 <View style={styles.friendsAvatarGrid}>
 <FriendBuddyAvatar type="circle" size="lg" />
 <FriendBuddyAvatar type="square" size="lg" />
 <FriendBuddyAvatar type="clover" size="lg" />
 <FriendBuddyAvatar type="cloud" size="lg" />
 </View>
-<Text style={{ fontSize: 20, fontWeight: '800', color: P.text, marginTop: 28 }}>No friends yet</Text>
-<Text style={{ fontSize: 14, color: P.textSecondary, marginTop: 6 }}>
-Wake up together with friends.
+<Text style={{ fontSize: 20, fontWeight: '800', color: P.text, marginTop: 24 }}>No friends yet</Text>
+<Text style={{ fontSize: 13, color: P.textSecondary, marginTop: 6, textAlign: 'center' }}>
+Search for real Study Sakha learners by name or email to build your wake-up circle.
 </Text>
 <Pressable
 onPress={() => setShowInviteFriendModal(true)}
-style={[
-styles.inviteMainBtn,
-{ backgroundColor: darkMode ? P.teal : '#333847' },
-]}
+style={[styles.inviteMainBtn, { backgroundColor: darkMode ? P.teal : '#333847' }]}
 >
 <Text style={{ color: darkMode ? '#020617' : '#FFFFFF', fontSize: 14, fontWeight: '800' }}>
-Invite Friends
-</Text>
-</Pressable>
-<Pressable
-onPress={() => {
-setFriends(SUGGESTED_STUDY_BUDDIES);
-showToast('Loaded 4 RAS Study Buddies');
-}}
-style={{ marginTop: 14, padding: 6 }}
->
-<Text style={{ color: P.teal, fontSize: 12, fontWeight: '700' }}>
-Preview with Demo Study Buddies
+Find Friends
 </Text>
 </Pressable>
 </View>
 ) : (
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 14 }}>
+<>
 <LinearGradient colors={['#232634', '#2C3144', '#172B3A']} style={styles.heroCard}>
 <View style={styles.rowBetween}>
 <View style={[styles.miniBadge, { backgroundColor: 'rgba(245,158,11,0.2)' }]}>
-<Text style={{ color: '#FCD34D', fontSize: 10, fontWeight: '800' }}>MORNING STUDY SQUAD</Text>
+<Text style={{ color: '#FCD34D', fontSize: 10, fontWeight: '800' }}>WAKE-UP ACCOUNTABILITY</Text>
 </View>
 <Text style={{ color: '#5EEAD4', fontSize: 12, fontWeight: '700' }}>
 {awakeCount}/{friends.length} Awake
 </Text>
 </View>
 <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '800', marginTop: 10 }}>
-Wake Up Together · 06:00 AM
+Wake Up Together · {targetWakeInput}
 </Text>
 <Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 4 }}>
-Nudge snoozing friends or celebrate early risers in your RAS study circle.
+Send cheers or wake-up nudges to your accepted friends.
 </Text>
 <View style={[styles.rowGap8, { marginTop: 14 }]}>
 <Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'Morning Squad — Wake Up Together',
-category: 'wakeup',
-hour: 6,
-minute: 0,
-sharedWithFriends: true,
-})
-}
+onPress={() => {
+setSquadTimeInput(targetWakeInput);
+setSquadSelectedIds(friends.map((f) => f.id));
+setShowCreateSquadModal(true);
+}}
 style={[styles.heroActionBtn, { flex: 1, backgroundColor: '#14B8A6' }]}
 >
 <AlarmClock size={14} color="#020617" />
-<Text style={{ color: '#020617', fontSize: 12, fontWeight: '800' }}>New Squad Alarm</Text>
+<Text style={{ color: '#020617', fontSize: 12, fontWeight: '800' }}>Create Squad</Text>
 </Pressable>
 <Pressable onPress={() => setShowInviteFriendModal(true)} style={[styles.heroActionBtn, { paddingHorizontal: 14 }]}>
 <UserPlus size={14} color="#FFFFFF" />
-<Text style={styles.heroActionText}>Invite</Text>
+<Text style={styles.heroActionText}>Add Friend</Text>
 </Pressable>
 </View>
 </LinearGradient>
+
 {friends.map((f) => {
 const sColor =
 f.statusType === 'awake' || f.statusType === 'studying'
@@ -4045,6 +4471,7 @@ f.statusType === 'awake' || f.statusType === 'studying'
 : f.statusType === 'snoozing'
 ? '#F59E0B'
 : P.textSecondary;
+const actionKind: 'cheer' | 'nudge' = f.statusType === 'snoozing' || f.statusType === 'sleeping' ? 'nudge' : 'cheer';
 return (
 <View key={f.id} style={[styles.alarmCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
 <View style={styles.rowBetween}>
@@ -4055,28 +4482,34 @@ return (
 <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '800', color: P.text }}>
 {f.name}
 </Text>
+{f.streak > 0 && (
+<>
 <Flame size={12} color="#F59E0B" style={{ marginLeft: 5 }} />
 <Text style={{ fontSize: 11, fontWeight: '700', color: '#F59E0B', marginLeft: 2 }}>
 {f.streak}d
 </Text>
+</>
+)}
 </View>
 <Text style={{ fontSize: 11, color: P.textSecondary }}>
 {f.exam} · Target {f.targetTime}
 </Text>
-      <View style={[styles.miniBadge, { backgroundColor: `${sColor}20`, alignSelf: 'flex-start', marginTop: 4 }]}>
+<View style={[styles.miniBadge, { backgroundColor: `${sColor}20`, alignSelf: 'flex-start', marginTop: 4 }]}>
 <Text style={{ fontSize: 10, fontWeight: '700', color: sColor }}>{f.status}</Text>
 </View>
 </View>
 </View>
 <View style={styles.rowCenter}>
 <Pressable
-onPress={() => nudgeFriend(f.id)}
+disabled={f.nudged}
+onPress={() => void handleCheerOrNudgeFriend(f.id, actionKind)}
 style={[
 styles.smallChipBtn,
 styles.rowCenter,
 {
 gap: 4,
 backgroundColor: f.nudged ? P.tealSoft : darkMode ? P.teal : '#0F172A',
+opacity: f.nudged ? 0.75 : 1,
 },
 ]}
 >
@@ -4088,10 +4521,10 @@ fontWeight: '700',
 color: f.nudged ? P.teal : darkMode ? '#020617' : '#FFFFFF',
 }}
 >
-{f.nudged ? 'Nudged' : f.statusType === 'snoozing' ? 'Nudge' : 'Cheer'}
+{f.nudged ? (actionKind === 'cheer' ? 'Cheered' : 'Nudged') : actionKind === 'nudge' ? 'Nudge' : 'Cheer'}
 </Text>
 </Pressable>
-<Pressable onPress={() => removeFriend(f.id)} style={{ padding: 6, marginLeft: 2 }}>
+<Pressable onPress={() => void handleRemoveFriend(f.id)} style={{ padding: 6, marginLeft: 2 }} accessibilityLabel={`Remove ${f.name}`}>
 <X size={16} color={P.textMuted} />
 </Pressable>
 </View>
@@ -4099,6 +4532,8 @@ color: f.nudged ? P.teal : darkMode ? '#020617' : '#FFFFFF',
 </View>
 );
 })}
+</>
+)}
 </ScrollView>
 )}
 {renderAlarmBottomNav()}
@@ -4125,12 +4560,15 @@ default: return renderDashboardScreen();
 }
 };
 return (
-<SafeAreaView style={{ flex: 1, backgroundColor: P.bg }}>
-<StatusBar barStyle={darkMode || activeScreen === 'ringing' ? 'light-content' : 'dark-content'} />
+<SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={{ flex: 1, backgroundColor: P.bg }}>
+<StatusBar
+  barStyle={darkMode || activeScreen === 'ringing' ? 'light-content' : 'dark-content'}
+  backgroundColor={activeScreen === 'ringing' ? activeTheme.colors[0] : P.card}
+/>
 {renderScreen()}
 {/* Toast Pill */}
 {!!toastMsg && (
-<View style={[styles.toastPill, { backgroundColor: darkMode ? '#FFFFFF' : '#0F172A' }]}>
+<View style={[styles.toastPill, { top: Math.max(insets.top + 8, 16), backgroundColor: darkMode ? '#FFFFFF' : '#0F172A' }]}>
 <CheckCircle2 size={15} color="#14B8A6" />
 <Text style={{ color: darkMode ? '#020617' : '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
 {toastMsg}
@@ -4226,103 +4664,116 @@ style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 12, borderRadi
 </View>
 </View>
 </Modal>
-{/* Invite Study Friends Modal */}
-<Modal visible={showInviteFriendModal} transparent animationType="slide">
+{/* Find & Add Real Study Friends Modal */}
+<Modal visible={showInviteFriendModal} transparent animationType="slide" onRequestClose={() => setShowInviteFriendModal(false)}>
 <View style={styles.modalBackdrop}>
 <View style={[styles.bottomSheet, { backgroundColor: P.card, maxHeight: '85%' }]}>
 <View style={styles.rowBetween}>
-<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Invite Study Friends</Text>
+<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Find Study Friends</Text>
 <Pressable onPress={() => setShowInviteFriendModal(false)}>
 <X size={20} color={P.textSecondary} />
 </Pressable>
 </View>
-<View style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 14, borderRadius: 18 }]}>
-<View>
-<Text style={{ fontSize: 10, fontWeight: '700', color: P.textMuted }}>YOUR STUDY SAKHA CODE</Text>
-<Text style={{ fontSize: 15, fontWeight: '900', color: P.text, letterSpacing: 1 }}>SAKHA-KAM-26</Text>
-</View>
-<Pressable
-onPress={() => {
-Share.share({
-message: 'Join my Study Sakha Wake-Up Squad! Use invite code: SAKHA-KAM-26',
-}).catch(() => showToast('Invite code SAKHA-KAM-26 ready to share'));
-}}
-style={[styles.smallChipBtn, styles.rowCenter, { gap: 5, backgroundColor: darkMode ? P.teal : '#333847' }]}
->
-<Share2 size={13} color={darkMode ? '#020617' : '#FFFFFF'} />
-<Text style={{ fontSize: 12, fontWeight: '700', color: darkMode ? '#020617' : '#FFFFFF' }}>Share</Text>
-</Pressable>
-</View>
-<View style={styles.rowGap8}>
+<Text style={{ fontSize: 12, color: P.textSecondary }}>
+Search by display name or exact email to send a friend request.
+</Text>
 <TextInput
 value={inviteInput}
-onChangeText={setInviteInput}
-placeholder="Enter friend's name or code..."
+onChangeText={(text) => void handleSearchUsers(text)}
+placeholder="Search name or email (min 2 chars)..."
 placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { flex: 1, backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
+autoCapitalize="none"
+style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
 />
-<Pressable
-onPress={() => {
-if (!inviteInput.trim()) return;
-const types: FriendBuddyItem['avatarType'][] = ['circle', 'square', 'clover', 'cloud'];
-addFriendToSquad({
-      id: `fr-${Date.now()}`,
-name: inviteInput.trim(),
-      handle: `@${inviteInput.trim().toLowerCase().replace(/\s+/g, '_')}`,
-exam: 'RAS 2026',
-avatarType: types[friends.length % types.length],
-status: 'Invited · Syncs at 06:00 AM',
-statusType: 'sleeping',
-streak: 1,
-targetTime: '06:00 AM',
-nudged: false,
-});
-setInviteInput('');
-setShowInviteFriendModal(false);
-}}
-style={[styles.headerSaveBtn, styles.rowCenter, { gap: 5, paddingHorizontal: 16 }]}
->
-<Send size={13} color="#FFFFFF" />
-<Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Add</Text>
-</Pressable>
-</View>
-<Text style={[styles.sectionLabel, { color: P.textMuted }]}>SUGGESTED STUDY BUDDIES</Text>
 <ScrollView contentContainerStyle={{ gap: 8 }}>
-{SUGGESTED_STUDY_BUDDIES.map((b) => {
-const added = friends.some((f) => f.id === b.id);
+{userSearchLoading ? (
+<Text style={{ fontSize: 12, color: P.textSecondary, textAlign: 'center', paddingVertical: 14 }}>Searching learners…</Text>
+) : inviteInput.trim().length < 2 ? (
+<Text style={{ fontSize: 12, color: P.textMuted, textAlign: 'center', paddingVertical: 14 }}>Type at least 2 characters to search.</Text>
+) : userSearchResults.length === 0 ? (
+<Text style={{ fontSize: 12, color: P.textMuted, textAlign: 'center', paddingVertical: 14 }}>No matching learners found.</Text>
+) : (
+userSearchResults.map((u) => {
+const isDisabled = u.relationship_status !== 'none';
+const label =
+u.relationship_status === 'accepted'
+? 'Friends'
+: u.relationship_status === 'outgoing_pending'
+? 'Requested'
+: u.relationship_status === 'incoming_pending'
+? 'Pending'
+: 'Add';
 return (
-<View key={b.id} style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 16 }]}>
-<View style={styles.rowCenter}>
-<FriendBuddyAvatar type={b.avatarType} size="sm" />
-<View style={{ marginLeft: 10 }}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>{b.name}</Text>
-<Text style={{ fontSize: 10, color: P.textSecondary }}>
-{b.exam} · {b.targetTime}
-</Text>
-</View>
+<View key={u.user_id} style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 16 }]}>
+<View style={{ flex: 1, paddingRight: 8 }}>
+<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>{u.display_name}</Text>
+<Text style={{ fontSize: 11, color: P.textSecondary }}>{u.exam_id ? u.exam_id.toUpperCase() : 'Study Sakha Learner'}</Text>
 </View>
 <Pressable
-disabled={added}
-onPress={() => addFriendToSquad(b)}
+disabled={isDisabled}
+onPress={() => void handleSendFriendRequest(u.user_id)}
 style={[
 styles.smallChipBtn,
-{ backgroundColor: added ? 'rgba(16,185,129,0.16)' : darkMode ? P.teal : '#333847' },
+{ backgroundColor: isDisabled ? 'rgba(16,185,129,0.16)' : darkMode ? P.teal : '#333847' },
 ]}
 >
-<Text
-style={{
-fontSize: 11,
-fontWeight: '700',
-color: added ? '#10B981' : darkMode ? '#020617' : '#FFFFFF',
-}}
->
-{added ? 'Added' : 'Add'}
+<Text style={{ fontSize: 11, fontWeight: '700', color: isDisabled ? '#10B981' : darkMode ? '#020617' : '#FFFFFF' }}>
+{label}
 </Text>
 </Pressable>
 </View>
 );
+})
+)}
+</ScrollView>
+</View>
+</View>
+</Modal>
+
+{/* Create Wake-Up Squad Modal */}
+<Modal visible={showCreateSquadModal} transparent animationType="slide" onRequestClose={() => setShowCreateSquadModal(false)}>
+<View style={styles.modalBackdrop}>
+<View style={[styles.bottomSheet, { backgroundColor: P.card, maxHeight: '85%' }]}>
+<View style={styles.rowBetween}>
+<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Create Wake-Up Squad</Text>
+<Pressable onPress={() => setShowCreateSquadModal(false)}>
+<X size={20} color={P.textSecondary} />
+</Pressable>
+</View>
+<TextInput
+value={squadNameInput}
+onChangeText={setSquadNameInput}
+placeholder="Squad name (e.g. 6 AM Polity Circle)"
+placeholderTextColor={P.textMuted}
+style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
+/>
+<TextInput
+value={squadTimeInput}
+onChangeText={setSquadTimeInput}
+placeholder="Target time (HH:MM)"
+placeholderTextColor={P.textMuted}
+maxLength={5}
+style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
+/>
+<Text style={[styles.sectionLabel, { color: P.textMuted }]}>INVITE ACCEPTED FRIENDS</Text>
+<ScrollView contentContainerStyle={{ gap: 8 }}>
+{friends.map((f) => {
+const checked = squadSelectedIds.includes(f.id);
+return (
+<Pressable
+key={f.id}
+onPress={() => setSquadSelectedIds((prev) => (checked ? prev.filter((id) => id !== f.id) : [...prev, f.id]))}
+style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 14 }]}
+>
+<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>{f.name}</Text>
+<Text style={{ fontSize: 11, fontWeight: '800', color: checked ? P.teal : P.textMuted }}>{checked ? 'Selected' : 'Tap to invite'}</Text>
+</Pressable>
+);
 })}
 </ScrollView>
+<Pressable onPress={() => void handleCreateSquad()} style={[styles.inviteMainBtn, { alignSelf: 'center', marginTop: 10, backgroundColor: darkMode ? P.teal : '#0F172A' }]}>
+<Text style={{ color: darkMode ? '#020617' : '#FFFFFF', fontSize: 14, fontWeight: '800' }}>Create & Send Invites</Text>
+</Pressable>
 </View>
 </View>
 </Modal>
@@ -4534,7 +4985,7 @@ bottom: 0,
 flexDirection: 'row',
 justifyContent: 'space-around',
 paddingVertical: 8,
-paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+paddingBottom: 10,
 borderTopWidth: 1,
 },
 bottomNavItem: { alignItems: 'center', gap: 3, minWidth: 68 },

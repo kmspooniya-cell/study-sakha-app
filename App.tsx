@@ -26,6 +26,7 @@ import type {
   RootStackParamList,
 } from './lib/navigation';
 import { getNotificationNavigationRoute } from './lib/navigation';
+import { peekPendingNativeAlarm, subscribeToNativeAlarm } from './src/modules/alarm/alarmNative';
 import LibraryScreen, {
   LibraryBooksScreen,
   LibraryDownloadsScreen,
@@ -315,6 +316,31 @@ function Navigation() {
   useEffect(() => {
     openPendingInviteRoute();
   }, [openPendingInviteRoute]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !state.user) return undefined;
+    const openAlarmIfRinging = () => {
+      if (!navigationRef.isReady()) return;
+      if (navigationRef.getCurrentRoute()?.name === 'Alarm') return;
+      navigationRef.navigate('Dashboard', { screen: 'Alarm' });
+    };
+    const unsubscribe = subscribeToNativeAlarm(() => {
+      openAlarmIfRinging();
+    });
+    void peekPendingNativeAlarm().then((pending) => {
+      if (pending?.alarmId) openAlarmIfRinging();
+    });
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      void peekPendingNativeAlarm().then((pending) => {
+        if (pending?.alarmId) openAlarmIfRinging();
+      });
+    });
+    return () => {
+      unsubscribe();
+      appStateSub.remove();
+    };
+  }, [state.user]);
 
   useEffect(() => {
     let active = true;

@@ -1,5 +1,5 @@
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 
 import type { AppNavigation } from '../lib/navigation';
 import { useStore } from '../lib/store';
@@ -9,8 +9,10 @@ import { useTheme } from '../lib/theme';
 export default function StudySakhaAlarmScreen() {
   // Keep the optional alarm surface out of unrelated Jest/module initialization paths.
   // The module is loaded only when this registered route is actually opened.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const StudySakhaAlarmModule = require('../src/modules/alarm/StudySakhaAlarmModule').default as typeof import('../src/modules/alarm/StudySakhaAlarmModule').default;
+  const StudySakhaAlarmModule = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../src/modules/alarm/StudySakhaAlarmModule').default as typeof import('../src/modules/alarm/StudySakhaAlarmModule').default;
+  }, []);
   const navigation = useNavigation<AppNavigation>();
   const { dispatch } = useStore();
   const { scheme } = useTheme();
@@ -19,12 +21,20 @@ export default function StudySakhaAlarmScreen() {
     dispatch({ type: 'settings', patch: { themeMode: nextDark ? 'dark' : 'light' } });
   }, [dispatch]);
 
+  const handleExitToHome = useCallback(() => {
+    navigation.goBack();
+  }, [navigation]);
+
+  const handleOpenStudyPlanner = useCallback(() => {
+    navigation.navigate('StudyPlanner');
+  }, [navigation]);
+
   return (
     <StudySakhaAlarmModule
       isDarkMode={scheme === 'dark'}
-      onExitToHome={() => navigation.goBack()}
+      onExitToHome={handleExitToHome}
       onToggleDarkMode={handleToggleDarkMode}
-      onOpenStudyPlanner={() => navigation.navigate('StudyPlanner')}
+      onOpenStudyPlanner={handleOpenStudyPlanner}
     />
   );
 }

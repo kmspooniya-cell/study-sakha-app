@@ -42,6 +42,8 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
       val id = config.getString("alarmId")?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("Missing alarmId")
       val at = config.getDouble("atMillis").toLong()
       require(at > System.currentTimeMillis()) { "Snooze time must be in the future" }
+      AlarmEngineScheduler.clearPendingAlarm(reactContext, id)
+      AlarmPlaybackService.stop(reactContext, id)
       AlarmEngineScheduler.scheduleSnooze(
         reactContext,
         id,
@@ -61,8 +63,33 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
 
   @ReactMethod
   fun stopAlarm(alarmId: String, promise: Promise) {
-    AlarmEngineScheduler.cancelAlarm(reactContext, alarmId)
+    // Only cancel pending snooze so recurring ACTION_FIRE schedules remain intact.
+    AlarmEngineScheduler.cancelSnooze(reactContext, alarmId)
+    AlarmEngineScheduler.clearPendingAlarm(reactContext, alarmId)
     AlarmPlaybackService.stop(reactContext, alarmId)
+    promise.resolve(null)
+  }
+
+  @ReactMethod
+  fun peekPendingAlarm(promise: Promise) {
+    val preferences = reactContext.getSharedPreferences(AlarmEngineScheduler.PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(AlarmEngineScheduler.PENDING_KEY, null)
+    if (raw.isNullOrBlank()) {
+      promise.resolve(null)
+      return
+    }
+    runCatching {
+      val json = JSONObject(raw)
+      promise.resolve(Arguments.createMap().apply {
+        putString("alarmId", json.optString("alarmId"))
+        putString("title", json.optString("title"))
+      })
+    }.onFailure { promise.resolve(null) }
+  }
+
+  @ReactMethod
+  fun clearPendingAlarm(alarmId: String, promise: Promise) {
+    AlarmEngineScheduler.clearPendingAlarm(reactContext, alarmId)
     promise.resolve(null)
   }
 
@@ -80,6 +107,25 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
       promise.resolve(Arguments.createMap().apply {
         putString("alarmId", json.optString("alarmId"))
         putString("title", json.optString("title"))
+      })
+    }.onFailure { promise.resolve(null) }
+  }
+
+  @ReactMethod
+  fun consumePendingAction(promise: Promise) {
+    val preferences = reactContext.getSharedPreferences(AlarmEngineScheduler.PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(AlarmEngineScheduler.PENDING_ACTION_KEY, null)
+    if (raw.isNullOrBlank()) {
+      promise.resolve(null)
+      return
+    }
+    preferences.edit().remove(AlarmEngineScheduler.PENDING_ACTION_KEY).apply()
+    runCatching {
+      val json = JSONObject(raw)
+      promise.resolve(Arguments.createMap().apply {
+        putString("alarmId", json.optString("alarmId"))
+        putString("action", json.optString("action"))
+        putInt("snoozeMinutes", json.optInt("snoozeMinutes", 0))
       })
     }.onFailure { promise.resolve(null) }
   }
@@ -105,13 +151,24 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
   companion object {
     @Volatile private var instance: AlarmEngineModule? = null
 
-    fun emitTriggered(context: Context, alarmId: String, title: String) {
+    fun emitTriggered(alarmId: String, title: String) {
       val module = instance ?: return
       if (!module.reactApplicationContext.hasActiveCatalystInstance()) return
       module.reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         .emit("onStudySakhaAlarmTriggered", Arguments.createMap().apply {
           putString("alarmId", alarmId)
           putString("title", title)
+        })
+    }
+
+    fun emitAction(alarmId: String, action: String, snoozeMinutes: Int) {
+      val module = instance ?: return
+      if (!module.reactApplicationContext.hasActiveCatalystInstance()) return
+      module.reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("onStudySakhaAlarmAction", Arguments.createMap().apply {
+          putString("alarmId", alarmId)
+          putString("action", action)
+          putInt("snoozeMinutes", snoozeMinutes)
         })
     }
   }

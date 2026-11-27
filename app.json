@@ -15,6 +15,7 @@
         "foregroundImage": "./assets/mascot/study-sakha-mascot.png"
       },
       "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
