@@ -104,7 +104,7 @@ const route = useRoute<AppHeaderRoute>();
 
 useFocusEffect(
 useCallback(() => {
-if (Platform.OS !== 'android' || ['DashboardRoot', 'Groups', 'FocusLock'].includes(route.name)) return;
+if (Platform.OS !== 'android' || ['DashboardRoot', 'Groups'].includes(route.name)) return;
 const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
 if (onBack?.()) return true;
 const state = nav.getState();
@@ -637,6 +637,7 @@ contentPadding = 20,
 appHeaderActions,
 fitContentToBottomNav = false,
 hideChrome = false,
+onAndroidBack,
 }: {
 active: NavKey;
 title: string;
@@ -649,6 +650,7 @@ contentPadding?: number;
 appHeaderActions?: React.ReactNode;
 fitContentToBottomNav?: boolean;
 hideChrome?: boolean;
+onAndroidBack?: () => boolean;
 }) {
 const { colors, layoutDensity } = useTheme();
 const nav = useNavigation<AppNavigation>();
@@ -660,7 +662,7 @@ const [collapsed, setCollapsed] = useState(false);
 const [keyboardVisible, setKeyboardVisible] = useState(false);
 const fullScreenMode = hideChrome || shouldHideAppShell(route?.name, route?.params);
 
-useSmartAndroidBack();
+useSmartAndroidBack(onAndroidBack);
 
 useEffect(() => {
 if (Platform.OS === 'web') return undefined;

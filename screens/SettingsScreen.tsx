@@ -702,8 +702,18 @@ export function SettingsScreen() {
         focuslock: {
           ...previous.focuslock,
           masterEnabled: Boolean(status?.serviceRunning || snapshot?.sessionState === 'active_focus' || snapshot?.sessionState === 'active_strict' || snapshot?.sessionState === 'scheduled_lock'),
+          blockedApps: snapshot?.selectedAppIds ?? previous.focuslock.blockedApps,
+          defaultBlockDuration: snapshot?.totalSessionSecs
+            ? Math.max(15, Math.round(snapshot.totalSessionSecs / 60))
+            : previous.focuslock.defaultBlockDuration,
+          emergencyUnlockMode: snapshot?.strictLevel === 3
+            ? 'Strict (No Unlock)'
+            : snapshot?.strictLevel === 2
+            ? '60s Cooldown + Reason'
+            : previous.focuslock.emergencyUnlockMode,
           simUsagePermission: status?.usageAccessEnabled ?? false,
           simAccessibilityService: status?.accessibilityEnabled ?? false,
+          simBatteryUnrestricted: status?.batteryOptimizationIgnored ?? false,
           simBlockingServiceRunning: status?.serviceRunning ?? false,
         },
         permissions: {
@@ -2692,11 +2702,11 @@ export function SettingsScreen() {
                 simulated
               />
               <NavRow
-                label={t('Distracting Apps & Allowlist', 'ध्यान भटकाने वाले ऐप और अनुमति सूची')}
-                desc={`${t('Blocked:', 'ब्लॉक:')} ${fl.blockedApps.join(', ')}`}
-                valueText={`${fl.blockedApps.length} ${t('blocked', 'ब्लॉक')}`}
+                label={t('Manage Apps, Profiles & Modes in Focus Lock', 'फ़ोकस लॉक में ऐप और प्रोफ़ाइल प्रबंधित करें')}
+                desc={t('Authoritative Focus Lock configuration and native blocking controls', 'नेटिव ब्लॉकिंग और ऐप चयन का मुख्य नियंत्रण')}
+                valueText={`${fl.blockedApps.length} ${t('selected', 'चयनित')}`}
                 icon="📱"
-                onPress={() => openDetail('focuslock', 'blocked_apps')}
+                onPress={() => navigation.navigate('FocusLock')}
                 last
               />
             </Section>
@@ -3071,8 +3081,27 @@ export function SettingsScreen() {
         const n = settings.notifications;
         content = (
           <>
-            <Section title={t('Global Notification Control (Primary Owner)', 'मुख्य सूचना नियंत्रण')}>
-              <ToggleRow
+              <Section title={t('Global Notification Control (Primary Owner)', 'मुख्य सूचना नियंत्रण')}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('NotificationSettings')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Notification Centre Settings"
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 13,
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.divider,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text }}>
+                    {t('Open Notification Centre Settings', 'सूचना केंद्र सेटिंग्स खोलें')}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+                <ToggleRow
                 label={t('Enable All Notifications', 'सभी सूचनाएँ चालू करें')}
                 desc={t('Master switch for all Study Sakha alerts & reminders', 'स्टडी सखा की सभी सूचनाओं का मुख्य स्विच')}
                 value={n.globalEnabled}

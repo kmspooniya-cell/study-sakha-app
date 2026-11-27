@@ -32,16 +32,17 @@ const mockChannel = jest.fn((topic: string) => {
     topic: realtimeTopic,
     subscribed: false,
     handlers: [],
-    on: jest.fn((type: string) => {
-      if (record.subscribed && (type === 'postgres_changes' || type === 'presence')) {
-        throw new Error(`cannot add \`${type}\` callbacks for ${record.topic} after \`subscribe()\`.`);
+    on: jest.fn((type: unknown) => {
+      const eventType = String(type);
+      if (record.subscribed && (eventType === 'postgres_changes' || eventType === 'presence')) {
+        throw new Error(`cannot add \`${eventType}\` callbacks for ${record.topic} after \`subscribe()\`.`);
       }
-      record.handlers.push(type);
+      record.handlers.push(eventType);
       return record;
     }),
-    subscribe: jest.fn((cb?: (status: string) => void) => {
+    subscribe: jest.fn((cb?: unknown) => {
       record.subscribed = true;
-      cb?.('SUBSCRIBED');
+      if (typeof cb === 'function') cb('SUBSCRIBED');
       return record;
     }),
     unsubscribe: jest.fn(async () => 'ok'),
@@ -107,12 +108,16 @@ const mockRouteStub = {
   params: undefined,
 };
 
-jest.mock('@react-navigation/native', () => ({
-  useFocusEffect: jest.fn(),
-  useIsFocused: () => true,
-  useNavigation: () => mockNavStub,
-  useRoute: () => mockRouteStub,
-}));
+jest.mock('@react-navigation/native', () => {
+  const ReactActual = require('react');
+  return {
+    NavigationContext: ReactActual.createContext(mockNavStub),
+    useFocusEffect: jest.fn(),
+    useIsFocused: () => true,
+    useNavigation: () => mockNavStub,
+    useRoute: () => mockRouteStub,
+  };
+});
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,

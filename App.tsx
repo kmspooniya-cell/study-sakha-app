@@ -47,6 +47,7 @@ import GroupsScreen from './screens/GroupsScreen';
 import MoreScreen from './screens/MoreScreen';
 import NoteEditorScreen from './screens/NoteEditorScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import NotificationSettingsScreen from './screens/NotificationSettingsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import PYQScreen from './screens/PYQScreen';
 import SakhaAIScreen from './screens/SakhaAIScreen';
@@ -65,8 +66,12 @@ import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import {
   capturePresentedNotifications,
+  ensureAndroidNotificationChannels,
+  flushPendingNotificationIntent,
   notificationFromExpoNotification,
   notificationFromExpoResponse,
+  registerDevicePushToken,
+  setPendingNotificationIntent,
   syncUpcomingPlannerReminder,
 } from './lib/notifications';
 import {
@@ -110,6 +115,7 @@ const linking: AppLinkingOptions = {
           CurrentAffairs: 'current-affairs',
           Search: 'search',
           Notifications: 'notifications',
+          NotificationSettings: 'notifications/settings',
           Statistics: 'statistics',
           TaskPerformance: 'statistics/tasks',
           StudyPlanner: 'study-planner',
@@ -202,6 +208,7 @@ export function AuthenticatedStackNavigator() {
       <AppStack.Screen name="CurrentAffairs" component={CurrentAffairsScreen} />
       <AppStack.Screen name="Search" component={SearchScreen} />
       <AppStack.Screen name="Notifications" component={NotificationsScreen} />
+      <AppStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
       <AppStack.Screen name="Statistics" component={StatisticsScreen} />
       <AppStack.Screen name="TaskPerformance" component={TaskPerformanceScreen} />
       <AppStack.Screen name="StudyPlanner" component={StudyPlannerScreen} />
@@ -271,6 +278,20 @@ function Navigation() {
   }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
 
   const openNotificationRoute = useCallback(() => {
+    const flushed = flushPendingNotificationIntent(navigationRef, {
+      authenticated: Boolean(state.user),
+      hydrated: state.hydrated,
+      authReady: state.authReady,
+      blockingIntro: showBrandIntro,
+      knownResultIds: new Set(state.results.map((r) => r.id)),
+      knownPlanIds: new Set(state.plannerScheduleItems.map((p) => p.id)),
+    });
+    if (flushed) {
+      void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
+        console.error('Notification response could not be cleared:', error);
+      });
+      return;
+    }
     if (
       pendingNotificationRoute.current !== 'Notifications' ||
       !navigationRef.isReady() ||
@@ -284,7 +305,7 @@ function Navigation() {
     void Notifications.clearLastNotificationResponseAsync().catch((error: unknown) => {
       console.error('Notification response could not be cleared:', error);
     });
-  }, [showBrandIntro, state.authReady, state.hydrated, state.user]);
+  }, [showBrandIntro, state.authReady, state.hydrated, state.plannerScheduleItems, state.results, state.user]);
 
   const handleBackToFocus = useCallback(() => {
     if (!navigationRef.isReady() || !state.user) return;
@@ -302,6 +323,12 @@ function Navigation() {
       primary: colors.blue,
     },
   };
+
+  useEffect(() => {
+    if (!state.user?.id || Platform.OS === 'web') return;
+    void ensureAndroidNotificationChannels();
+    void registerDevicePushToken(state.user.id);
+  }, [state.user?.id]);
 
   useEffect(() => {
     void syncUpcomingPlannerReminder(state.settings.notifications, state.plannerScheduleItems).catch((error: unknown) => {
@@ -392,9 +419,14 @@ function Navigation() {
     };
     const handleResponse = (response: unknown) => {
       const captured = notificationFromExpoResponse(response);
-      if (captured) persistCaptured(captured);
-      if (getNotificationNavigationRoute(response) !== 'Notifications' && !captured) return;
-      pendingNotificationRoute.current = 'Notifications';
+      if (captured) {
+        persistCaptured({ ...captured, read: true });
+        setPendingNotificationIntent(captured);
+      } else if (getNotificationNavigationRoute(response) === 'Notifications') {
+        pendingNotificationRoute.current = 'Notifications';
+      } else {
+        return;
+      }
       openNotificationRoute();
     };
     const receivedSub = Notifications.addNotificationReceivedListener(handleReceived);

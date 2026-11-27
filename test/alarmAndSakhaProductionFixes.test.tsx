@@ -26,7 +26,7 @@ describe('Production APK Critical UX & Functional Fixes', () => {
     it('uses SafeAreaView from react-native-safe-area-context with top/bottom edges', () => {
       const alarmModule = readRepoFile('src/modules/alarm/StudySakhaAlarmModule.tsx');
       expect(alarmModule).toContain("from 'react-native-safe-area-context'");
-      expect(alarmModule).toContain("edges={['top', 'right', 'bottom', 'left']}");
+      expect(alarmModule).toContain("['top', 'right', 'bottom', 'left']");
       const rnImportMatch = alarmModule.match(/import\s*\{[^}]*\}\s*from\s*'react-native';/);
       expect(rnImportMatch?.[0]).toBeTruthy();
       expect(rnImportMatch?.[0]).not.toContain('SafeAreaView');

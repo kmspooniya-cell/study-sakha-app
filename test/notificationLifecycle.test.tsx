@@ -29,7 +29,10 @@ const mockSupabase = {
     const query = {
       select: jest.fn(() => query),
       eq: jest.fn(() => query),
-      order: jest.fn(async () => ({ data: [], error: null })),
+      is: jest.fn(() => query),
+      order: jest.fn(() => query),
+      range: jest.fn(async () => ({ data: [], error: null })),
+      limit: jest.fn(async () => ({ data: [], error: null })),
       maybeSingle: jest.fn(async () => ({ data: null, error: null })),
     };
     return query;
@@ -59,6 +62,7 @@ jest.mock('../lib/supabase', () => ({
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  useFocusEffect: jest.fn(),
 }));
 
 jest.mock('@expo/vector-icons/Ionicons', () => {
@@ -82,6 +86,39 @@ jest.mock('../components/Shell', () => {
         children,
       ),
     useLayout: () => ({ isMobile: false, isDesktop: false, width: 800 }),
+  };
+});
+
+jest.mock('react-native-safe-area-context', () => ({
+  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
+  SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+
+jest.mock('react-native-reanimated', () => {
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: { View },
+    useSharedValue: (init: number) => ({ value: init }),
+    useAnimatedStyle: (fn: () => Record<string, unknown>) => fn(),
+    withSpring: (val: number) => val,
+    runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  };
+});
+
+jest.mock('react-native-gesture-handler', () => {
+  const chain = {
+    enabled: () => chain,
+    activeOffsetX: () => chain,
+    failOffsetY: () => chain,
+    onBegin: () => chain,
+    onUpdate: () => chain,
+    onEnd: () => chain,
+  };
+  return {
+    Gesture: { Pan: () => chain },
+    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
   };
 });
 
@@ -135,8 +172,8 @@ describe('Real notification system lifecycle', () => {
     );
 
     await waitFor(() => {
-      expect(view.getByText('Nothing here yet')).toBeTruthy();
-      expect(view.getByText('You are all caught up')).toBeTruthy();
+      expect(view.getByText("You're all caught up!")).toBeTruthy();
+      expect(view.getByText('All caught up')).toBeTruthy();
     });
     view.unmount();
   });
@@ -165,7 +202,7 @@ describe('Real notification system lifecycle', () => {
       </StoreProvider>,
     );
 
-    await waitFor(() => expect(view.getByText('Nothing here yet')).toBeTruthy());
+    await waitFor(() => expect(view.getByText("You're all caught up!")).toBeTruthy());
 
     // Simulate foreground arrival + system tray tap delivering the same notification ID twice
     fireEvent.press(view.getByTestId('receive-expo'));
@@ -204,15 +241,17 @@ describe('Real notification system lifecycle', () => {
     });
 
     // Tapping notification marks as read and opens the referenced task in StudyPlanner
-    fireEvent.press(restarted.getByLabelText('Study Sakha reminder. Current Affairs'));
+    fireEvent.press(restarted.getByTestId('notification-row-study-sakha-planner-plan-123'));
 
     await waitFor(() => {
       expect(restarted.getByTestId('unread-count').props.children).toBe(0);
       expect(mockNavigate).toHaveBeenCalledWith('StudyPlanner', { openPlanId: 'plan-123' });
     });
 
-    // Delete notification and confirm removal persists
-    fireEvent.press(restarted.getByLabelText('Delete Study Sakha reminder'));
+    // Delete notification via contextual menu and confirm removal persists
+    fireEvent.press(restarted.getByTestId('notification-more-study-sakha-planner-plan-123'));
+    await waitFor(() => expect(restarted.getByTestId('action-menu-delete')).toBeTruthy());
+    fireEvent.press(restarted.getByTestId('action-menu-delete'));
     await waitFor(() => {
       expect(restarted.queryByText('Study Sakha reminder')).toBeNull();
       const storageKey = getUserScopedStorageKey('sakha-store-v1', mockUser.id);
@@ -225,12 +264,14 @@ describe('Real notification system lifecycle', () => {
   it('groups notifications into Today, Yesterday, and Earlier and routes safely by type', async () => {
     const now = Date.now();
     const yesterday = now - 24 * 60 * 60 * 1000;
-    const earlier = now - 5 * 24 * 60 * 60 * 1000;
+    const thisWeek = now - 4 * 24 * 60 * 60 * 1000;
+    const earlier = now - 10 * 24 * 60 * 60 * 1000;
     const storageKey = getUserScopedStorageKey('sakha-store-v1', mockUser.id);
     mockStorage.set(storageKey, JSON.stringify({
       notifications: [
         { id: 'n-today', title: 'Group Invite', body: 'Join UPSC Mains Hall', at: now, kind: 'group', groupId: 'grp-1', read: false },
         { id: 'n-yest', title: 'Test Ready', body: 'Mock #12 evaluated', at: yesterday, kind: 'test', resultId: 'res-1', read: false },
+        { id: 'n-week', title: 'Weekly Focus', body: '2h logged', at: thisWeek, kind: 'focus', read: true },
         { id: 'n-early', title: 'Unknown Alert', body: 'General message', at: earlier, kind: 'announcement', read: true },
       ],
     }));
@@ -244,6 +285,7 @@ describe('Real notification system lifecycle', () => {
     await waitFor(() => {
       expect(view.getByText('TODAY')).toBeTruthy();
       expect(view.getByText('YESTERDAY')).toBeTruthy();
+      expect(view.getByText('THIS WEEK')).toBeTruthy();
       expect(view.getByText('EARLIER')).toBeTruthy();
     });
 
@@ -251,10 +293,10 @@ describe('Real notification system lifecycle', () => {
       id: 'x', title: 'Unknown', body: 'Body', at: now, kind: 'unexpected_kind' as never, read: false,
     })).toBeNull();
 
-    fireEvent.press(view.getByLabelText('Group Invite. Join UPSC Mains Hall'));
+    fireEvent.press(view.getByTestId('notification-row-n-today'));
     expect(mockNavigate).toHaveBeenCalledWith('Groups', { inviteGroupId: 'grp-1' });
 
-    fireEvent.press(view.getByLabelText('Test Ready. Mock #12 evaluated'));
+    fireEvent.press(view.getByTestId('notification-row-n-yest'));
     expect(mockNavigate).toHaveBeenCalledWith('TestResult', { resultId: 'res-1' });
     view.unmount();
   });

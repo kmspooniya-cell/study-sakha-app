@@ -1,5 +1,8 @@
 # Feature Status — Study Sakha
 
+## 2026-11-27 Notification Centre & Preferences
+- **Notification Centre (`NotificationsScreen`, `NotificationSettingsScreen`, `lib/notifications/*`):** **Complete (Host) / Not Verified (Live Supabase Migration & Physical Android Device)**. Immersive header/feed, 5 smart filters, `Today`/`Yesterday`/`This Week`/`Earlier` grouping, conditional `AnnouncementCard`, Reanimated swipe gestures, long-press selection, bulk actions, Undo snackbar, contextual action menu, centralized `NotificationRouter`, Quiet Hours across midnight, offline operation queue, Supabase Realtime subscription, and `202611270002_notification_centre_backend.sql` are implemented and host-tested. Live Supabase migration deployment and physical Android push/device testing remain pending.
+
 ## 2026-11-27 Groups main screen
 - **Groups main screen:** **Complete (Host UI) / Not Verified (Device)**. Main view is joined-only with a compact header, Supabase-backed Explore screen, and safe floating create action.
 
@@ -10,7 +13,7 @@
 - **Study Groups & Live Study Rooms:** **Complete (Host UI/logic) / Not Verified (Android, live multi-client)**. Group header/menu/join state, four primary tabs with backward-compatible More sections, WhatsApp-inspired chat bubbles/composer, stale-fetch chat merge repair, full Silent Focus Hall card entry, and Focus Centre-only personal study status are implemented in `screens/GroupsScreen.tsx`.
 
 ## Alarm Module — 2026-11-27
-- **Partially Implemented (Host) / Not Verified (Device):** The supplied alarm module is registered as `Alarm`, uses isolated AsyncStorage, exactly four alarm themes, existing app theme synchronization, Study Planner navigation, and a persisted Home summary card. A separate native Android engine now schedules exact/inexact alarms, restores schedules after boot/time changes, and plays system alarm audio/vibration through a foreground service. Physical Android behavior, permission UX, custom sounds, sleep sensing, and hardware missions remain unverified or incomplete.
+- **Partially Implemented (Host) / Not Verified (Device):** The supplied alarm module is registered as `Alarm`, uses isolated AsyncStorage, exactly four alarm themes, existing app theme synchronization, and a persisted Home summary card. A separate native Android engine schedules exact/inexact alarms, restores schedules after boot/time changes, plays system alarm audio/vibration through a foreground service, and now includes `AlarmMissionEngine.kt` (accelerometer shake, step counter/detector, camera + ZXing barcode, photo similarity, runtime permissions) wired to `alarmMissions.ts` and `HeavySleeperMissionView.tsx`. Physical Android Kotlin compilation, sensor/camera behavior, custom sounds, and sleep sensing remain unverified on device.
 
 ## Deployment update — 2026-11-25
 

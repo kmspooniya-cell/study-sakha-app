@@ -8,6 +8,9 @@ export type FocusLockSnapshot = {
   remainingSecs?: number;
   totalSessionSecs?: number;
   selectedAppIds?: string[];
+  appStrategy?: 'block' | 'allow';
+  selectedModeId?: string;
+  strictLevel?: number;
   blockedAttemptsToday?: number;
   focusPoints?: number;
   sessionStartTime?: string | null;
@@ -25,6 +28,9 @@ export async function readFocusLockSnapshot(userId?: string | null): Promise<Foc
       remainingSecs: typeof record.remainingSecs === 'number' && Number.isFinite(record.remainingSecs) ? record.remainingSecs : undefined,
       totalSessionSecs: typeof record.totalSessionSecs === 'number' && Number.isFinite(record.totalSessionSecs) ? record.totalSessionSecs : undefined,
       selectedAppIds: Array.isArray(record.selectedAppIds) ? record.selectedAppIds.filter((id): id is string => typeof id === 'string') : undefined,
+      appStrategy: record.appStrategy === 'allow' || record.appStrategy === 'block' ? record.appStrategy : undefined,
+      selectedModeId: typeof record.selectedModeId === 'string' ? record.selectedModeId : undefined,
+      strictLevel: typeof record.strictLevel === 'number' && Number.isFinite(record.strictLevel) ? record.strictLevel : undefined,
       blockedAttemptsToday: typeof record.blockedAttemptsToday === 'number' && Number.isFinite(record.blockedAttemptsToday) ? record.blockedAttemptsToday : undefined,
       focusPoints: typeof record.focusPoints === 'number' && Number.isFinite(record.focusPoints) ? record.focusPoints : undefined,
       sessionStartTime: typeof record.sessionStartTime === 'string' ? record.sessionStartTime : null,

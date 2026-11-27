@@ -15,6 +15,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import org.json.JSONObject
 
 class AlarmEngineModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+  private val missionEngine = AlarmMissionEngine(reactContext)
   init { instance = this }
   override fun getName() = "StudySakhaAlarmEngine"
 
@@ -50,10 +51,12 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
         at,
         config.getString("title") ?: "Study Sakha Alarm",
         config.getString("soundId") ?: "default",
-        config.getInt("volume"),
+        if (config.hasKey("volume")) config.getInt("volume") else 100,
         if (config.hasKey("gradualVolume")) config.getBoolean("gradualVolume") else false,
-        config.getBoolean("vibration"),
+        if (config.hasKey("vibration")) config.getBoolean("vibration") else true,
         config.getString("vibrationPattern") ?: "Pulse",
+        if (config.hasKey("heavySleeper")) config.getBoolean("heavySleeper") else false,
+        if (config.hasKey("missionBeforeSnooze")) config.getBoolean("missionBeforeSnooze") else false,
       )
       promise.resolve(null)
     } catch (error: Exception) {
@@ -143,6 +146,38 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
     } catch (error: Exception) {
       promise.reject("E_ALARM_SETTINGS", "Exact alarm settings could not be opened.", error)
     }
+  }
+
+  @ReactMethod
+  fun getMissionCapabilities(promise: Promise) = missionEngine.getCapabilities(promise)
+
+  @ReactMethod
+  fun startShakeMission(sessionId: String, target: Int, thresholdG: Double, promise: Promise) =
+    missionEngine.startShakeMission(sessionId, target, thresholdG, promise)
+
+  @ReactMethod
+  fun startStepMission(sessionId: String, target: Int, promise: Promise) =
+    missionEngine.startStepMission(sessionId, target, promise)
+
+  @ReactMethod
+  fun stopSensorMission(sessionId: String?, promise: Promise) =
+    missionEngine.stopSensorMission(sessionId, promise)
+
+  @ReactMethod
+  fun captureBarcode(promise: Promise) =
+    missionEngine.captureBarcode(promise)
+
+  @ReactMethod
+  fun captureReferencePhoto(alarmId: String, promise: Promise) =
+    missionEngine.captureReferencePhoto(alarmId, promise)
+
+  @ReactMethod
+  fun verifyPhotoAgainstReference(alarmId: String, thresholdPercent: Int, promise: Promise) =
+    missionEngine.verifyPhotoAgainstReference(alarmId, thresholdPercent, promise)
+
+  override fun invalidate() {
+    missionEngine.cleanup()
+    super.invalidate()
   }
 
   @ReactMethod fun addListener(@Suppress("UNUSED_PARAMETER") eventName: String) { }

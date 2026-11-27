@@ -78,6 +78,7 @@ const mockAppendFocusHistory = jest.fn(async (_key: string, record: { id: string
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
   return {
+    NavigationContext: React.createContext(mockNavigation),
     useNavigation: () => mockNavigation,
     useRoute: () => mockRoute,
     useFocusEffect: (callback: React.EffectCallback) => React.useEffect(callback, [callback]),

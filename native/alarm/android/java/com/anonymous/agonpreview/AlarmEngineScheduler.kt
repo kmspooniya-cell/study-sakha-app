@@ -31,20 +31,52 @@ object AlarmEngineScheduler {
   const val EXTRA_SNOOZE_ENABLED = "snoozeEnabled"
   const val EXTRA_SNOOZE_DURATION = "snoozeDuration"
   const val EXTRA_ANTI_SNOOZE = "antiSnooze"
+  const val EXTRA_HEAVY_SLEEPER = "heavySleeper"
+  const val EXTRA_MISSION_BEFORE_SNOOZE = "missionBeforeSnooze"
 
   fun sync(context: Context, snapshot: String) {
     val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val previous = runCatching { JSONObject(preferences.getString(SCHEDULES_KEY, "{}") ?: "{}") }.getOrNull()
-    cancelSnapshot(context, previous)
+    val next = runCatching { JSONObject(snapshot) }.getOrNull()
+    val activeNextIds = buildSet {
+      val nextAlarms = next?.optJSONArray("alarms")
+      if (nextAlarms != null) {
+        for (index in 0 until nextAlarms.length()) {
+          val item = nextAlarms.optJSONObject(index) ?: continue
+          if (item.optBoolean("enabled", false) && !item.optBoolean("skippedOnce", false)) {
+            item.optString("id").takeIf { it.isNotBlank() }?.let(::add)
+          }
+        }
+      }
+    }
+    val prevAlarms = previous?.optJSONArray("alarms")
+    if (prevAlarms != null) {
+      for (index in 0 until prevAlarms.length()) {
+        val id = prevAlarms.optJSONObject(index)?.optString("id")?.takeIf { it.isNotBlank() } ?: continue
+        // Preserve pending snooze alarms while updating/rescheduling enabled alarms.
+        if (id in activeNextIds) cancelFire(context, id) else cancelAlarm(context, id)
+      }
+    }
     preferences.edit().putString(SCHEDULES_KEY, snapshot).apply()
-    scheduleSnapshot(context, runCatching { JSONObject(snapshot) }.getOrNull())
+    scheduleSnapshot(context, next)
   }
 
   fun rescheduleStored(context: Context) {
     val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val snapshot = runCatching { JSONObject(preferences.getString(SCHEDULES_KEY, "{}") ?: "{}") }.getOrNull()
-    cancelSnapshot(context, snapshot)
+    val alarms = snapshot?.optJSONArray("alarms")
+    if (alarms != null) {
+      for (index in 0 until alarms.length()) {
+        val id = alarms.optJSONObject(index)?.optString("id")?.takeIf { it.isNotBlank() } ?: continue
+        cancelFire(context, id)
+      }
+    }
     scheduleSnapshot(context, snapshot)
+  }
+
+  fun cancelFire(context: Context, alarmId: String) {
+    val manager = context.getSystemService(AlarmManager::class.java) ?: return
+    manager.cancel(pendingIntent(context, ACTION_FIRE, alarmId, stableRequestCode(alarmId, false)))
   }
 
   fun handleAlarmFiredInStore(context: Context, alarmId: String) {
@@ -128,6 +160,8 @@ object AlarmEngineScheduler {
     gradualVolume: Boolean,
     vibration: Boolean,
     vibrationPattern: String,
+    heavySleeper: Boolean = false,
+    missionBeforeSnooze: Boolean = false,
   ) {
     val manager = context.getSystemService(AlarmManager::class.java) ?: return
     val intent = pendingIntent(context, ACTION_SNOOZE, alarmId, stableRequestCode(alarmId, true)) {
@@ -140,9 +174,24 @@ object AlarmEngineScheduler {
       putExtra(EXTRA_SNOOZE_ENABLED, true)
       putExtra(EXTRA_SNOOZE_DURATION, 5)
       putExtra(EXTRA_ANTI_SNOOZE, false)
+      putExtra(EXTRA_HEAVY_SLEEPER, heavySleeper)
+      putExtra(EXTRA_MISSION_BEFORE_SNOOZE, missionBeforeSnooze)
     }
     manager.cancel(intent)
     setAlarm(manager, atMillis, intent)
+  }
+
+  fun isHeavySleeperAlarm(context: Context, alarmId: String): Boolean {
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(SCHEDULES_KEY, null) ?: return false
+    val alarms = runCatching { JSONObject(raw).optJSONArray("alarms") }.getOrNull() ?: return false
+    for (index in 0 until alarms.length()) {
+      val alarm = alarms.optJSONObject(index) ?: continue
+      if (alarm.optString("id") == alarmId) {
+        return alarm.optBoolean("heavySleeper", false)
+      }
+    }
+    return false
   }
 
   fun canScheduleExactAlarms(context: Context): Boolean =
@@ -166,16 +215,10 @@ object AlarmEngineScheduler {
         putExtra(EXTRA_SNOOZE_ENABLED, alarm.optBoolean("snoozeEnabled", true))
         putExtra(EXTRA_SNOOZE_DURATION, alarm.optInt("snoozeDuration", 5))
         putExtra(EXTRA_ANTI_SNOOZE, alarm.optBoolean("antiSnooze", false))
+        putExtra(EXTRA_HEAVY_SLEEPER, alarm.optBoolean("heavySleeper", false))
+        putExtra(EXTRA_MISSION_BEFORE_SNOOZE, alarm.optBoolean("missionBeforeSnooze", false))
       }
       setAlarm(context.getSystemService(AlarmManager::class.java) ?: continue, triggerAt, intent)
-    }
-  }
-
-  private fun cancelSnapshot(context: Context, snapshot: JSONObject?) {
-    val alarms = snapshot?.optJSONArray("alarms") ?: return
-    for (index in 0 until alarms.length()) {
-      val id = alarms.optJSONObject(index)?.optString("id") ?: continue
-      if (id.isNotBlank()) cancelAlarm(context, id)
     }
   }
 

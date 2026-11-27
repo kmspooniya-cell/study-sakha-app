@@ -20,6 +20,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: jest.fn(),
   useNavigation: () => ({
     navigate: mockNavigate,
     push: jest.fn(),
@@ -28,6 +29,46 @@ jest.mock('@react-navigation/native', () => ({
     getParent: () => null,
   }),
 }));
+
+jest.mock('react-native-safe-area-context', () => {
+  const actual = jest.requireActual<typeof import('react-native-safe-area-context')>('react-native-safe-area-context');
+  return {
+    ...actual,
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  };
+});
+
+jest.mock('react-native-gesture-handler', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const createGesture = () => {
+    const g: Record<string, unknown> = {};
+    const chain = () => g;
+    ['activeOffsetX', 'failOffsetY', 'onUpdate', 'onEnd', 'onStart', 'onBegin', 'onFinalize', 'enabled'].forEach((k) => {
+      g[k] = chain;
+    });
+    return g;
+  };
+  return {
+    GestureHandlerRootView: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
+    GestureDetector: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children),
+    Gesture: { Pan: createGesture, Tap: createGesture, LongPress: createGesture, Simultaneous: createGesture },
+  };
+});
+
+jest.mock('react-native-reanimated', () => {
+  const React = require('react');
+  const { View, Text } = require('react-native');
+  return {
+    __esModule: true,
+    default: { View, Text },
+    useSharedValue: (v: unknown) => ({ value: v }),
+    useAnimatedStyle: (fn: () => unknown) => (typeof fn === 'function' ? fn() : {}),
+    withSpring: (v: unknown) => v,
+    withTiming: (v: unknown) => v,
+    runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  };
+});
 
 jest.mock('@expo/vector-icons/Ionicons', () => {
   const React = jest.requireActual<typeof import('react')>('react');
@@ -328,7 +369,7 @@ describe('stability and failure scenario regressions', () => {
       expect(alarmKt).toContain('if (status != "active") return@synchronized null');
       expect(alarmKt).toContain('if (expectedSessionId.isNotEmpty() && currentId != expectedSessionId)');
 
-      expect(bootKt).toContain('parsed?.optString("status") == "active"');
+      expect(bootKt).toContain('status == "active" || status == "paused"');
       expect(bootKt).toContain('synchronized(FocusLockModule.sessionLock)');
 
       expect(blockingKt).toContain('override fun onResume()');

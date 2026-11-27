@@ -1,5 +1,86 @@
 # Testing Status — Study Sakha
 
+## Final Pre-APK Release Audit — 2026-11-27
+- **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — `AndroidManifest.xml` verified with `<uses-permission android:name="android.permission.CAMERA"/>` (no `tools:node="remove"`) and `<action android:name="android.media.action.IMAGE_CAPTURE"/>`.
+- **Release Config Validator (`EXPO_PUBLIC_API_BASE_URL=https://study-sakha-app.onrender.com pnpm run validate:release -- preview`):** **PASS** (fails as expected when `EXPO_PUBLIC_API_BASE_URL` is omitted from `.env`).
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** (0 errors, 5 pre-existing unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- **Web Export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`):** **PASS** (exported `dist/`).
+- **TypeScript (`pnpm run lint`):** **FAIL (test files only)** — 0 errors in application/library/screen/component/alarm/focusLock/notification files; 146 errors across 5 `test/*.test.tsx` files (`alarmAndSakhaProductionFixes`, `focusCompletionNavigation`, `focusImprovements`, `focusUnifiedRefactor`, `groupChatAndFocusDecoupling`).
+- **Full Jest Suite (`pnpm exec jest --runInBand --forceExit`):** **57/61 suites passed (310/319 tests passed)**; 4 suites failed (`focusSessionSetup`, `focusImprovements`, `studyPlannerFocusIntegration`, `stabilityFailureScenarios`). All 4 Alarm suites, all 5 FocusLock suites, `notificationCentre.test.tsx`, `notificationLifecycle.test.tsx`, `settingsScreen.test.tsx`, `groupRealtimeSubscription.test.tsx`, and `fourFixesRegression.test.tsx` passed.
+- **Android Kotlin Compilation & Physical Device Runtime:** **BLOCKED / NOT VERIFIED** (no `ANDROID_HOME` / Android SDK / `adb` / device in Codespace).
+- **Remote Supabase `202611270002` Migration:** **BLOCKED / NOT VERIFIED** (`EROFS` on `/home/codespace/.supabase`, no remote credentials).
+
+## Notification Centre Visual Correction — 2026-11-27
+- Focused Jest suites (`test/notificationCentre.test.tsx`, `test/notificationLifecycle.test.tsx`, `test/notifications.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/store.reducer.test.tsx`): **PASS** — 6 suites, 38 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (0 errors, 5 pre-existing warnings).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to notification & modified files): **0 errors**.
+- Web export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`): **PASS** (`dist/` exported).
+- Visual browser/device screenshot inspection: **BLOCKED / NOT VERIFIED** (no Chromium/Playwright browser binary or Android `adb`/device in Codespace). Remote Supabase `202611270002` migration push also remains pending live credentials (`public.notifications` schema-cache error renders as a compact non-blocking banner).
+
+## Notification Centre UI & Swipe Fix — 2026-11-27
+- Focused Jest suites (`test/notificationCentre.test.tsx`, `test/notificationLifecycle.test.tsx`, `test/notifications.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/store.reducer.test.tsx`): **PASS** — 6 suites, 38 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (0 errors, 5 pre-existing warnings).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to notification & modified files): **0 errors**.
+- Web export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`): **PASS** (`dist/` exported).
+- Visual browser/device screenshot inspection: **BLOCKED / NOT VERIFIED** (no Chromium/Playwright browser cache or Android `adb`/device in Codespace).
+
+## Notification Centre Implementation — 2026-11-27
+- Focused Jest suites (`test/notificationCentre.test.tsx`, `test/notificationLifecycle.test.tsx`, `test/notifications.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/store.reducer.test.tsx`): **PASS** — 6 suites, 37 tests passed. (`test/settingsScreen.test.tsx` still fails on pre-existing missing `useRoute` mock in that file.)
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (0 errors, 5 pre-existing warnings).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to notification & modified files): **0 errors** after final edit.
+- Expo public config (`EXPO_NO_TELEMETRY=1 pnpm exec expo config --type public --json`) & Web export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`): **PASS** (exported `dist/`).
+- Live Supabase migration `202611270002_notification_centre_backend.sql`, remote push delivery, and physical Android device runtime (status bar, gesture back, foreground/background/terminated push): **NOT VERIFIED** (no connected Android device/adb or live Supabase CLI credentials in Codespace).
+
+## Focus Lock Complete UI & Feature Removal — 2026-11-27
+- Focused Jest suites (`test/focusLockCleanup.test.tsx`, `test/stabilityFailureScenarios.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 3 suites, 18 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `screens/FocusLockScreen.tsx` and `test/focusLockCleanup.test.tsx` (repo-wide `tsc` exits 2 on pre-existing unrelated group test typings).
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Focus Lock UI Cleanup & Feature Removal — 2026-11-27
+- Focused Jest suites (`test/focusLockCleanup.test.tsx`, `test/stabilityFailureScenarios.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 3 suites, 18 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `screens/FocusLockScreen.tsx` and `test/focusLockCleanup.test.tsx` (repository-wide `tsc` still exits 2 on pre-existing unrelated test typings).
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Heavy Sleeper Mode Audit — 2026-11-27
+- Expo Android CNG prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`): **PASS**.
+- Focused Jest suites (`test/heavySleeperMissions.test.tsx`, `test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`): **PASS** — 4 suites, 36 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 5 pre-existing unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/*` and `test/heavySleeperMissions.test.tsx`.
+- Kotlin compilation & physical Android hardware (sensors, camera, ZXing, boot/process death): **NOT VERIFIED** (no Android SDK or device/emulator in Codespace).
+
+## Heavy Sleeper Mode Implementation — 2026-11-27
+- Expo Android CNG prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`): **PASS**.
+- Focused Jest suites (`test/heavySleeperMissions.test.tsx`, `test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`): **PASS** — 4 suites, 36 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 5 pre-existing unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/*` and `test/heavySleeperMissions.test.tsx`.
+- Kotlin compilation (`:app:compileDebugKotlin`) & physical Android sensor/camera/ZXing runtime: **BLOCKED / NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Alarm Theme Library, Preview & Settings Fixes — 2026-11-27
+- Focused Jest suites (`test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 6 suites, 45 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 5 unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/StudySakhaAlarmModule.tsx`, `screens/StudySakhaAlarmScreen.tsx`, `components/NativeSchedulePickers.tsx`, and `test/alarmUiUpdate.test.tsx`.
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Alarm Dashboard & Editor Cleanup — 2026-11-27
+- Focused Jest suites (`test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 6 suites, 41 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 4 unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/StudySakhaAlarmModule.tsx`, `screens/StudySakhaAlarmScreen.tsx`, `components/NativeSchedulePickers.tsx`, and `test/alarmUiUpdate.test.tsx`.
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Alarm Create/Edit Screen UI Update — 2026-11-27
+- Focused Jest suites (`test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 6 suites, 39 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 4 unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/StudySakhaAlarmModule.tsx`, `screens/StudySakhaAlarmScreen.tsx`, `components/NativeSchedulePickers.tsx`, and `test/alarmUiUpdate.test.tsx`.
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Alarm Module UI Update — 2026-11-27
+- Focused Jest suites (`test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/alarmStorage.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`, `test/navigationLayoutFixes.test.tsx`): **PASS** — 6 suites, 35 tests passed.
+- Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0; 3 unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in `src/modules/alarm/StudySakhaAlarmModule.tsx`, `screens/StudySakhaAlarmScreen.tsx`, and `test/alarmUiUpdate.test.tsx`; repository-wide `tsc` still exits on pre-existing test/module typing issues.
+- Physical Android device visual/runtime verification: **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
 ## Groups Module Icon Upgrade — 2026-11-27
 - TypeScript (`pnpm exec tsc --noEmit --pretty false`): **0 errors** in all Groups module files (`screens/GroupsScreen.tsx`, `screens/SmartStudyRoomScreen.tsx`, `components/groups/*`, `components/RoomHeader.tsx`, `components/ChairDetailBottomSheet.tsx`); repository-wide `tsc` still exits 2 on pre-existing `src/modules/alarm/alarmFriendsApi.ts` and test typing errors.
 - Expo lint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`): **PASS** (exit 0).
@@ -290,3 +371,22 @@ Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests 
 - Expo config (`expo config --type public --json`) & Android CNG prebuild (`expo prebuild --no-install --platform android`): **PASS**.
 - TypeScript (`tsc --noEmit`): **0 errors** in all modified/added files (`App.tsx`, `screens/SakhaAIScreen.tsx`, `screens/StudySakhaAlarmScreen.tsx`, `src/modules/alarm/*`).
 - Android Kotlin compilation & physical device runtime: **BLOCKED / NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb`/device in Codespace).
+
+## 2026-11-27 — Focus Lock P0 Fixes Verification
+- `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand`: 3 suites passed, 20 tests passed (mocked RN/AsyncStorage/SecureStore + native Kotlin template sync checks).
+- Physical Android device / EAS release-build verification of native `AccessibilityService`, `ELAPSED_REALTIME_WAKEUP`, `TIME_CHANGED`, and reboot recovery remains **Not Verified**.
+
+## 2026-11-27 — Focus Lock P1 Fixes Verification
+- `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockP1Fixes.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand`: 4 suites passed, 25 tests passed (mocked RN/native bridge + Kotlin template sync checks).
+- `pnpm exec tsc --noEmit`: 0 TypeScript errors in Focus Lock and `Shell.tsx` files.
+- Physical Android device verification of P0 and P1 native behaviors remains **Not Verified**.
+
+## 2026-11-27 — Focus Lock P2 Verification
+- `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockP1Fixes.test.tsx test/focusLockP2Fixes.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand`: 5 suites passed, 30 tests passed (mocked RN/native bridge + Kotlin template sync checks).
+- `pnpm exec tsc --noEmit`: 0 TypeScript errors in Focus Lock, `Shell.tsx`, and `SettingsScreen.tsx`.
+- Physical Android device verification of P0, P1, and P2 native behaviors remains **Not Verified**.
+
+## 2026-11-27 — Focus Lock P3 Verification
+- `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockP1Fixes.test.tsx test/focusLockP2Fixes.test.tsx test/focusLockP3Hardening.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand`: 6 suites passed, 33 tests passed.
+- `pnpm exec tsc --noEmit`: 0 TypeScript errors across Focus Lock, `Shell.tsx`, and `SettingsScreen.tsx`.
+- Physical Android device / EAS release-build verification remains **Not Verified**.

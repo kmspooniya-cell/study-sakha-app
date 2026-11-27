@@ -1,6 +1,8 @@
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Keyboard, Platform } from 'react-native';
 
+import { AppBottomNav } from '../components/Shell';
 import type { AppNavigation } from '../lib/navigation';
 import { useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
@@ -16,6 +18,19 @@ export default function StudySakhaAlarmScreen() {
   const navigation = useNavigation<AppNavigation>();
   const { dispatch } = useStore();
   const { scheme } = useTheme();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleToggleDarkMode = useCallback((nextDark: boolean) => {
     dispatch({ type: 'settings', patch: { themeMode: nextDark ? 'dark' : 'light' } });
@@ -35,6 +50,7 @@ export default function StudySakhaAlarmScreen() {
       onExitToHome={handleExitToHome}
       onToggleDarkMode={handleToggleDarkMode}
       onOpenStudyPlanner={handleOpenStudyPlanner}
+      globalBottomNav={!keyboardVisible ? <AppBottomNav active="Dashboard" /> : null}
     />
   );
 }

@@ -29,13 +29,10 @@ import {
   Modal,
   StatusBar,
   StyleSheet,
-  Animated,
-  Easing,
   Platform,
   Dimensions,
   AppState,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
   Circle,
@@ -55,48 +52,44 @@ import {
   ShieldCheck,
   ShieldAlert,
   Lock,
-  Clock,
   Timer,
   Play,
   Pause,
   ChevronLeft,
   ChevronRight,
-  Settings,
-  HelpCircle,
   Sun,
   Moon,
   Search,
   Check,
   X,
-  Plus,
-  Trash2,
   Calendar,
   BarChart3,
   Sliders,
   Zap,
-  Award,
-  Users,
-  Sparkles,
   Phone,
   Smartphone,
-  Wifi,
-  MapPin,
-  BatteryCharging,
   Globe,
   AlertTriangle,
   Info,
   Coffee,
-  BookOpen,
   Target,
   Layers,
-  UserCheck,
   TrendingUp,
   Cpu,
 } from 'lucide-react-native';
+import * as Notifications from 'expo-notifications';
 import { Shell } from '../components/Shell';
 import { appendFocusHistory, type FocusHistoryRecord } from '../lib/focusHistory';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { focusLockNative, subscribeFocusLockEvent } from '../lib/focusLockNative';
+import { computeDurationSession, computeEndOfDaySession, computeUntilTimeSession } from '../lib/focusLockDuration';
+import {
+  buildPredefinedProfiles,
+  getNextFocusScheduleLabel,
+  resolveEffectiveBlockedPackages,
+  type FocusLockProfile,
+} from '../lib/focusLockP2Helpers';
+import { clearExitPin, isValidExitPin, loadExitPin, saveExitPin, verifyExitPin } from '../lib/focusLockPin';
 import { FOCUS_LOCK_STORAGE_KEY } from '../lib/focusLockSnapshot';
 import { useTheme, type Palette } from '../lib/theme';
 
@@ -122,12 +115,8 @@ export type ScreenName =
   | 'active_session'
   | 'modes'
   | 'apps'
-  | 'rules'
   | 'strict'
-  | 'breaks'
-  | 'schedules'
   | 'analytics'
-  | 'sakha'
   | 'content'
   | 'settings';
 
@@ -162,40 +151,8 @@ export interface BlockingMode {
   desc: string;
   icon: keyof typeof MODE_ICONS;
   strictDefault: number;
-}
-
-export interface UsageRule {
-  id: string;
-  type: string;
-  target: string;
-  appId: string | null;
-  limit: number;
-  unit: string;
-  used: number;
-  autoBlock: boolean;
-  active: boolean;
-  combo: string;
-}
-
-export interface FocusSchedule {
-  id: string;
-  name: string;
-  start: string;
-  end: string;
-  days: string[];
-  profile: string;
-  strictLevel: number;
-  enabled: boolean;
-  autoStart: boolean;
-  autoEnd: boolean;
-  conditions: string[];
-  plannerTask: string;
-}
-
-export interface ScheduleConflict {
-  a: string;
-  b: string;
-  days: string;
+  supported?: boolean;
+  unsupportedReason?: string;
 }
 
 export interface PermissionItem {
@@ -210,7 +167,6 @@ export interface StrictConfig {
   preventAccidental: boolean;
   cooldownMins: number;
   pinProtection: boolean;
-  pinCode: string;
   trustedApproval: boolean;
   commitmentConfirm: boolean;
   limitEmergencyExits: boolean;
@@ -408,119 +364,29 @@ export const AppDiscoveryService = {
 };
 
 export const AppBlockingService = {
-  // Future Android Bridge: NativeModules.StudySakhaBlocker.startSession(config)
   getBlockingModes(): BlockingMode[] {
     return [
-      { id: 'quick', name: 'Quick Lock', tag: 'Instant', desc: 'Temporarily block selected apps for a chosen sprint.', icon: 'Zap', strictDefault: 1 },
-      { id: 'strict', name: 'Strict Lock', tag: 'High Discipline', desc: 'Prevents casual cancellation and locks active rules.', icon: 'Lock', strictDefault: 2 },
-      { id: 'allowlist', name: 'Allowlist Mode', tag: 'Minimalist', desc: 'Only selected essential study apps remain accessible.', icon: 'ShieldCheck', strictDefault: 2 },
-      { id: 'pomodoro', name: 'Pomodoro Blocking', tag: 'Cyclic', desc: 'Automatically alternates deep study & controlled breaks.', icon: 'Timer', strictDefault: 1 },
-      { id: 'deep', name: 'Deep Focus', tag: 'Exam Sprint', desc: 'Restrictive shield with DND & zero social interruptions.', icon: 'Target', strictDefault: 3 },
-      { id: 'scheduled', name: 'Scheduled Blocking', tag: 'Automated', desc: 'Activates automatically on your RAS/UPSC study timetable.', icon: 'Calendar', strictDefault: 2 },
-      { id: 'custom', name: 'Custom Blocking', tag: 'Rule Engine', desc: 'Combine usage quotas, launch limits, and schedules.', icon: 'Sliders', strictDefault: 1 },
-      { id: 'emergency', name: 'Emergency Focus', tag: 'Instant 45m', desc: 'One-tap distraction purge when procrastination strikes.', icon: 'ShieldAlert', strictDefault: 2 },
+      { id: 'quick', name: 'Quick Lock', tag: 'Instant', desc: 'Temporarily block selected apps for a chosen sprint.', icon: 'Zap', strictDefault: 1, supported: true },
+      { id: 'strict', name: 'Strict Lock', tag: 'High Discipline', desc: 'Prevents casual cancellation and locks active rules.', icon: 'Lock', strictDefault: 2, supported: true },
+      { id: 'allowlist', name: 'Allowlist Mode', tag: 'Minimalist', desc: 'Only selected essential study apps remain accessible.', icon: 'ShieldCheck', strictDefault: 2, supported: true },
+      { id: 'pomodoro', name: 'Pomodoro Blocking', tag: 'Cyclic', desc: 'Enables cyclic breaks & auto-resume between focus sprints.', icon: 'Timer', strictDefault: 1, supported: true },
+      { id: 'deep', name: 'Deep Focus', tag: 'Exam Sprint', desc: 'Level 3 Extreme shield with DND integration when authorized.', icon: 'Target', strictDefault: 3, supported: true },
+      { id: 'scheduled', name: 'Scheduled Blocking', tag: 'Planner-linked', desc: 'Displays your next Study Planner session; manual start required.', icon: 'Calendar', strictDefault: 2, supported: true },
+      { id: 'custom', name: 'Custom Blocking', tag: 'Unsupported', desc: 'Per-app daily usage quotas & launch limits require a future engine.', icon: 'Sliders', strictDefault: 1, supported: false, unsupportedReason: 'Usage quotas & launch-limit rules are not supported in this build.' },
+      { id: 'emergency', name: 'Emergency Focus', tag: 'Instant 45m', desc: 'One-tap 45-minute Level 2 distraction purge.', icon: 'ShieldAlert', strictDefault: 2, supported: true },
     ];
-  },
-};
-
-export const UsageTrackingService = {
-  getInitialRules(): UsageRule[] {
-    return [];
-    /* return [
-      { id: 'r1', type: 'daily_app', target: 'Instagram', appId: 'instagram', limit: 30, unit: 'min/day', used: 26, autoBlock: true, active: true, combo: 'Usage + Launch' },
-      { id: 'r2', type: 'hourly_app', target: 'YouTube', appId: 'youtube', limit: 15, unit: 'min/hr', used: 10, autoBlock: true, active: true, combo: 'Strict + Usage' },
-      { id: 'r3', type: 'launch_limit', target: 'Instagram', appId: 'instagram', limit: 5, unit: 'launches/day', used: 4, autoBlock: true, active: true, combo: 'Usage + Launch' },
-      { id: 'r4', type: 'category', target: 'Social Media', appId: null, limit: 45, unit: 'min/day', used: 39, autoBlock: true, active: true, combo: 'Schedule + Apps' },
-    ]; */
-  },
-};
-
-export const ScheduleService = {
-  getInitialSchedules(): FocusSchedule[] {
-    return [];
-    /* return [
-      {
-        id: 'sch1',
-        name: 'Morning GS & Current Affairs',
-        start: '06:00',
-        end: '09:00',
-        days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-        profile: 'Complete Distraction Block',
-        strictLevel: 2,
-        enabled: true,
-        autoStart: true,
-        autoEnd: true,
-        conditions: ['Time based', 'Study Planner task'],
-        plannerTask: 'The Hindu + PIB Editorial Notes',
-      },
-      {
-        id: 'sch2',
-        name: 'Afternoon Mains Revision',
-        start: '14:00',
-        end: '16:00',
-        days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-        profile: 'Social Media Shield',
-        strictLevel: 1,
-        enabled: true,
-        autoStart: true,
-        autoEnd: true,
-        conditions: ['Time based', 'Wi-Fi based'],
-        plannerTask: 'Rajasthan Polity Answer Writing',
-      },
-      {
-        id: 'sch3',
-        name: 'Evening Deep Study',
-        start: '19:00',
-        end: '22:00',
-        days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-        profile: 'Complete Distraction Block',
-        strictLevel: 3,
-        enabled: true,
-        autoStart: true,
-        autoEnd: true,
-        conditions: ['Time based', 'Group Focus session'],
-        plannerTask: 'RAS Mains Mock Test Practice',
-      },
-    ]; */
-  },
-  detectConflicts(schedules: FocusSchedule[]): ScheduleConflict[] {
-    const active = schedules.filter((s) => s.enabled);
-    const conflicts: ScheduleConflict[] = [];
-    const toMins = (t: string): number => {
-      const [h, m] = t.split(':').map(Number);
-      return (h || 0) * 60 + (m || 0);
-    };
-    for (let i = 0; i < active.length; i++) {
-      for (let j = i + 1; j < active.length; j++) {
-        const a = active[i];
-        const b = active[j];
-        const sharedDays = a.days.filter((d) => b.days.includes(d));
-        if (sharedDays.length > 0) {
-          const aStart = toMins(a.start);
-          const aEnd = toMins(a.end);
-          const bStart = toMins(b.start);
-          const bEnd = toMins(b.end);
-          if (aStart < bEnd && bStart < aEnd) {
-            conflicts.push({ a: a.name, b: b.name, days: sharedDays.join(', ') });
-          }
-        }
-      }
-    }
-    return conflicts;
   },
 };
 
 export const PermissionService = {
   getInitialPermissions(): PermissionItem[] {
     return [
-      { id: 'usage', name: 'Usage Access', status: 'Needs Attention', desc: 'Detects foreground app transitions & accurate screen-time.', why: 'Required to identify when a blocked app is launched and enforce daily usage quotas.' },
       { id: 'accessibility', name: 'Accessibility Service', status: 'Needs Attention', desc: 'Displays Focus Lock intervention over distracting apps.', why: 'Enables instant shield activation and blocked-app detection.' },
-      { id: 'overlay', name: 'Display Over Other Apps', status: 'Needs Attention', desc: 'Native overlay support is not configured.', why: 'Required only when the native intervention is implemented.' },
-      { id: 'notification', name: 'Notification Permission', status: 'Needs Attention', desc: 'Notification state is not currently verified.', why: 'Required for reliable background session alerts.' },
-      { id: 'dnd', name: 'Do Not Disturb Access', status: 'Needs Attention', desc: 'Silences distracting pings while allowing emergency calls.', why: 'Prevents notification banners from pulling you out of deep work.' },
-      { id: 'background', name: 'Background Execution', status: 'Needs Attention', desc: 'Background reliability is device-dependent.', why: 'Required for schedules and restart recovery.' },
-      { id: 'battery', name: 'Battery Optimization', status: 'Needs Attention', desc: 'Battery exemption state is not currently verified.', why: 'Prevents OEMs from pausing active focus protection.' },
-      { id: 'packages', name: 'Installed App Visibility', status: 'Needs Attention', desc: 'App visibility is available only through the Android bridge.', why: 'Used exclusively on-device to build your blocklists.' },
+      { id: 'usage', name: 'Usage Access', status: 'Needs Attention', desc: 'Detects foreground app transitions & accurate screen-time.', why: 'Required to identify distracting usage insights on-device.' },
+      { id: 'exact_alarm', name: 'Exact Alarm Access', status: 'Needs Attention', desc: 'Delivers session expiration alarms on time on Android 12+.', why: 'Prevents delayed session endings when the device enters Doze.' },
+      { id: 'notification', name: 'Notification Permission', status: 'Needs Attention', desc: 'Allows session status and completion alerts.', why: 'Required for reliable background session notifications.' },
+      { id: 'battery', name: 'Battery Optimization', status: 'Needs Attention', desc: 'Exempts Focus Lock from aggressive OEM background limits.', why: 'Prevents MIUI, OneUI, or ColorOS from pausing active focus protection.' },
+      { id: 'dnd', name: 'Do Not Disturb Access', status: 'Needs Attention', desc: 'Silences distracting notifications during Focus Lock when enabled.', why: 'Required on Android 6+ to toggle DND and restore it when sessions end.' },
     ];
   },
 };
@@ -700,6 +566,27 @@ function formatDurationMMSS(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+export function resolveBlockedPackages(
+  apps: readonly InstalledApp[],
+  selectedAppIds: readonly string[],
+  strategy: AppStrategy,
+): string[] {
+  const selectedSet = new Set(selectedAppIds);
+  if (strategy === 'allow') {
+    return apps.filter((app) => !selectedSet.has(app.id)).map((app) => app.pkg);
+  }
+  return apps.filter((app) => selectedSet.has(app.id)).map((app) => app.pkg);
+}
+
+export function canCompleteSessionEarly(
+  strictLevel: number,
+  nowMs: number,
+  sessionEndMs: number | null,
+): boolean {
+  if (strictLevel < 2) return true;
+  return sessionEndMs !== null && nowMs >= sessionEndMs - 1000;
+}
+
 /* ============================================================================
  * MODULE 6: REUSABLE DESIGN COMPONENTS (components/*)
  * ========================================================================== */
@@ -783,326 +670,6 @@ export function SakhaOwl3D({ mood = 'calm', size = 56 }: { mood?: 'calm' | 'cele
       <Path d="M36.5 40.5 L43.5 40.5 L40 46.5 Z" fill="url(#owlBeak)" />
       <Path d="M26 21 Q40 16 54 21" stroke="#A5B4FC" strokeWidth={1.4} strokeLinecap="round" opacity={0.5} fill="none" />
     </Svg>
-  );
-}
-
-/**
- * 2. OwlAssistantCard
- */
-export function OwlAssistantCard({
-  sessionState,
-  blockedAttempts,
-  onSimulateIntervention,
-  onOpenSakha,
-  theme,
-}: {
-  sessionState: SessionState;
-  blockedAttempts: number;
-  onSimulateIntervention: () => void;
-  onOpenSakha: () => void;
-  theme: ThemePalette;
-}) {
-  const moodMap: Partial<Record<SessionState, { mood: 'calm' | 'celebrate' | 'alert'; title: string; msg: string }>> = {
-    active_focus: { mood: 'calm', title: 'Locked in for your goal', msg: 'Every distraction you resist builds your RAS/UPSC exam temperament. Keep going.' },
-    active_strict: { mood: 'calm', title: 'Strict Shield Engaged', msg: 'Zero loopholes active. Focus solely on your current chapter—I am guarding the gate.' },
-    break_active: { mood: 'calm', title: 'Mindful Break Window', msg: 'Rest your eyes, hydrate, and avoid infinite feeds. Focus resumes automatically.' },
-    completed: { mood: 'celebrate', title: 'Outstanding Discipline!', msg: 'Session completed! You earned +45 Focus Points and moved closer to your daily target.' },
-    permission_missing: { mood: 'alert', title: 'Shield Needs Setup', msg: 'Grant the remaining Android permissions so Focus Lock can guard your sessions reliably.' },
-    interrupted: { mood: 'alert', title: 'Session Interrupted', msg: 'No guilt—slip-ups happen. Take 10 seconds to breathe and restart a short 25m sprint.' },
-  };
-  const activeCopy = moodMap[sessionState] || {
-    mood: blockedAttempts > 20 ? ('alert' as const) : ('calm' as const),
-    title: 'Sakha Owl • Ready to Guard',
-    msg: `You blocked ${blockedAttempts} distractions today. Your evening focus window starts at 7:00 PM.`,
-  };
-
-  return (
-    <LinearGradient
-      colors={
-        theme.isDark
-          ? ['rgba(99,102,241,0.14)', '#141824', 'rgba(245,158,11,0.08)']
-          : ['rgba(99,102,241,0.08)', '#FFFFFF', 'rgba(245,158,11,0.07)']
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.owlCard, { borderColor: theme.indigoBorder }]}
-    >
-      <SakhaOwl3D mood={activeCopy.mood} size={54} />
-      <View style={styles.flex1}>
-        <View style={styles.rowBetween}>
-          <Text numberOfLines={1} style={[styles.textXsBold, { color: theme.textPrimary, flex: 1 }]}>
-            {activeCopy.title}
-          </Text>
-          <TouchableOpacity onPress={onOpenSakha}>
-            <Text style={[styles.text10Semi, { color: theme.indigoLight }]}>Sakha AI →</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={[styles.text11Relaxed, { color: theme.textSecondary, marginTop: 2 }]}>{activeCopy.msg}</Text>
-        <View style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-          <TouchableOpacity
-            onPress={onSimulateIntervention}
-            style={[
-              styles.smallPillBtn,
-              {
-                backgroundColor: theme.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.85)',
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <Text style={[styles.text10Semi, { color: theme.textPrimary }]}>Preview Intervention Screen</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </LinearGradient>
-  );
-}
-
-/**
- * 3. FocusStatusCard
- */
-export function FocusStatusCard({
-  sessionState,
-  selectedAppsCount,
-  selectedDurationMins,
-  remainingSec,
-  nextScheduleText,
-  blockedAttemptsToday,
-  onOpenPermissions,
-  onResumeActive,
-  reduceMotion,
-  theme,
-}: {
-  sessionState: SessionState;
-  selectedAppsCount: number;
-  selectedDurationMins: number;
-  remainingSec: number;
-  nextScheduleText: string;
-  blockedAttemptsToday: number;
-  onOpenPermissions: () => void;
-  onResumeActive: () => void;
-  reduceMotion: boolean;
-  theme: ThemePalette;
-}) {
-  const pingAnim = useRef(new Animated.Value(0)).current;
-  const isRunning = ['active_focus', 'active_strict', 'scheduled_lock', 'break_active'].includes(sessionState);
-
-  useEffect(() => {
-    if (!isRunning || reduceMotion) {
-      pingAnim.setValue(0);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pingAnim, { toValue: 1, duration: 1100, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pingAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [isRunning, pingAnim, reduceMotion]);
-
-  const statusMeta: Record<SessionState, { label: string; bg: string; text: string; border: string; dot: string; glow: string }> = {
-    initial: { label: 'Protection Off', bg: 'rgba(100,116,139,0.15)', text: theme.textSecondary, border: 'rgba(148,163,184,0.22)', dot: '#94A3B8', glow: 'rgba(100,116,139,0.06)' },
-    ready: { label: 'Ready to Focus', bg: theme.indigoSoft, text: theme.indigoLight, border: theme.indigoBorder, dot: '#6366F1', glow: 'rgba(99,102,241,0.10)' },
-    active_focus: { label: 'Focus Lock Active', bg: theme.emeraldSoft, text: theme.emerald, border: 'rgba(16,185,129,0.28)', dot: '#10B981', glow: 'rgba(16,185,129,0.14)' },
-    active_strict: { label: 'Strict Lock Active', bg: theme.roseSoft, text: theme.rose, border: 'rgba(244,63,94,0.32)', dot: '#F43F5E', glow: 'rgba(244,63,94,0.14)' },
-    scheduled_lock: { label: 'Scheduled Lock', bg: 'rgba(139,92,246,0.15)', text: '#A78BFA', border: 'rgba(139,92,246,0.28)', dot: '#8B5CF6', glow: 'rgba(139,92,246,0.14)' },
-    break_active: { label: 'Break Active', bg: theme.tealSoft, text: theme.teal, border: 'rgba(20,184,166,0.28)', dot: '#14B8A6', glow: 'rgba(20,184,166,0.14)' },
-    completed: { label: 'Session Completed', bg: theme.emeraldSoft, text: theme.emerald, border: 'rgba(16,185,129,0.28)', dot: '#10B981', glow: 'rgba(16,185,129,0.14)' },
-    emergency_requested: { label: 'Emergency Requested', bg: theme.amberSoft, text: theme.amber, border: 'rgba(245,158,11,0.30)', dot: '#F59E0B', glow: 'rgba(245,158,11,0.14)' },
-    permission_missing: { label: 'Permission Required', bg: theme.amberSoft, text: theme.amber, border: 'rgba(245,158,11,0.30)', dot: '#F59E0B', glow: 'rgba(245,158,11,0.14)' },
-    service_unavailable: { label: 'Service Unavailable', bg: theme.roseSoft, text: theme.rose, border: 'rgba(244,63,94,0.30)', dot: '#F43F5E', glow: 'rgba(244,63,94,0.14)' },
-    interrupted: { label: 'Session Interrupted', bg: theme.amberSoft, text: theme.amber, border: 'rgba(245,158,11,0.30)', dot: '#F59E0B', glow: 'rgba(245,158,11,0.14)' },
-  };
-  const cfg = statusMeta[sessionState] || statusMeta.ready;
-
-  return (
-    <View style={[styles.cardRounded3xl, { backgroundColor: theme.cardBg, borderColor: theme.border, overflow: 'hidden' }]}>
-      <LinearGradient
-        colors={[cfg.glow, 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={[styles.rowBetween, { marginBottom: 14 }]}>
-        <View style={[styles.statusPill, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
-          <View style={styles.dotContainer}>
-            {isRunning && (
-              <Animated.View
-                style={[
-                  styles.pingRing,
-                  {
-                    backgroundColor: cfg.dot,
-                    transform: [{ scale: pingAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
-                    opacity: pingAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
-                  },
-                ]}
-              />
-            )}
-            <View style={[styles.dotCore, { backgroundColor: cfg.dot }]} />
-          </View>
-          <Text style={[styles.text11Bold, { color: cfg.text }]}>{cfg.label}</Text>
-        </View>
-
-        {sessionState === 'permission_missing' || sessionState === 'service_unavailable' ? (
-          <TouchableOpacity onPress={onOpenPermissions}>
-            <Text style={[styles.text11Bold, { color: theme.amber }]}>Fix Health →</Text>
-          </TouchableOpacity>
-        ) : isRunning ? (
-          <TouchableOpacity onPress={onResumeActive} style={styles.openTimerBtn}>
-            <Text style={[styles.text11Bold, { color: '#FFFFFF' }]}>Open Timer</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
-            Next: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{nextScheduleText}</Text>
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.grid3}>
-        <View style={[styles.metricBox, { backgroundColor: theme.surfaceBg, borderColor: theme.borderSubtle }]}>
-          <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Blocked Apps</Text>
-          <Text style={[styles.metricValue, { color: theme.textPrimary }]}>{selectedAppsCount}</Text>
-        </View>
-        <View style={[styles.metricBox, { backgroundColor: theme.surfaceBg, borderColor: theme.borderSubtle }]}>
-          <Text style={[styles.text10Muted, { color: theme.textMuted }]}>{isRunning ? 'Remaining' : 'Duration'}</Text>
-          <Text style={[styles.metricValue, { color: theme.indigoLight }]}>
-            {isRunning ? formatDurationMMSS(remainingSec) : `${selectedDurationMins}m`}
-          </Text>
-        </View>
-        <View style={[styles.metricBox, { backgroundColor: theme.surfaceBg, borderColor: theme.borderSubtle }]}>
-          <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Blocked Today</Text>
-          <Text style={[styles.metricValue, { color: theme.emerald }]}>{blockedAttemptsToday}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-/**
- * 4. QuickLockPresets
- */
-export function QuickLockPresets({
-  selectedPreset,
-  customMinutes,
-  untilTime,
-  onSelectPreset,
-  onChangeCustomMinutes,
-  onChangeUntilTime,
-  onStartFocus,
-  activeModeName,
-  strictLevel,
-  theme,
-}: {
-  selectedPreset: string;
-  customMinutes: number;
-  untilTime: string;
-  onSelectPreset: (id: string) => void;
-  onChangeCustomMinutes: (mins: number) => void;
-  onChangeUntilTime: (timeStr: string) => void;
-  onStartFocus: () => void;
-  activeModeName: string;
-  strictLevel: number;
-  theme: ThemePalette;
-}) {
-  const presets = [
-    { id: '15', label: '15m' },
-    { id: '25', label: '25m' },
-    { id: '30', label: '30m' },
-    { id: '50', label: '50m' },
-    { id: '90', label: '90m' },
-    { id: '120', label: '2 hrs' },
-    { id: 'custom', label: 'Custom' },
-    { id: 'until', label: 'Until Time' },
-    { id: 'eod', label: 'End of Day' },
-  ];
-
-  return (
-    <View style={[styles.cardRounded3xl, { backgroundColor: theme.cardBg, borderColor: theme.border, gap: 14 }]}>
-      <View style={styles.rowBetween}>
-        <View>
-          <Text style={[styles.textSmBold, { color: theme.textPrimary }]}>Quick Focus Lock</Text>
-          <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
-            {activeModeName} • Strictness Level {strictLevel}
-          </Text>
-        </View>
-        <View style={[styles.tagPill, { backgroundColor: theme.surfaceElevated }]}>
-          <Text style={[styles.text10Semi, { color: theme.textSecondary }]}>Instant Start</Text>
-        </View>
-      </View>
-
-      <View style={styles.presetGrid}>
-        {presets.map((p) => {
-          const active = selectedPreset === p.id;
-          return (
-            <TouchableOpacity
-              key={p.id}
-              activeOpacity={0.8}
-              onPress={() => onSelectPreset(p.id)}
-              style={[
-                styles.presetChip,
-                active
-                  ? { backgroundColor: '#4F46E5', borderColor: '#6366F1' }
-                  : { backgroundColor: theme.surfaceBg, borderColor: theme.border },
-              ]}
-            >
-              <Text style={[styles.textXsSemi, { color: active ? '#FFFFFF' : theme.textSecondary }]}>{p.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {selectedPreset === 'custom' && (
-        <View style={[styles.inlinePanel, { backgroundColor: theme.surfaceBg, borderColor: theme.border }]}>
-          <Text style={[styles.textXsSemi, { color: theme.textSecondary }]}>Custom duration:</Text>
-          <View style={styles.rowGap8}>
-            <TouchableOpacity
-              onPress={() => onChangeCustomMinutes(Math.max(5, customMinutes - 5))}
-              style={[styles.stepperBtn, { backgroundColor: theme.surfaceElevated }]}
-            >
-              <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>−</Text>
-            </TouchableOpacity>
-            <Text style={[styles.textXsBold, { color: theme.indigoLight, minWidth: 44, textAlign: 'center' }]}>
-              {customMinutes}m
-            </Text>
-            <TouchableOpacity
-              onPress={() => onChangeCustomMinutes(Math.min(240, customMinutes + 5))}
-              style={[styles.stepperBtn, { backgroundColor: theme.surfaceElevated }]}
-            >
-              <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {selectedPreset === 'until' && (
-        <View style={[styles.inlinePanel, { backgroundColor: theme.surfaceBg, borderColor: theme.border }]}>
-          <Text style={[styles.textXsSemi, { color: theme.textSecondary }]}>Lock until time:</Text>
-          <TextInput
-            value={untilTime}
-            onChangeText={onChangeUntilTime}
-            placeholder="21:30"
-            placeholderTextColor={theme.textMuted}
-            style={[
-              styles.timeInput,
-              { backgroundColor: theme.screenBg, borderColor: theme.border, color: theme.textPrimary },
-            ]}
-          />
-        </View>
-      )}
-
-      <TouchableOpacity activeOpacity={0.9} onPress={onStartFocus}>
-        <LinearGradient
-          colors={['#4F46E5', '#6366F1', '#7C3AED']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.startFocusCta}
-        >
-          <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
-          <Text style={styles.startFocusCtaText}>START FOCUS LOCK</Text>
-        </LinearGradient>
-      </TouchableOpacity>
-    </View>
   );
 }
 
@@ -1428,234 +995,6 @@ export function StrictModeSelector({
 }
 
 /**
- * 10. UsageLimitCard
- */
-export function UsageLimitCard({
-  rule,
-  onToggle,
-  onUpdateLimit,
-  onDelete,
-  theme,
-}: {
-  rule: UsageRule;
-  onToggle: (id: string) => void;
-  onUpdateLimit: (id: string, lim: number) => void;
-  onDelete: (id: string) => void;
-  theme: ThemePalette;
-}) {
-  const pct = Math.min(100, Math.round((rule.used / Math.max(1, rule.limit)) * 100));
-  const barColor = pct >= 90 ? '#F43F5E' : pct >= 70 ? '#F59E0B' : '#6366F1';
-
-  return (
-    <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, gap: 10 }]}>
-      <View style={styles.rowBetween}>
-        <View style={styles.flex1}>
-          <View style={styles.rowGap8}>
-            <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>{rule.target}</Text>
-            <View style={[styles.statusTag, { backgroundColor: theme.indigoSoft }]}>
-              <Text style={{ fontSize: 10, fontWeight: '600', color: theme.indigoLight }}>{rule.combo}</Text>
-            </View>
-          </View>
-          <Text style={[styles.text11Muted, { color: theme.textMuted, marginTop: 2 }]}>
-            Limit: <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>{rule.limit} {rule.unit}</Text> • Used: {rule.used}
-          </Text>
-        </View>
-        <View style={styles.rowGap8}>
-          <PillToggle value={rule.active} onToggle={() => onToggle(rule.id)} isDark={theme.isDark} />
-          <TouchableOpacity onPress={() => onDelete(rule.id)} style={{ padding: 4 }}>
-            <Trash2 size={15} color={theme.textMuted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={[styles.progressTrack, { backgroundColor: theme.surfaceElevated }]}>
-        <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: barColor }]} />
-      </View>
-
-      <View style={styles.rowBetween}>
-        <Text style={[styles.text10Muted, { color: theme.textMuted }]}>
-          {rule.autoBlock ? 'Auto-Block ON at 100%' : 'Alert only'}
-        </Text>
-        <View style={styles.rowGap6}>
-          <TouchableOpacity
-            onPress={() => onUpdateLimit(rule.id, Math.max(1, rule.limit - (rule.unit.includes('launch') ? 1 : 5)))}
-            style={[styles.stepperSmall, { backgroundColor: theme.surfaceElevated }]}
-          >
-            <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>−</Text>
-          </TouchableOpacity>
-          <Text style={[styles.text11Bold, { color: theme.textPrimary, minWidth: 32, textAlign: 'center' }]}>{rule.limit}</Text>
-          <TouchableOpacity
-            onPress={() => onUpdateLimit(rule.id, rule.limit + (rule.unit.includes('launch') ? 1 : 5))}
-            style={[styles.stepperSmall, { backgroundColor: theme.surfaceElevated }]}
-          >
-            <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>+</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-/**
- * 11. BreakManagementCard
- */
-export function BreakManagementCard({
-  breakConfig,
-  onUpdateConfig,
-  onStartDemoBreak,
-  theme,
-}: {
-  breakConfig: BreakConfig;
-  onUpdateConfig: (next: BreakConfig) => void;
-  onStartDemoBreak: () => void;
-  theme: ThemePalette;
-}) {
-  const presets = [
-    { id: '25_5', label: '25m Focus + 5m Break', brk: 5 },
-    { id: '50_10', label: '50m Focus + 10m Break', brk: 10 },
-    { id: '90_15', label: '90m Focus + 15m Break', brk: 15 },
-    { id: 'none', label: 'No-Break Deep Sprint', brk: 0 },
-  ];
-  const disabled = breakConfig.noBreakMode || breakConfig.consumed >= breakConfig.dailyBudget;
-
-  return (
-    <View style={{ gap: 12 }}>
-      <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16 }]}>
-        <View style={[styles.grid3, { marginBottom: 12 }]}>
-          <View style={[styles.metricBoxCenter, { backgroundColor: theme.surfaceBg }]}>
-            <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Remaining</Text>
-            <Text style={[styles.textBaseExtraBold, { color: theme.teal }]}>
-              {Math.max(0, breakConfig.dailyBudget - breakConfig.consumed)} / {breakConfig.dailyBudget}
-            </Text>
-          </View>
-          <View style={[styles.metricBoxCenter, { backgroundColor: theme.surfaceBg }]}>
-            <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Duration</Text>
-            <Text style={[styles.textBaseExtraBold, { color: theme.textPrimary }]}>{breakConfig.breakDuration}m</Text>
-          </View>
-          <View style={[styles.metricBoxCenter, { backgroundColor: theme.surfaceBg }]}>
-            <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Next Break</Text>
-            <Text style={[styles.textBaseExtraBold, { color: theme.indigoLight }]}>
-              {breakConfig.noBreakMode ? 'Off' : 'In 22m'}
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          activeOpacity={0.85}
-          disabled={disabled}
-          onPress={onStartDemoBreak}
-          style={[styles.tealCta, { opacity: disabled ? 0.4 : 1 }]}
-        >
-          <Coffee size={16} color="#FFFFFF" />
-          <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>
-            Launch Circular Break Timer ({breakConfig.breakDuration || 5}m)
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 8 }]}>
-        <Text style={[styles.textXsBold, { color: theme.textPrimary, marginBottom: 4 }]}>Smart Break Presets</Text>
-        {presets.map((p) => {
-          const selected = breakConfig.presetId === p.id;
-          return (
-            <TouchableOpacity
-              key={p.id}
-              activeOpacity={0.8}
-              onPress={() =>
-                onUpdateConfig({
-                  ...breakConfig,
-                  presetId: p.id,
-                  breakDuration: p.brk,
-                  noBreakMode: p.id === 'none',
-                })
-              }
-              style={[
-                styles.presetOptionRow,
-                selected
-                  ? { backgroundColor: theme.tealSoft, borderColor: '#14B8A6' }
-                  : { backgroundColor: theme.surfaceBg, borderColor: theme.border },
-              ]}
-            >
-              <Text style={[styles.textXsSemi, { color: selected ? theme.teal : theme.textSecondary }]}>{p.label}</Text>
-              {selected && <Check size={16} color={theme.teal} />}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-/**
- * 12. ScheduleCard
- */
-export function ScheduleCard({
-  schedule,
-  onToggle,
-  onActivateNow,
-  onDelete,
-  theme,
-}: {
-  schedule: FocusSchedule;
-  onToggle: (id: string) => void;
-  onActivateNow: (s: FocusSchedule) => void;
-  onDelete: (id: string) => void;
-  theme: ThemePalette;
-}) {
-  return (
-    <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, gap: 10 }]}>
-      <View style={styles.rowBetween}>
-        <View style={styles.flex1}>
-          <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>{schedule.name}</Text>
-          <Text style={[styles.textSmExtraBold, { color: theme.indigoLight, marginTop: 2 }]}>
-            {schedule.start} – {schedule.end}
-          </Text>
-        </View>
-        <View style={styles.rowGap8}>
-          <PillToggle value={schedule.enabled} onToggle={() => onToggle(schedule.id)} isDark={theme.isDark} />
-          <TouchableOpacity onPress={() => onDelete(schedule.id)} style={{ padding: 4 }}>
-            <Trash2 size={15} color={theme.textMuted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.rowBetween}>
-        <View style={styles.rowGap4}>
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => {
-            const active = schedule.days.includes(d);
-            return (
-              <View
-                key={d}
-                style={[styles.dayBadge, { backgroundColor: active ? theme.indigoSoft : theme.surfaceElevated }]}
-              >
-                <Text style={{ fontSize: 9, fontWeight: '700', color: active ? theme.indigoLight : theme.textMuted }}>
-                  {d[0]}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-        <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Strict Lv.{schedule.strictLevel}</Text>
-      </View>
-
-      {Boolean(schedule.plannerTask) && (
-        <View style={[styles.plannerStrip, { backgroundColor: theme.surfaceBg, borderColor: theme.borderSubtle }]}>
-          <View style={[styles.rowGap6, { flex: 1 }]}>
-            <BookOpen size={14} color="#F59E0B" />
-            <Text numberOfLines={1} style={[styles.text10Muted, { color: theme.textSecondary, flex: 1 }]}>
-              Planner: {schedule.plannerTask}
-            </Text>
-          </View>
-          <TouchableOpacity onPress={() => onActivateNow(schedule)}>
-            <Text style={[styles.text10Bold, { color: theme.indigoLight }]}>Start Now</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-}
-
-/**
  * 13. AnalyticsCard
  */
 export function AnalyticsCard({
@@ -1868,96 +1207,6 @@ export function DistractionChart({
 }
 
 /**
- * 15. FocusRewardCard
- */
-export function FocusRewardCard({
-  points,
-  streak,
-  onClaimDaily,
-  dailyClaimed,
-  theme,
-}: {
-  points: number;
-  streak: number;
-  onClaimDaily: () => void;
-  dailyClaimed: boolean;
-  theme: ThemePalette;
-}) {
-  return (
-    <LinearGradient
-      colors={
-        theme.isDark
-          ? ['rgba(245,158,11,0.12)', '#121621', 'rgba(99,102,241,0.12)']
-          : ['rgba(245,158,11,0.10)', '#FFFFFF', 'rgba(99,102,241,0.10)']
-      }
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.cardRounded2xl, { borderColor: 'rgba(245,158,11,0.28)', padding: 16, gap: 12 }]}
-    >
-      <View style={styles.rowBetween}>
-        <View style={styles.rowGap10}>
-          <View style={[styles.iconBox40, { backgroundColor: 'rgba(245,158,11,0.20)' }]}>
-            <Award size={20} color="#F59E0B" />
-          </View>
-          <View>
-            <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Study Sakha Focus Rewards</Text>
-            <Text style={[styles.text11Muted, { color: theme.textMuted }]}>{streak}-Day Discipline Streak</Text>
-          </View>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[styles.metricValue, { color: '#F59E0B' }]}>{points}</Text>
-          <Text style={{ fontSize: 9, fontWeight: '700', color: theme.textMuted, textTransform: 'uppercase' }}>Focus Pts</Text>
-        </View>
-      </View>
-
-      <View style={styles.grid3}>
-        {[
-          { title: 'Dawn Warrior', unlocked: true },
-          { title: 'Zero Reels 7d', unlocked: true },
-          { title: 'Obsidian Theme', unlocked: points >= 1500 },
-        ].map((b, i) => (
-          <View
-            key={i}
-            style={[
-              styles.badgeTile,
-              b.unlocked
-                ? { backgroundColor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.32)' }
-                : { backgroundColor: theme.surfaceBg, borderColor: theme.border },
-            ]}
-          >
-            <Text
-              numberOfLines={1}
-              style={{
-                fontSize: 10,
-                fontWeight: '700',
-                color: b.unlocked ? theme.amber : theme.textMuted,
-              }}
-            >
-              {b.unlocked ? '★ ' : '🔒 '}
-              {b.title}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <TouchableOpacity
-        activeOpacity={0.85}
-        disabled={dailyClaimed}
-        onPress={onClaimDaily}
-        style={[
-          styles.claimRewardBtn,
-          { backgroundColor: dailyClaimed ? theme.surfaceElevated : '#F59E0B' },
-        ]}
-      >
-        <Text style={[styles.textXsBold, { color: dailyClaimed ? theme.textMuted : '#020617' }]}>
-          {dailyClaimed ? 'Daily Focus Chest Claimed ✓' : 'Claim Daily Focus Bonus (+100 Pts)'}
-        </Text>
-      </TouchableOpacity>
-    </LinearGradient>
-  );
-}
-
-/**
  * 16. PermissionStatusCard
  */
 export function PermissionStatusCard({
@@ -2008,208 +1257,104 @@ export function PermissionStatusCard({
 }
 
 /**
- * 17. InterventionModal — Mindful App Intervention Overlay
- */
-export function InterventionModal({
-  open,
-  appName,
-  attemptCount,
-  dailyIntention,
-  onCloseReturnStudy,
-  onRequestEmergency,
-  onContinueFocus,
-}: {
-  open: boolean;
-  appName: string;
-  attemptCount: number;
-  dailyIntention: string;
-  onCloseReturnStudy: () => void;
-  onRequestEmergency: () => void;
-  onContinueFocus: () => void;
-}) {
-  const { reduceMotion } = useTheme();
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
-  const [styleMode, setStyleMode] = useState<'breath' | 'wait' | 'exam'>('breath');
-  const [countdown, setCountdown] = useState<number>(10);
-  const breathScale = useRef(new Animated.Value(0.95)).current;
-
-  const reasons = [
-    'I have something important to do.',
-    'I need to check notifications.',
-    'I am feeling bored.',
-    'I am avoiding my studies.',
-    'I just opened it habitually.',
-  ];
-
-  useEffect(() => {
-    if (!open) {
-      setSelectedReason(null);
-      return;
-    }
-    setCountdown(styleMode === 'wait' ? 15 : 10);
-  }, [open, styleMode]);
-
-  useEffect(() => {
-    if (!open || countdown <= 0) return;
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [open, countdown]);
-
-  useEffect(() => {
-    if (!open || reduceMotion) {
-      breathScale.setValue(1);
-      return;
-    }
-    Animated.timing(breathScale, {
-      toValue: countdown % 2 === 0 ? 1.12 : 0.9,
-      duration: 900,
-      easing: Easing.inOut(Easing.ease),
-      useNativeDriver: true,
-    }).start();
-  }, [open, countdown, breathScale, reduceMotion]);
-
-  return (
-    <Modal visible={open} animationType="fade" transparent statusBarTranslucent>
-      <SafeAreaView style={styles.interventionOverlay}>
-        <ScrollView contentContainerStyle={styles.interventionScroll}>
-          {/* Top Bar */}
-          <View style={styles.rowBetween}>
-            <View style={styles.attemptBadge}>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: '#FDA4AF' }}>
-                {appName} • Attempt #{attemptCount} today
-              </Text>
-            </View>
-            <View style={styles.styleSwitchBox}>
-              {([
-                { id: 'breath', label: '10s Breath' },
-                { id: 'wait', label: '15s Wait' },
-                { id: 'exam', label: 'Goal' },
-              ] as const).map((s) => (
-                <TouchableOpacity
-                  key={s.id}
-                  onPress={() => setStyleMode(s.id)}
-                  style={[styles.styleSwitchTab, styleMode === s.id && { backgroundColor: '#4F46E5' }]}
-                >
-                  <Text style={{ fontSize: 10, fontWeight: '600', color: styleMode === s.id ? '#FFFFFF' : '#94A3B8' }}>
-                    {s.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Breathing Circle & Core Question */}
-          <View style={{ alignItems: 'center', marginVertical: 20 }}>
-            <View style={styles.breathWrapper}>
-              <Animated.View style={[styles.breathHalo, { transform: [{ scale: breathScale }] }]} />
-              <LinearGradient colors={['#6366F1', '#7C3AED']} style={styles.breathCore}>
-                <Text style={styles.breathDigits}>{countdown}s</Text>
-                <Text style={styles.breathSub}>
-                  {styleMode === 'breath' ? (countdown % 2 === 0 ? 'INHALE' : 'EXHALE') : 'PAUSE'}
-                </Text>
-              </LinearGradient>
-            </View>
-
-            <Text style={styles.interventionTitle}>Is this really important right now?</Text>
-            <Text style={styles.interventionSubtitle}>Your goals deserve your attention.</Text>
-
-            <View style={styles.intentionBox}>
-              <Text style={{ fontSize: 11, color: '#C7D2FE', textAlign: 'center' }}>
-                Daily Intention: <Text style={{ fontWeight: '700', color: '#FFFFFF' }}>“{dailyIntention}”</Text>
-              </Text>
-            </View>
-          </View>
-
-          {/* Reasons */}
-          <View style={{ gap: 6, marginBottom: 18 }}>
-            <Text style={styles.reasonHeader}>WHY ARE YOU OPENING {appName.toUpperCase()}?</Text>
-            {reasons.map((r) => {
-              const active = selectedReason === r;
-              return (
-                <TouchableOpacity
-                  key={r}
-                  onPress={() => setSelectedReason(r)}
-                  style={[
-                    styles.reasonBtn,
-                    active
-                      ? { backgroundColor: 'rgba(99,102,241,0.25)', borderColor: '#818CF8' }
-                      : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' },
-                  ]}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '500', color: active ? '#FFFFFF' : '#CBD5E1' }}>{r}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Action Buttons */}
-          <View style={{ gap: 8 }}>
-            <TouchableOpacity activeOpacity={0.9} onPress={onCloseReturnStudy}>
-              <LinearGradient
-                colors={['#10B981', '#14B8A6']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.returnStudyBtn}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '800', color: '#020617' }}>
-                  Return to Study & Continue Focus
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <View style={styles.grid2}>
-              <TouchableOpacity onPress={onContinueFocus} style={styles.continueFocusBtn}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFFFFF' }}>Continue Focus</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={countdown > 0}
-                onPress={onRequestEmergency}
-                style={[styles.emergencyReqBtn, { opacity: countdown > 0 ? 0.4 : 1 }]}
-              >
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#FDA4AF' }}>
-                  {countdown > 0 ? `Emergency (${countdown}s)` : 'Request Emergency'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
-}
-
-/**
  * 18. EmergencyAccessModal
  */
 export function EmergencyAccessModal({
   open,
   strictLevel,
   strictConfig,
+  hasConfiguredPin,
   partnerName,
   onClose,
+  onVerifyPin,
+  onForgotPinReset,
   onGrantEmergency,
   theme,
 }: {
   open: boolean;
   strictLevel: number;
   strictConfig: StrictConfig;
+  hasConfiguredPin: boolean;
   partnerName: string;
   onClose: () => void;
+  onVerifyPin: (pin: string) => Promise<boolean>;
+  onForgotPinReset: () => Promise<void>;
   onGrantEmergency: () => void;
   theme: ThemePalette;
 }) {
   const [pinInput, setPinInput] = useState('');
   const [partnerRequested, setPartnerRequested] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutSecs, setLockoutSecs] = useState(0);
+  const [recoveryWaitSecs, setRecoveryWaitSecs] = useState<number | null>(null);
+  const [verifying, setVerifying] = useState(false);
 
-  const handleConfirm = () => {
-    if (strictLevel >= 2 && strictConfig.pinProtection && pinInput !== strictConfig.pinCode) {
-      setErrorMsg(`Incorrect PIN (Demo PIN: ${strictConfig.pinCode})`);
-      return;
+  const pinRequired = strictLevel >= 2 && strictConfig.pinProtection && hasConfiguredPin;
+
+  useEffect(() => {
+    if (!open) {
+      setPinInput('');
+      setErrorMsg('');
+      setRecoveryWaitSecs(null);
+      setVerifying(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || lockoutSecs <= 0) return;
+    const t = setTimeout(() => setLockoutSecs((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [open, lockoutSecs]);
+
+  useEffect(() => {
+    if (!open || recoveryWaitSecs === null || recoveryWaitSecs <= 0) return;
+    const t = setTimeout(() => setRecoveryWaitSecs((s) => (s !== null ? Math.max(0, s - 1) : null)), 1000);
+    return () => clearTimeout(t);
+  }, [open, recoveryWaitSecs]);
+
+  const handleConfirm = async () => {
+    if (verifying) return;
+    if (pinRequired) {
+      if (lockoutSecs > 0) {
+        setErrorMsg(`Too many incorrect attempts. Wait ${lockoutSecs}s.`);
+        return;
+      }
+      if (!isValidExitPin(pinInput)) {
+        setErrorMsg('Enter your 4-digit Exit PIN.');
+        return;
+      }
+      setVerifying(true);
+      const valid = await onVerifyPin(pinInput);
+      setVerifying(false);
+      if (!valid) {
+        const nextAttempts = failedAttempts + 1;
+        setFailedAttempts(nextAttempts);
+        setPinInput('');
+        if (nextAttempts >= 5) {
+          setFailedAttempts(0);
+          setLockoutSecs(30);
+          setErrorMsg('Too many incorrect attempts. Locked for 30s.');
+        } else {
+          setErrorMsg(`Incorrect Exit PIN (${5 - nextAttempts} attempts left).`);
+        }
+        return;
+      }
     }
     setErrorMsg('');
     setPinInput('');
+    setFailedAttempts(0);
     setPartnerRequested(false);
+    setRecoveryWaitSecs(null);
+    onGrantEmergency();
+  };
+
+  const handleCompleteRecovery = async () => {
+    await onForgotPinReset();
+    setErrorMsg('');
+    setPinInput('');
+    setFailedAttempts(0);
+    setRecoveryWaitSecs(null);
     onGrantEmergency();
   };
 
@@ -2260,10 +1405,10 @@ export function EmergencyAccessModal({
             </View>
           ) : (
             <View style={{ gap: 12 }}>
-              {strictLevel >= 2 && strictConfig.pinProtection && (
-                <View>
-                  <Text style={[styles.text11Bold, { color: theme.textMuted, marginBottom: 4 }]}>
-                    Enter Exit PIN (Demo PIN: {strictConfig.pinCode})
+              {pinRequired && (
+                <View style={{ gap: 8 }}>
+                  <Text style={[styles.text11Bold, { color: theme.textMuted }]}>
+                    Enter your 4-digit Exit PIN
                   </Text>
                   <TextInput
                     secureTextEntry
@@ -2278,14 +1423,35 @@ export function EmergencyAccessModal({
                       { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary },
                     ]}
                   />
-                  {Boolean(errorMsg) && <Text style={{ fontSize: 11, color: theme.rose, marginTop: 4 }}>{errorMsg}</Text>}
+                  {Boolean(errorMsg) && <Text style={{ fontSize: 11, color: theme.rose }}>{errorMsg}</Text>}
+                  {recoveryWaitSecs === null ? (
+                    <TouchableOpacity onPress={() => setRecoveryWaitSecs(30)}>
+                      <Text style={[styles.text11Bold, { color: theme.indigoLight }]}>
+                        Forgot PIN? Start 30s Recovery Wait
+                      </Text>
+                    </TouchableOpacity>
+                  ) : recoveryWaitSecs > 0 ? (
+                    <Text style={[styles.text11Muted, { color: theme.amber }]}>
+                      Recovery wait in progress: {recoveryWaitSecs}s remaining...
+                    </Text>
+                  ) : (
+                    <TouchableOpacity onPress={() => void handleCompleteRecovery()} style={styles.roseFullBtn}>
+                      <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Reset Forgotten PIN & Exit Session</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
               <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
                 Cooldown configured: <Text style={{ fontWeight: '700', color: theme.textPrimary }}>{strictConfig.cooldownMins} min</Text>. Emergency passes are logged in your analytics.
               </Text>
-              <TouchableOpacity onPress={handleConfirm} style={styles.amberFullBtn}>
-                <Text style={[styles.textXsExtraBold, { color: '#020617' }]}>Confirm 5-Min Emergency Access</Text>
+              <TouchableOpacity
+                disabled={verifying || lockoutSecs > 0}
+                onPress={() => void handleConfirm()}
+                style={[styles.amberFullBtn, { opacity: verifying || lockoutSecs > 0 ? 0.5 : 1 }]}
+              >
+                <Text style={[styles.textXsExtraBold, { color: '#020617' }]}>
+                  {lockoutSecs > 0 ? `Locked (${lockoutSecs}s)` : 'Confirm 5-Min Emergency Access'}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -2356,7 +1522,7 @@ export function SessionCompletionModal({
 
 export default function FocusLockScreen() {
   const { state, dispatch } = useStore();
-  const { scheme, colors, reduceMotion } = useTheme();
+  const { scheme, colors } = useTheme();
   // Theme & Navigation State (React Navigation compatible)
   const isDark = scheme === 'dark';
   const theme = useMemo(() => getTheme(colors, isDark), [colors, isDark]);
@@ -2364,11 +1530,8 @@ export default function FocusLockScreen() {
   const [showStateLab, setShowStateLab] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string>('');
 
-  // Session State Machine (All 11 States Preserved)
+  // Session State Machine
   const [sessionState, setSessionState] = useState<SessionState>('ready');
-  const [selectedPreset, setSelectedPreset] = useState<string>('50');
-  const [customMinutes, setCustomMinutes] = useState<number>(45);
-  const [untilTime, setUntilTime] = useState<string>('21:30');
   const [totalSessionSecs, setTotalSessionSecs] = useState<number>(50 * 60);
   const [remainingSecs, setRemainingSecs] = useState<number>(50 * 60);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
@@ -2383,33 +1546,47 @@ export default function FocusLockScreen() {
 
   // App Management State
   const [nativeApps, setNativeApps] = useState<InstalledApp[]>([]);
-  const [nativeStatus, setNativeStatus] = useState<{ accessibilityEnabled: boolean; usageAccessEnabled: boolean } | null>(null);
+  const [nativeStatus, setNativeStatus] = useState<{
+    accessibilityEnabled: boolean;
+    usageAccessEnabled: boolean;
+    exactAlarmEnabled: boolean;
+    notificationsEnabled: boolean;
+    batteryOptimizationIgnored: boolean;
+    dndAccessEnabled: boolean;
+  } | null>(null);
   const allApps = useMemo(() => Platform.OS === 'android' ? nativeApps : AppDiscoveryService.getInstalledApps(), [nativeApps]);
   const categories = useMemo(() => AppDiscoveryService.getCategories(), []);
-  const presetLists = useMemo(() => AppDiscoveryService.getPresetLists(), []);
-  const [activeProfileId, setActiveProfileId] = useState<string>('complete');
+  const [customProfiles, setCustomProfiles] = useState<FocusLockProfile[]>([]);
+  const presetLists = useMemo(
+    () => [...buildPredefinedProfiles(allApps.map((a) => a.pkg)), ...customProfiles],
+    [allApps, customProfiles],
+  );
+  const [activeProfileId, setActiveProfileId] = useState<string>('');
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [profileDraftName, setProfileDraftName] = useState<string>('');
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [appStrategy, setAppStrategy] = useState<AppStrategy>('block');
+  const nextScheduleText = useMemo(
+    () => getNextFocusScheduleLabel(state.plannerScheduleItems ?? []),
+    [state.plannerScheduleItems],
+  );
   const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
   const [appSearch, setAppSearch] = useState<string>('');
   const [appCategoryFilter, setAppCategoryFilter] = useState<string>('All');
   const [appQuickFilter, setAppQuickFilter] = useState<'all' | 'recent' | 'distracting'>('all');
 
-  // Usage Rules State
-  const [rules, setRules] = useState<UsageRule[]>(() => UsageTrackingService.getInitialRules());
-  const ruleTargetOptions = allApps.length ? allApps.map((app) => app.name) : ['No installed apps'];
-  const ruleUnitOptions = ['min/day', 'min/hr', 'launches/day'];
-  const [newRuleTargetIdx, setNewRuleTargetIdx] = useState<number>(0);
-  const [newRuleLimitText, setNewRuleLimitText] = useState<string>('20');
-  const [newRuleUnitIdx, setNewRuleUnitIdx] = useState<number>(0);
-
   // Strict Mode State
   const [strictLevel, setStrictLevel] = useState<number>(2);
   const [pendingExtremeConfirm, setPendingExtremeConfirm] = useState<boolean>(false);
+  const [hasConfiguredPin, setHasConfiguredPin] = useState<boolean>(false);
+  const [showPinSetupModal, setShowPinSetupModal] = useState<boolean>(false);
+  const [pinDraft, setPinDraft] = useState<string>('');
+  const [pinConfirmDraft, setPinConfirmDraft] = useState<string>('');
+  const [pinSetupError, setPinSetupError] = useState<string>('');
   const [strictConfig, setStrictConfig] = useState<StrictConfig>({
     preventAccidental: true,
     cooldownMins: 5,
     pinProtection: false,
-    pinCode: '',
     trustedApproval: false,
     commitmentConfirm: true,
     limitEmergencyExits: true,
@@ -2428,14 +1605,6 @@ export default function FocusLockScreen() {
     noBreakMode: false,
   });
   const [breakRemainingSecs, setBreakRemainingSecs] = useState<number>(5 * 60);
-
-  // Smart Scheduling State
-  const [schedules, setSchedules] = useState<FocusSchedule[]>(() => ScheduleService.getInitialSchedules());
-  const [holidayMode, setHolidayMode] = useState<boolean>(false);
-  const [showAddSchedule, setShowAddSchedule] = useState<boolean>(false);
-  const [newSchName, setNewSchName] = useState<string>('Night Revision Sprint');
-  const [newSchStart, setNewSchStart] = useState<string>('21:00');
-  const [newSchEnd, setNewSchEnd] = useState<string>('23:00');
 
   // Content & Website Blocking State
   const [contentRules, setContentRules] = useState<ContentRules>({
@@ -2459,50 +1628,72 @@ export default function FocusLockScreen() {
   const [permissions, setPermissions] = useState<PermissionItem[]>(() => PermissionService.getInitialPermissions());
   const [notifSettings, setNotifSettings] = useState<NotifSettings>(() => NotificationService.getInitialSettings());
 
-  // Study Sakha Unique Features State
+  // Study Sakha Focus Points & Partner State
   const [focusPoints, setFocusPoints] = useState<number>(0);
-  const [dailyClaimed, setDailyClaimed] = useState<boolean>(false);
-  const [groupJoined, setGroupJoined] = useState<boolean>(false);
-  const [groupCountdown, setGroupCountdown] = useState<number>(0);
-  const [earnRatioStudy, setEarnRatioStudy] = useState<number>(60);
-  const [earnRatioReward, setEarnRatioReward] = useState<number>(10);
-  const [earnedMinutesBank, setEarnedMinutesBank] = useState<number>(0);
-  const [partnerName, setPartnerName] = useState<string>('');
-  const [partnerStatus] = useState<string>('Not connected');
+  const [earnRatioStudy] = useState<number>(60);
+  const [earnRatioReward] = useState<number>(10);
+  const [partnerName] = useState<string>('');
   const [blockedAttemptsToday, setBlockedAttemptsToday] = useState<number>(0);
   const [dailyIntention, setDailyIntention] = useState<string>('');
   const storageKey = useMemo(() => getUserScopedStorageKey(FOCUS_LOCK_STORAGE_KEY, state.user?.id), [state.user?.id]);
   const historyKey = useMemo(() => getUserScopedStorageKey('study-sakha-focus-history-v1', state.user?.id), [state.user?.id]);
   const [historyRecords, setHistoryRecords] = useState<FocusHistoryRecord[]>([]);
+  const historyRecordsRef = useRef<FocusHistoryRecord[]>([]);
+  useEffect(() => {
+    historyRecordsRef.current = historyRecords;
+  }, [historyRecords]);
   const creditedSessionId = useRef<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // Modals State
-  const [showIntervention, setShowIntervention] = useState<boolean>(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState<boolean>(false);
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
 
   // Restore user preferences once per account. Invalid or stale values are ignored.
   useEffect(() => {
     let active = true;
+    void loadExitPin(state.user?.id).then((pin) => {
+      if (!active) return;
+      setHasConfiguredPin(Boolean(pin));
+    });
     FocusLockStorage.getItem(storageKey).then((raw) => {
       if (!active) return;
       if (!raw) return;
       try {
         const saved = JSON.parse(raw) as Partial<{
-          selectedAppIds: string[]; strictLevel: number; dailyIntention: string; focusPoints: number;
-          selectedPreset: string; customMinutes: number; breakConfig: BreakConfig; schedules: FocusSchedule[];
+          selectedAppIds: string[]; appStrategy: AppStrategy; selectedModeId: string;
+          activeProfileId: string; customProfiles: FocusLockProfile[];
+          strictLevel: number; strictConfig: Partial<StrictConfig>;
+          dailyIntention: string; focusPoints: number;
+          breakConfig: BreakConfig;
           contentRules: ContentRules; notifSettings: NotifSettings; sessionState: SessionState; blockedAttemptsToday: number;
           totalSessionSecs: number; remainingSecs: number; sessionStartTime: string | null;
         }>;
         if (Array.isArray(saved.selectedAppIds)) setSelectedAppIds(saved.selectedAppIds);
+        if (saved.appStrategy === 'allow' || saved.appStrategy === 'block') setAppStrategy(saved.appStrategy);
+        if (typeof saved.selectedModeId === 'string') setSelectedModeId(saved.selectedModeId);
+        if (typeof saved.activeProfileId === 'string') setActiveProfileId(saved.activeProfileId);
+        if (Array.isArray(saved.customProfiles)) {
+          setCustomProfiles(saved.customProfiles.filter((p): p is FocusLockProfile => Boolean(p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.appIds))));
+        }
         if (typeof saved.strictLevel === 'number' && Number.isInteger(saved.strictLevel) && saved.strictLevel >= 1 && saved.strictLevel <= 3) setStrictLevel(saved.strictLevel);
+        if (saved.strictConfig && typeof saved.strictConfig === 'object') {
+          setStrictConfig((prev) => ({
+            ...prev,
+            preventAccidental: typeof saved.strictConfig?.preventAccidental === 'boolean' ? saved.strictConfig.preventAccidental : prev.preventAccidental,
+            cooldownMins: typeof saved.strictConfig?.cooldownMins === 'number' ? saved.strictConfig.cooldownMins : prev.cooldownMins,
+            pinProtection: typeof saved.strictConfig?.pinProtection === 'boolean' ? saved.strictConfig.pinProtection : prev.pinProtection,
+            trustedApproval: typeof saved.strictConfig?.trustedApproval === 'boolean' ? saved.strictConfig.trustedApproval : prev.trustedApproval,
+            commitmentConfirm: typeof saved.strictConfig?.commitmentConfirm === 'boolean' ? saved.strictConfig.commitmentConfirm : prev.commitmentConfirm,
+            limitEmergencyExits: typeof saved.strictConfig?.limitEmergencyExits === 'boolean' ? saved.strictConfig.limitEmergencyExits : prev.limitEmergencyExits,
+            lockProfileEdit: typeof saved.strictConfig?.lockProfileEdit === 'boolean' ? saved.strictConfig.lockProfileEdit : prev.lockProfileEdit,
+            lockScheduleEdit: typeof saved.strictConfig?.lockScheduleEdit === 'boolean' ? saved.strictConfig.lockScheduleEdit : prev.lockScheduleEdit,
+            confirmEmergency: typeof saved.strictConfig?.confirmEmergency === 'boolean' ? saved.strictConfig.confirmEmergency : prev.confirmEmergency,
+          }));
+        }
         if (typeof saved.dailyIntention === 'string') setDailyIntention(saved.dailyIntention);
         if (typeof saved.focusPoints === 'number' && Number.isFinite(saved.focusPoints)) setFocusPoints(saved.focusPoints);
-        if (typeof saved.selectedPreset === 'string') setSelectedPreset(saved.selectedPreset);
-        if (typeof saved.customMinutes === 'number' && Number.isFinite(saved.customMinutes)) setCustomMinutes(saved.customMinutes);
         if (saved.breakConfig) setBreakConfig(saved.breakConfig);
-        if (Array.isArray(saved.schedules)) setSchedules(saved.schedules);
         if (saved.contentRules) setContentRules(saved.contentRules);
         if (saved.notifSettings) setNotifSettings(saved.notifSettings);
         if (saved.sessionState) setSessionState(saved.sessionState);
@@ -2513,19 +1704,19 @@ export default function FocusLockScreen() {
       } catch { /* recover with safe defaults */ }
     }).catch(() => undefined).finally(() => { if (active) setHydrated(true); });
     return () => { active = false; };
-  }, [storageKey]);
+  }, [state.user?.id, storageKey]);
 
-  // Persist all user-owned Focus Lock configuration, not just the dashboard selection.
+  // Persist all user-owned Focus Lock configuration without writing on every 1s countdown tick.
   useEffect(() => {
     if (!hydrated) return;
     FocusLockStorage.setItem(
       storageKey,
-      JSON.stringify({ selectedAppIds, strictLevel, dailyIntention, focusPoints, blockedAttemptsToday, selectedPreset, customMinutes,
-        breakConfig, schedules, contentRules, notifSettings, sessionState, totalSessionSecs, remainingSecs,
+      JSON.stringify({ selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
+        breakConfig, contentRules, notifSettings, sessionState, totalSessionSecs,
         sessionStartTime: sessionStartTime?.toISOString() ?? null })
     ).catch(() => {});
-  }, [hydrated, storageKey, selectedAppIds, strictLevel, dailyIntention, focusPoints, blockedAttemptsToday, selectedPreset, customMinutes,
-    breakConfig, schedules, contentRules, notifSettings, sessionState, totalSessionSecs, remainingSecs, sessionStartTime]);
+  }, [hydrated, storageKey, selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
+    breakConfig, contentRules, notifSettings, sessionState, totalSessionSecs, sessionStartTime]);
 
   useEffect(() => {
     let active = true;
@@ -2572,19 +1763,66 @@ export default function FocusLockScreen() {
       }));
       setNativeApps(discoveredApps);
       setSelectedAppIds((current) => current.filter((id) => discoveredApps.some((app) => app.id === id)));
-      setNativeStatus({ accessibilityEnabled: status.accessibilityEnabled, usageAccessEnabled: status.usageAccessEnabled });
+      setNativeStatus({
+        accessibilityEnabled: status.accessibilityEnabled,
+        usageAccessEnabled: status.usageAccessEnabled,
+        exactAlarmEnabled: Boolean(status.exactAlarmEnabled),
+        notificationsEnabled: Boolean(status.notificationsEnabled),
+        batteryOptimizationIgnored: Boolean(status.batteryOptimizationIgnored),
+        dndAccessEnabled: Boolean(status.dndAccessEnabled),
+      });
       if (typeof status.blockedAttemptsToday === 'number') setBlockedAttemptsToday(status.blockedAttemptsToday);
-      if (status.activeSession?.status === 'active') {
+      if (status.activeSession?.status === 'active' || status.activeSession?.status === 'paused') {
         const startedAt = status.activeSession.startedAt;
         const endsAt = status.activeSession.endsAt;
+        const isNativePaused = status.activeSession.status === 'paused';
+        const sessionStrategy: AppStrategy = status.activeSession.strategy === 'allow' ? 'allow' : 'block';
+        const blockedSet = new Set(status.activeSession.packageIds);
+        setAppStrategy(sessionStrategy);
         setSessionId(status.activeSession.id);
         setSessionStartTime(new Date(startedAt));
         setTotalSessionSecs(Math.max(1, Math.ceil((endsAt - startedAt) / 1000)));
-        setRemainingSecs(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
-        sessionEndMs.current = endsAt;
-        setSessionState('active_focus');
+        if (isNativePaused) {
+          const pausedSecs = Math.max(0, Math.ceil((status.activeSession.pausedRemainingMs ?? 0) / 1000));
+          setRemainingSecs(pausedSecs);
+          setIsPaused(true);
+          sessionEndMs.current = null;
+        } else {
+          setRemainingSecs(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+          setIsPaused(false);
+          sessionEndMs.current = endsAt;
+        }
+        setSessionState((prev) => (prev === 'active_strict' ? 'active_strict' : 'active_focus'));
         setScreen('active_session');
-        setSelectedAppIds(status.activeSession.packageIds);
+        setSelectedAppIds(
+          sessionStrategy === 'allow'
+            ? discoveredApps.filter((app) => !blockedSet.has(app.id)).map((app) => app.id)
+            : status.activeSession.packageIds,
+        );
+      }
+      const pending = focusLockNative.peekPendingCompletions
+        ? await focusLockNative.peekPendingCompletions().catch(() => [])
+        : await (focusLockNative.consumePendingCompletions?.().catch(() => []) ?? Promise.resolve([]));
+      if (mountedRef.current && Array.isArray(pending) && pending.length > 0) {
+        const ackIds: string[] = [];
+        pending.forEach((item) => {
+          completeSession(item.completedAt, 'completed', {
+            id: item.id,
+            startedAt: item.startedAt,
+            totalSecs: Math.max(1, Math.round((item.endsAt - item.startedAt) / 1000)),
+            packageIds: item.packageIds,
+            awardPoints: 45,
+          });
+          if (item.id) ackIds.push(item.id);
+        });
+        if (ackIds.length > 0 && focusLockNative.acknowledgePendingCompletions) {
+          await focusLockNative.acknowledgePendingCompletions(ackIds).catch(() => undefined);
+        }
+        if (!status.activeSession) {
+          setSessionState('completed');
+          setRemainingSecs(0);
+          setShowCompletionModal(true);
+        }
       }
     } catch { if (mountedRef.current) setNativeStatus(null); }
   }, []);
@@ -2608,34 +1846,67 @@ export default function FocusLockScreen() {
     };
   }, []);
 
-  // Derived duration from preset
-  const computedDurationMins = useMemo(() => {
-    if (selectedPreset === 'custom') return customMinutes;
-    if (selectedPreset === 'until') return 75;
-    if (selectedPreset === 'eod') return 240;
-    return Number(selectedPreset) || 50;
-  }, [selectedPreset, customMinutes]);
+  const computedDurationMins = useMemo(() => Math.max(1, Math.round(totalSessionSecs / 60)), [totalSessionSecs]);
 
-  const completeSession = useCallback((endedAt: number) => {
-    if (!sessionStartTime || creditedSessionId.current === sessionId) return;
-    const seconds = Math.max(0, Math.min(totalSessionSecs, Math.floor((endedAt - sessionStartTime.getTime()) / 1000)));
-    if (!sessionId || seconds <= 0) return;
-    creditedSessionId.current = sessionId;
-    dispatch({ type: 'recordFocusStudy', id: sessionId, date: dayKey(sessionStartTime), taskId: null, seconds, category: 'Focus Lock' });
+  const completeSession = useCallback((
+    endedAt: number,
+    status: 'completed' | 'interrupted' = 'completed',
+    overrideSession?: { id: string; startedAt: number; totalSecs: number; packageIds: string[]; awardPoints?: number },
+  ) => {
+    const targetId = overrideSession?.id ?? sessionId;
+    const startMs = overrideSession?.startedAt ?? sessionStartTime?.getTime() ?? null;
+    const plannedSecs = overrideSession?.totalSecs ?? totalSessionSecs;
+    if (!targetId || startMs === null || creditedSessionId.current === targetId) return;
+    if (historyRecordsRef.current.some((existing) => existing.id === targetId)) {
+      creditedSessionId.current = targetId;
+      return;
+    }
+    const seconds = Math.max(0, Math.min(plannedSecs, Math.floor((endedAt - startMs) / 1000)));
+    if (seconds <= 0) return;
+    creditedSessionId.current = targetId;
+    const startDate = new Date(startMs);
+    dispatch({
+      type: 'recordFocusStudy',
+      id: targetId,
+      date: dayKey(startDate),
+      taskId: null,
+      seconds,
+      category: 'Focus Lock',
+      status,
+    });
     const record: FocusHistoryRecord = {
-      id: sessionId,
+      id: targetId,
       subject: 'Focus Lock',
-      topic: selectedAppIds.join(', '),
+      topic: (overrideSession?.packageIds ?? selectedAppIds).join(', '),
       minutes: seconds / 60,
       completedAt: new Date(endedAt).toISOString(),
-      startedAt: sessionStartTime.toISOString(),
+      startedAt: startDate.toISOString(),
       endedAt: new Date(endedAt).toISOString(),
       actualSeconds: seconds,
-      plannedMinutes: Math.round(totalSessionSecs / 60),
+      plannedMinutes: Math.round(plannedSecs / 60),
+      status,
     };
     dispatch({ type: 'upsertFocusHistory', record });
-    void appendFocusHistory(historyKey, record).then((records) => setHistoryRecords(records)).catch(() => undefined);
-  }, [dispatch, historyKey, selectedAppIds, sessionId, sessionStartTime, totalSessionSecs]);
+    void appendFocusHistory(historyKey, record)
+      .then((records) => { if (mountedRef.current) setHistoryRecords(records); })
+      .catch(() => undefined);
+    if (status === 'completed') {
+      const pointsToAdd = overrideSession?.awardPoints ?? 45;
+      if (pointsToAdd > 0) setFocusPoints((p) => p + pointsToAdd);
+      if (Platform.OS === 'android' && notifSettings.sessionCompleteNotif) {
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Focus Lock Complete',
+            body: `You stayed focused for ${Math.max(1, Math.round(seconds / 60))} minutes.`,
+          },
+          trigger: null,
+        }).catch(() => undefined);
+      }
+    }
+    if (Platform.OS === 'android' && focusLockNative?.setDndEnabled) {
+      void focusLockNative.setDndEnabled(false).catch(() => undefined);
+    }
+  }, [dispatch, historyKey, notifSettings.sessionCompleteNotif, selectedAppIds, sessionId, sessionStartTime, totalSessionSecs]);
 
   useEffect(() => {
     const removeBlocked = subscribeFocusLockEvent('onBlockedAppDetected', (payload) => {
@@ -2645,7 +1916,8 @@ export default function FocusLockScreen() {
       setBlockedAttemptsToday((previous) => count ?? previous + 1);
     });
     const removeExpired = subscribeFocusLockEvent('onSessionExpired', () => {
-      completeSession(Date.now());
+      completeSession(Date.now(), 'completed');
+      void focusLockNative?.consumePendingCompletions?.().catch(() => undefined);
       setSessionState('completed');
       setRemainingSecs(0);
       setShowCompletionModal(true);
@@ -2665,9 +1937,7 @@ export default function FocusLockScreen() {
           clearInterval(interval);
           setSessionState('completed');
           if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, false).catch(() => undefined);
-          completeSession(sessionEndMs.current ?? Date.now());
-          setFocusPoints((p) => p + 45);
-          setEarnedMinutesBank((e) => e + Math.round((computedDurationMins / earnRatioStudy) * earnRatioReward));
+          completeSession(sessionEndMs.current ?? Date.now(), 'completed');
           setShowCompletionModal(true);
       }
     }, 1000);
@@ -2683,6 +1953,15 @@ export default function FocusLockScreen() {
           clearInterval(interval);
           if (breakConfig.autoResume) {
             setSessionState(strictLevel >= 2 ? 'active_strict' : 'active_focus');
+            setIsPaused(false);
+            if (Platform.OS === 'android' && focusLockNative?.resumeBlockingSession && sessionId) {
+              void focusLockNative.resumeBlockingSession(sessionId).then((resumed) => {
+                sessionEndMs.current = resumed.endsAt;
+                setRemainingSecs(Math.max(0, Math.ceil((resumed.endsAt - Date.now()) / 1000)));
+              }).catch(() => undefined);
+            } else if (remainingSecs > 0) {
+              sessionEndMs.current = Date.now() + remainingSecs * 1000;
+            }
             showToast('Break finished — Focus Lock resumed automatically!');
           } else {
             setSessionState('ready');
@@ -2695,46 +1974,141 @@ export default function FocusLockScreen() {
     return () => clearInterval(interval);
   }, [sessionState, breakConfig.autoResume, strictLevel, showToast]);
 
-  // Group Study Hall Shared Countdown
-  useEffect(() => {
-    if (!groupJoined) return;
-    const t = setInterval(() => {
-      setGroupCountdown((prev) => (prev > 0 ? prev - 1 : 45 * 60));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [groupJoined]);
-
   // Handlers
-  const handleStartFocus = (overrideMins?: number, overrideStrict?: number) => {
-    const mins = overrideMins ?? computedDurationMins;
-    const lvl = overrideStrict ?? strictLevel;
-    if (!Number.isFinite(mins) || mins < 1) { showToast('Choose a valid focus duration'); return; }
-    const packageIds = allApps.filter((app) => selectedAppIds.includes(app.id)).map((app) => app.pkg);
-    if (Platform.OS === 'android' && packageIds.length === 0) { showToast('Select at least one installed app to block'); return; }
+  const handleStartFocus = (
+    overrideMinsOrOptions?: number | { mins?: number; strict?: number; preset?: 'until' | 'eod'; untilTime?: string },
+    overrideStrict?: number,
+  ) => {
+    const options = typeof overrideMinsOrOptions === 'object' ? overrideMinsOrOptions : undefined;
+    const now = new Date();
+    const windowResult = options?.preset === 'eod'
+      ? computeEndOfDaySession(now)
+      : options?.preset === 'until'
+      ? computeUntilTimeSession(options.untilTime ?? '', now)
+      : computeDurationSession(
+          typeof overrideMinsOrOptions === 'number' ? overrideMinsOrOptions : (options?.mins ?? computedDurationMins),
+          now,
+        );
+    const lvl = options?.strict ?? overrideStrict ?? strictLevel;
+    if (!windowResult) { showToast('Choose a valid focus duration'); return; }
+    const { startedAt, endsAt, durationMins: mins } = windowResult;
+    const packageIds = resolveEffectiveBlockedPackages(allApps, selectedAppIds, appStrategy, contentRules.websiteBlocking);
+    if (Platform.OS === 'android' && packageIds.length === 0) {
+      showToast(appStrategy === 'allow' ? 'Keep at least one non-allowed app to block' : 'Select at least one installed app to block');
+      return;
+    }
     if (Platform.OS === 'android' && !nativeStatus?.accessibilityEnabled) { showToast('Enable Accessibility Service in Settings first'); setScreen('settings'); return; }
-    const startedAt = Date.now();
     const nextSessionId = `focus-lock-${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
-    const endsAt = startedAt + mins * 60 * 1000;
     sessionEndMs.current = endsAt;
     setSessionId(nextSessionId);
-    setTotalSessionSecs(mins * 60);
-    setRemainingSecs(mins * 60);
-    setSessionStartTime(new Date());
+    setTotalSessionSecs(Math.max(60, Math.ceil((endsAt - startedAt) / 1000)));
+    setRemainingSecs(Math.max(1, Math.ceil((endsAt - startedAt) / 1000)));
+    setSessionStartTime(new Date(startedAt));
     setIsPaused(false);
     setSessionState(lvl >= 2 ? 'active_strict' : 'active_focus');
     setScreen('active_session');
     if (Platform.OS === 'android' && focusLockNative) {
-      void focusLockNative.startBlockingSession({ sessionId: nextSessionId, userId: state.user?.id ?? 'local-user', startedAt, endsAt, packageIds })
+      void focusLockNative.startBlockingSession({
+        sessionId: nextSessionId,
+        userId: state.user?.id ?? 'local-user',
+        startedAt,
+        endsAt,
+        packageIds,
+        strategy: appStrategy,
+      })
+        .then(() => {
+          if (notifSettings.dndIntegration && nativeStatus?.dndAccessEnabled && focusLockNative?.setDndEnabled) {
+            void focusLockNative.setDndEnabled(true).catch(() => undefined);
+          }
+          if (notifSettings.sessionStartNotif && nativeStatus?.notificationsEnabled) {
+            void Notifications.scheduleNotificationAsync({
+              content: {
+                title: 'Focus Lock Engaged',
+                body: `${activeMode.name} active for ${mins}m (${packageIds.length} apps shielded).`,
+              },
+              trigger: null,
+            }).catch(() => undefined);
+          }
+        })
         .catch(() => { sessionEndMs.current = null; setSessionState('service_unavailable'); setScreen('settings'); showToast('Android blocking could not start'); });
     }
     showToast(`Focus Lock engaged (${mins}m • Level ${lvl})`);
   };
 
-  const handleApplyProfile = (profile: PresetList) => {
+  const handleApplyProfile = (profile: FocusLockProfile) => {
+    const isSessionRunning = ['active_focus', 'active_strict', 'scheduled_lock', 'break_active'].includes(sessionState);
+    if (isSessionRunning && strictLevel >= 2 && strictConfig.lockProfileEdit) {
+      showToast('Profile editing is locked during active Strict sessions');
+      return;
+    }
+    const installedSet = new Set(allApps.map((a) => a.id));
+    const validAppIds = Platform.OS === 'android' && allApps.length > 0
+      ? profile.appIds.filter((id) => installedSet.has(id))
+      : profile.appIds;
+    const effective = resolveEffectiveBlockedPackages(allApps, validAppIds, profile.strategy, contentRules.websiteBlocking);
+    if (Platform.OS === 'android' && allApps.length > 0 && effective.length === 0) {
+      showToast('Profile has no installed apps to block');
+      return;
+    }
     setActiveProfileId(profile.id);
-    setSelectedAppIds(profile.appIds);
-    setAppStrategy('block');
-    showToast(`Profile "${profile.name}" selected`);
+    setSelectedAppIds(validAppIds);
+    setAppStrategy(profile.strategy);
+    if (profile.modeId) setSelectedModeId(profile.modeId);
+    showToast(`Profile "${profile.name}" activated`);
+  };
+
+  const handleSaveCustomProfile = () => {
+    const trimmed = profileDraftName.trim();
+    if (!trimmed) {
+      showToast('Enter a profile name');
+      return;
+    }
+    if (selectedAppIds.length === 0) {
+      showToast('Select at least one app before saving a profile');
+      return;
+    }
+    if (editingProfileId) {
+      setCustomProfiles((prev) => prev.map((p) => (
+        p.id === editingProfileId
+          ? { ...p, name: trimmed, appIds: [...selectedAppIds], strategy: appStrategy, modeId: selectedModeId }
+          : p
+      )));
+      showToast(`Profile "${trimmed}" updated`);
+    } else {
+      const id = `custom-${Date.now()}`;
+      const created: FocusLockProfile = {
+        id,
+        name: trimmed,
+        desc: `${appStrategy === 'allow' ? 'Allowlist' : 'Blocklist'} • ${activeMode.name}`,
+        appIds: [...selectedAppIds],
+        strategy: appStrategy,
+        modeId: selectedModeId,
+      };
+      setCustomProfiles((prev) => [created, ...prev]);
+      setActiveProfileId(id);
+      showToast(`Profile "${trimmed}" saved`);
+    }
+    setShowProfileModal(false);
+    setProfileDraftName('');
+    setEditingProfileId(null);
+  };
+
+  const handleDuplicateProfile = (profile: FocusLockProfile) => {
+    const id = `custom-${Date.now()}`;
+    const copy: FocusLockProfile = {
+      ...profile,
+      id,
+      name: `${profile.name} (Copy)`,
+      isPredefined: false,
+    };
+    setCustomProfiles((prev) => [copy, ...prev]);
+    showToast(`Duplicated "${profile.name}"`);
+  };
+
+  const handleDeleteProfile = (profileId: string) => {
+    setCustomProfiles((prev) => prev.filter((p) => p.id !== profileId));
+    if (activeProfileId === profileId) setActiveProfileId('');
+    showToast('Custom profile deleted');
   };
 
   const handleToggleApp = (appId: string) => {
@@ -2759,6 +2133,14 @@ export default function FocusLockScreen() {
       showToast('Daily break budget reached');
       return;
     }
+    if (sessionEndMs.current) {
+      setRemainingSecs(Math.max(0, Math.ceil((sessionEndMs.current - Date.now()) / 1000)));
+    }
+    sessionEndMs.current = null;
+    setIsPaused(true);
+    if (Platform.OS === 'android' && focusLockNative?.pauseBlockingSession && sessionId) {
+      void focusLockNative.pauseBlockingSession(sessionId).catch(() => undefined);
+    }
     setBreakConfig((prev) => ({ ...prev, consumed: prev.consumed + 1 }));
     setBreakRemainingSecs((breakConfig.breakDuration || 5) * 60);
     setSessionState('break_active');
@@ -2767,15 +2149,41 @@ export default function FocusLockScreen() {
   };
 
   const handleGrantPermission = (permId: string) => {
-    if (Platform.OS === 'android' && focusLockNative && (permId === 'accessibility' || permId === 'usage')) {
-      void (permId === 'accessibility' ? focusLockNative.openAccessibilitySettings() : focusLockNative.openUsageAccessSettings());
-      showToast('Android Settings opened — return here to refresh status');
-      return;
+    if (Platform.OS === 'android' && focusLockNative) {
+      if (permId === 'accessibility') {
+        void focusLockNative.openAccessibilitySettings();
+        showToast('Android Settings opened — return here to refresh status');
+        return;
+      }
+      if (permId === 'usage') {
+        void focusLockNative.openUsageAccessSettings();
+        showToast('Android Settings opened — return here to refresh status');
+        return;
+      }
+      if (permId === 'exact_alarm' && focusLockNative.openExactAlarmSettings) {
+        void focusLockNative.openExactAlarmSettings();
+        showToast('Exact Alarm Settings opened — return here to refresh status');
+        return;
+      }
+      if (permId === 'notification' && focusLockNative.openNotificationSettings) {
+        void focusLockNative.openNotificationSettings();
+        showToast('Notification Settings opened — return here to refresh status');
+        return;
+      }
+      if (permId === 'battery' && focusLockNative.openBatteryOptimizationSettings) {
+        void focusLockNative.openBatteryOptimizationSettings();
+        showToast('Battery Optimization Settings opened — return here to refresh status');
+        return;
+      }
+      if (permId === 'dnd' && focusLockNative.openDndSettings) {
+        void focusLockNative.openDndSettings();
+        showToast('Do Not Disturb Settings opened — return here to refresh status');
+        return;
+      }
     }
     showToast('This permission is unavailable on the current platform');
   };
 
-  const scheduleConflicts = useMemo(() => ScheduleService.detectConflicts(schedules), [schedules]);
   const analyticsData = useMemo<AnalyticsRangeData>(() => {
     const now = Date.now();
     const windowMs = analyticsRange === 'Daily' ? 24 * 60 * 60 * 1000 : analyticsRange === 'Monthly' ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
@@ -2809,10 +2217,50 @@ export default function FocusLockScreen() {
     if (Platform.OS !== 'android' || !nativeStatus) return permission;
     if (permission.id === 'accessibility') return { ...permission, status: nativeStatus.accessibilityEnabled ? 'Granted' as const : 'Not Granted' as const };
     if (permission.id === 'usage') return { ...permission, status: nativeStatus.usageAccessEnabled ? 'Granted' as const : 'Not Granted' as const };
+    if (permission.id === 'exact_alarm') return { ...permission, status: nativeStatus.exactAlarmEnabled ? 'Granted' as const : 'Needs Attention' as const };
+    if (permission.id === 'notification') return { ...permission, status: nativeStatus.notificationsEnabled ? 'Granted' as const : 'Not Granted' as const };
+    if (permission.id === 'battery') return { ...permission, status: nativeStatus.batteryOptimizationIgnored ? 'Granted' as const : 'Needs Attention' as const };
+    if (permission.id === 'dnd') return { ...permission, status: nativeStatus.dndAccessEnabled ? 'Granted' as const : 'Not Granted' as const };
     return { ...permission, status: 'Needs Attention' as const };
   }), [nativeStatus, permissions]);
   const grantedPermsCount = useMemo(() => permissionItems.filter((p) => p.status === 'Granted').length, [permissionItems]);
-  const readinessPct = Math.round((grantedPermsCount / permissionItems.length) * 100);
+  const readinessPct = permissionItems.length > 0 ? Math.round((grantedPermsCount / permissionItems.length) * 100) : 0;
+
+  const handleAndroidBack = useCallback((): boolean => {
+    if (showPinSetupModal) {
+      setShowPinSetupModal(false);
+      return true;
+    }
+    if (pendingExtremeConfirm) {
+      setPendingExtremeConfirm(false);
+      return true;
+    }
+    if (showEmergencyModal) {
+      setShowEmergencyModal(false);
+      return true;
+    }
+    if (showCompletionModal) {
+      setShowCompletionModal(false);
+      setSessionState('ready');
+      setScreen('home');
+      return true;
+    }
+    const isSessionRunning = ['active_focus', 'active_strict', 'scheduled_lock', 'break_active'].includes(sessionState);
+    if (screen !== 'home') {
+      if (screen === 'active_session' && isSessionRunning) {
+        showToast('Focus Lock is active — use Emergency Access or Pause/End');
+        return true;
+      }
+      setScreen('home');
+      return true;
+    }
+    if (isSessionRunning) {
+      setScreen('active_session');
+      showToast('Focus Lock session is still active');
+      return true;
+    }
+    return false;
+  }, [pendingExtremeConfirm, screen, sessionState, showCompletionModal, showEmergencyModal, showPinSetupModal, showToast]);
 
   const filteredApps = useMemo(() => {
     return allApps.filter((a) => {
@@ -2854,7 +2302,7 @@ export default function FocusLockScreen() {
   );
 
   /* ==========================================================================
-   * SCREEN RENDERER (All 12 Screens)
+   * SCREEN RENDERER
    * ======================================================================== */
   const renderScreenContent = () => {
     switch (screen) {
@@ -2863,84 +2311,89 @@ export default function FocusLockScreen() {
           <View style={styles.flex1}>
             {/* SCROLLABLE DASHBOARD BODY */}
             <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
-              {/* B. FOCUS LOCK STATUS */}
-              <FocusStatusCard
-                sessionState={sessionState}
-                selectedAppsCount={selectedAppIds.length}
-                selectedDurationMins={computedDurationMins}
-                remainingSec={sessionState === 'break_active' ? breakRemainingSecs : remainingSecs}
-                nextScheduleText="7:00 PM"
-                blockedAttemptsToday={blockedAttemptsToday}
-                onOpenPermissions={() => setScreen('settings')}
-                onResumeActive={() => setScreen('active_session')}
-                reduceMotion={reduceMotion}
-                theme={theme}
-              />
-
-              {/* C. QUICK LOCK CONTROLS */}
-              <QuickLockPresets
-                selectedPreset={selectedPreset}
-                customMinutes={customMinutes}
-                untilTime={untilTime}
-                onSelectPreset={setSelectedPreset}
-                onChangeCustomMinutes={setCustomMinutes}
-                onChangeUntilTime={setUntilTime}
-                onStartFocus={() => handleStartFocus()}
-                activeModeName={activeMode.name}
-                strictLevel={strictLevel}
-                theme={theme}
-              />
-
-              {/* SAKHA OWL ACCOUNTABILITY */}
-              <OwlAssistantCard
-                sessionState={sessionState}
-                blockedAttempts={blockedAttemptsToday}
-                onSimulateIntervention={() => {
-                  // Preview only. Real blocked-attempt metrics come from Android.
-                  setShowIntervention(true);
-                }}
-                onOpenSakha={() => setScreen('sakha')}
-                theme={theme}
-              />
-
-              {/* D & E. BLOCKING PROFILES */}
+              {/* BLOCKING PROFILES */}
               <View style={{ gap: 10 }}>
                 <View style={[styles.rowBetween, { paddingHorizontal: 4 }]}>
-                  <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>BLOCKING PROFILES</Text>
-                  <TouchableOpacity onPress={() => setScreen('apps')}>
-                    <Text style={[styles.text11Bold, { color: theme.indigoLight }]}>
-                      Manage Apps ({selectedAppIds.length})
+                  <View>
+                    <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>BLOCKING PROFILES</Text>
+                    <Text style={[styles.text10Muted, { color: theme.textMuted, marginTop: 1 }]}>
+                      Next scheduled: {nextScheduleText}
                     </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEditingProfileId(null);
+                      setProfileDraftName('');
+                      setShowProfileModal(true);
+                    }}
+                    style={[styles.smallPillBtn, { backgroundColor: theme.indigoSoft, borderColor: theme.indigoBorder }]}
+                  >
+                    <Text style={[styles.text10Bold, { color: theme.indigoLight }]}>+ Save Profile</Text>
                   </TouchableOpacity>
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {presetLists.map((pl) => {
-                    const active = activeProfileId === pl.id;
-                    return (
-                      <TouchableOpacity
-                        key={pl.id}
-                        activeOpacity={0.85}
-                        onPress={() => handleApplyProfile(pl)}
-                        style={[
-                          styles.profileCard,
-                          active
-                            ? { backgroundColor: '#4F46E5', borderColor: '#6366F1' }
-                            : { backgroundColor: theme.cardBg, borderColor: theme.border },
-                        ]}
-                      >
-                        <Text numberOfLines={1} style={[styles.textXsBold, { color: active ? '#FFFFFF' : theme.textPrimary }]}>
-                          {pl.name}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
-                          style={{ fontSize: 10, marginTop: 2, color: active ? '#E0E7FF' : theme.textMuted }}
+                {presetLists.length === 0 ? (
+                  <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+                    <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
+                      Select apps in App Selection and tap "+ Save Profile" to create your first Focus Lock profile.
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    {presetLists.map((pl) => {
+                      const active = activeProfileId === pl.id;
+                      return (
+                        <View
+                          key={pl.id}
+                          style={[
+                            styles.profileCard,
+                            active
+                              ? { backgroundColor: '#4F46E5', borderColor: '#6366F1' }
+                              : { backgroundColor: theme.cardBg, borderColor: theme.border },
+                          ]}
                         >
-                          {pl.appIds.length} apps • {pl.desc}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                          <TouchableOpacity activeOpacity={0.85} onPress={() => handleApplyProfile(pl)}>
+                            <Text numberOfLines={1} style={[styles.textXsBold, { color: active ? '#FFFFFF' : theme.textPrimary }]}>
+                              {pl.name}
+                            </Text>
+                            <Text
+                              numberOfLines={1}
+                              style={{ fontSize: 10, marginTop: 2, color: active ? '#E0E7FF' : theme.textMuted }}
+                            >
+                              {pl.appIds.length} apps • {pl.strategy === 'allow' ? 'Allowlist' : 'Blocklist'}
+                            </Text>
+                          </TouchableOpacity>
+                          <View style={[styles.rowGap6, { marginTop: 8 }]}>
+                            <TouchableOpacity onPress={() => handleDuplicateProfile(pl)}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#E0E7FF' : theme.indigoLight }}>
+                                Duplicate
+                              </Text>
+                            </TouchableOpacity>
+                            {!pl.isPredefined && (
+                              <>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setEditingProfileId(pl.id);
+                                    setProfileDraftName(pl.name);
+                                    setShowProfileModal(true);
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FFFFFF' : theme.textSecondary }}>
+                                    Rename
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => handleDeleteProfile(pl.id)}>
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FECDD3' : theme.rose }}>
+                                    Delete
+                                  </Text>
+                                </TouchableOpacity>
+                              </>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </View>
 
               {/* F–L. DISCIPLINE CONTROLS (2-COLUMN GRID) */}
@@ -2953,9 +2406,6 @@ export default function FocusLockScreen() {
                     { id: 'modes', title: 'Blocking Modes', sub: activeMode.name, icon: Layers, color: '#6366F1', bg: 'rgba(99,102,241,0.12)' },
                     { id: 'apps', title: 'App Selection', sub: `${selectedAppIds.length} ${appStrategy === 'block' ? 'blocked' : 'allowed'}`, icon: Smartphone, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' },
                     { id: 'strict', title: 'Strict Mode', sub: `Level ${strictLevel} • ${strictLevel === 3 ? 'Extreme' : strictLevel === 2 ? 'Strong' : 'Normal'}`, icon: Lock, color: strictLevel === 3 ? '#F43F5E' : '#F59E0B', bg: strictLevel === 3 ? 'rgba(244,63,94,0.12)' : 'rgba(245,158,11,0.12)' },
-                    { id: 'rules', title: 'Usage Rules', sub: `${rules.filter((r) => r.active).length} active limits`, icon: Sliders, color: '#0EA5E9', bg: 'rgba(14,165,233,0.12)' },
-                    { id: 'schedules', title: 'Smart Schedules', sub: `${schedules.filter((s) => s.enabled).length} routines${holidayMode ? ' (Paused)' : ''}`, icon: Calendar, color: '#10B981', bg: 'rgba(16,185,129,0.12)' },
-                    { id: 'breaks', title: 'Smart Breaks', sub: `${breakConfig.dailyBudget - breakConfig.consumed} left today`, icon: Coffee, color: '#14B8A6', bg: 'rgba(20,184,166,0.12)' },
                     { id: 'analytics', title: 'Focus Analytics', sub: `Score ${analyticsData.summary.focusScore}/100`, icon: BarChart3, color: '#6366F1', bg: 'rgba(99,102,241,0.12)' },
                     { id: 'content', title: 'Web & Shorts', sub: 'Reels & URL guard', icon: Globe, color: '#F43F5E', bg: 'rgba(244,63,94,0.12)' },
                   ] as const).map((item) => {
@@ -2984,29 +2434,6 @@ export default function FocusLockScreen() {
                   })}
                 </View>
               </View>
-
-              {/* K. STUDY SAKHA EXCLUSIVE SUITE BANNER */}
-              <TouchableOpacity activeOpacity={0.88} onPress={() => setScreen('sakha')}>
-                <LinearGradient
-                  colors={['rgba(79,70,229,0.14)', 'rgba(124,58,237,0.09)', 'rgba(245,158,11,0.14)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.suiteBanner, { borderColor: theme.indigoBorder }]}
-                >
-                  <View style={[styles.rowGap12, { flex: 1 }]}>
-                    <View style={[styles.iconBox40, { backgroundColor: '#4F46E5' }]}>
-                      <Sparkles size={20} color="#FFFFFF" />
-                    </View>
-                    <View style={styles.flex1}>
-                      <Text style={[styles.textXsExtraBold, { color: theme.textPrimary }]}>Study Sakha Exclusive Suite</Text>
-                      <Text numberOfLines={1} style={[styles.text11Muted, { color: theme.textSecondary, marginTop: 2 }]}>
-                        Sakha AI Insights • Group Focus • Earn Screen Time • Partner
-                      </Text>
-                    </View>
-                  </View>
-                  <ChevronRight size={18} color="#6366F1" />
-                </LinearGradient>
-              </TouchableOpacity>
 
               {/* L. PERMISSION HEALTH QUICK BAR */}
               <TouchableOpacity
@@ -3106,27 +2533,20 @@ export default function FocusLockScreen() {
                 </View>
               </View>
 
-              <View style={[styles.cardRounded2xl, styles.rowBetween, { backgroundColor: theme.indigoSoft, borderColor: theme.indigoBorder }]}>
-                <View style={styles.flex1}>
-                  <Text style={[styles.text11Bold, { color: theme.textPrimary }]}>Test Mindful Intervention</Text>
-                  <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Simulate tapping Instagram mid-session</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setBlockedAttemptsToday((c) => c + 1);
-                    setShowIntervention(true);
-                  }}
-                  style={styles.simulateBtn}
-                >
-                  <Text style={[styles.text11Bold, { color: '#FFFFFF' }]}>Simulate</Text>
-                </TouchableOpacity>
-              </View>
-
               <View style={{ gap: 10 }}>
                 {isBreak ? (
                   <TouchableOpacity
                     onPress={() => {
                       setSessionState(isStrict ? 'active_strict' : 'active_focus');
+                      setIsPaused(false);
+                      if (Platform.OS === 'android' && focusLockNative?.resumeBlockingSession && sessionId) {
+                        void focusLockNative.resumeBlockingSession(sessionId).then((resumed) => {
+                          sessionEndMs.current = resumed.endsAt;
+                          setRemainingSecs(Math.max(0, Math.ceil((resumed.endsAt - Date.now()) / 1000)));
+                        }).catch(() => undefined);
+                      } else if (remainingSecs > 0) {
+                        sessionEndMs.current = Date.now() + remainingSecs * 1000;
+                      }
                       showToast('Returned to Focus Lock early!');
                     }}
                     style={styles.indigoFullBtn}
@@ -3142,14 +2562,24 @@ export default function FocusLockScreen() {
                             showToast('Pause disabled in Extreme Mode');
                             return;
                           }
-                          setIsPaused((p) => {
-                            if (p) {
+                          if (isPaused) {
+                            setIsPaused(false);
+                            if (Platform.OS === 'android' && focusLockNative?.resumeBlockingSession && sessionId) {
+                              void focusLockNative.resumeBlockingSession(sessionId).then((resumed) => {
+                                sessionEndMs.current = resumed.endsAt;
+                                setRemainingSecs(Math.max(0, Math.ceil((resumed.endsAt - Date.now()) / 1000)));
+                              }).catch(() => undefined);
+                            } else {
                               sessionEndMs.current = Date.now() + remainingSecs * 1000;
-                              return false;
                             }
+                          } else {
                             if (sessionEndMs.current) setRemainingSecs(Math.max(0, Math.ceil((sessionEndMs.current - Date.now()) / 1000)));
-                            return true;
-                          });
+                            sessionEndMs.current = null;
+                            setIsPaused(true);
+                            if (Platform.OS === 'android' && focusLockNative?.pauseBlockingSession && sessionId) {
+                              void focusLockNative.pauseBlockingSession(sessionId).catch(() => undefined);
+                            }
+                          }
                         }}
                         style={[
                           styles.outlineActionBtn,
@@ -3175,18 +2605,37 @@ export default function FocusLockScreen() {
 
                     <View style={styles.grid2}>
                       {strictLevel === 1 ? (
-                        <TouchableOpacity
-                          onPress={() => {
-                            setSessionState('interrupted');
-                            if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, true).catch(() => undefined);
-                            completeSession(Date.now());
-                            setScreen('home');
-                            showToast('Session ended early');
-                          }}
-                          style={[styles.outlineActionBtn, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}
-                        >
-                          <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>End Session</Text>
-                        </TouchableOpacity>
+                        <>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setSessionState('interrupted');
+                              if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, true).catch(() => undefined);
+                              completeSession(Date.now(), 'interrupted');
+                              setScreen('home');
+                              showToast('Session ended early');
+                            }}
+                            style={[styles.outlineActionBtn, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}
+                          >
+                            <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>End Session</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (!canCompleteSessionEarly(strictLevel, Date.now(), sessionEndMs.current)) {
+                                showToast('Complete Session is locked in Strict Mode');
+                                return;
+                              }
+                              setRemainingSecs(0);
+                              setSessionState('completed');
+                              if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, false).catch(() => undefined);
+                              completeSession(Date.now(), 'completed');
+                              setShowCompletionModal(true);
+                            }}
+                            style={[styles.outlineActionBtn, { backgroundColor: '#059669', borderColor: '#059669' }]}
+                          >
+                            <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Complete Session</Text>
+                          </TouchableOpacity>
+                        </>
                       ) : (
                         <TouchableOpacity
                           onPress={() => {
@@ -3198,20 +2647,6 @@ export default function FocusLockScreen() {
                           <Text style={[styles.textXsBold, { color: theme.rose }]}>Emergency Access</Text>
                         </TouchableOpacity>
                       )}
-
-                      <TouchableOpacity
-                        onPress={() => {
-                          setRemainingSecs(0);
-                          setSessionState('completed');
-                          if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, false).catch(() => undefined);
-                          completeSession(Date.now());
-                          setFocusPoints((p) => p + Math.max(1, Math.round((computedDurationMins / earnRatioStudy) * earnRatioReward)));
-                          setShowCompletionModal(true);
-                        }}
-                        style={[styles.outlineActionBtn, { backgroundColor: '#059669', borderColor: '#059669' }]}
-                      >
-                        <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Complete Session</Text>
-                      </TouchableOpacity>
                     </View>
                   </>
                 )}
@@ -3232,14 +2667,43 @@ export default function FocusLockScreen() {
                   mode={m}
                   selected={selectedModeId === m.id}
                   onSelect={(modeObj) => {
-                    setSelectedModeId(modeObj.id);
-                    if (modeObj.id === 'allowlist') setAppStrategy('allow');
-                    else if (modeObj.id !== 'custom') setAppStrategy('block');
-                    if (modeObj.id === 'emergency') {
-                      handleStartFocus(45, 2);
+                    const isSessionRunning = ['active_focus', 'active_strict', 'scheduled_lock', 'break_active'].includes(sessionState);
+                    if (modeObj.supported === false) {
+                      showToast(modeObj.unsupportedReason ?? `${modeObj.name} is not supported in this build`);
                       return;
                     }
-                    showToast(`${modeObj.name} selected`);
+                    if (isSessionRunning && strictLevel >= 2) {
+                      showToast('Cannot switch blocking mode during an active Strict session');
+                      return;
+                    }
+                    setSelectedModeId(modeObj.id);
+                    if (modeObj.id === 'allowlist') {
+                      setAppStrategy('allow');
+                      setStrictLevel(modeObj.strictDefault);
+                    } else if (modeObj.id === 'pomodoro') {
+                      setAppStrategy('block');
+                      setStrictLevel(modeObj.strictDefault);
+                      setBreakConfig((prev) => ({ ...prev, noBreakMode: false, autoResume: true }));
+                    } else if (modeObj.id === 'deep') {
+                      setAppStrategy('block');
+                      if (strictLevel !== 3) setPendingExtremeConfirm(true);
+                      if (nativeStatus?.dndAccessEnabled) {
+                        setNotifSettings((prev) => ({ ...prev, dndIntegration: true }));
+                      }
+                    } else if (modeObj.id === 'scheduled') {
+                      setAppStrategy('block');
+                      setStrictLevel(modeObj.strictDefault);
+                      showToast(`Next Study Planner session: ${nextScheduleText}`);
+                      return;
+                    } else if (modeObj.id === 'emergency') {
+                      setAppStrategy('block');
+                      handleStartFocus(45, 2);
+                      return;
+                    } else {
+                      setAppStrategy('block');
+                      setStrictLevel(modeObj.strictDefault);
+                    }
+                    showToast(`${modeObj.name} activated (Level ${modeObj.strictDefault})`);
                   }}
                   theme={theme}
                 />
@@ -3345,84 +2809,6 @@ export default function FocusLockScreen() {
           </View>
         );
 
-      case 'rules':
-        return (
-          <View style={styles.flex1}>
-            {renderSubHeader('Usage-Based Rules', 'Daily Reset at 12:00 AM • Next reset in 8h 20m')}
-            <ScrollView contentContainerStyle={styles.scrollBody}>
-              <View style={[styles.cardRounded2xl, { backgroundColor: theme.indigoSoft, borderColor: theme.indigoBorder, gap: 10 }]}>
-                <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Create Custom Usage Rule</Text>
-                <View style={styles.grid3}>
-                  <TouchableOpacity
-                    onPress={() => setNewRuleTargetIdx((i) => (i + 1) % ruleTargetOptions.length)}
-                    style={[styles.selectBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
-                  >
-                    <Text numberOfLines={1} style={[styles.text11Bold, { color: theme.textPrimary }]}>
-                      {ruleTargetOptions[newRuleTargetIdx]}
-                    </Text>
-                  </TouchableOpacity>
-                  <TextInput
-                    keyboardType="number-pad"
-                    value={newRuleLimitText}
-                    onChangeText={setNewRuleLimitText}
-                    style={[styles.selectBtn, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textPrimary, fontWeight: '700', textAlign: 'center' }]}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setNewRuleUnitIdx((i) => (i + 1) % ruleUnitOptions.length)}
-                    style={[styles.selectBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
-                  >
-                    <Text numberOfLines={1} style={[styles.text11Bold, { color: theme.textPrimary }]}>
-                      {ruleUnitOptions[newRuleUnitIdx]}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    const target = ruleTargetOptions[newRuleTargetIdx];
-                    if (!allApps.length) { showToast('Install or grant app visibility before creating a rule'); return; }
-                    const limit = Math.max(1, Number(newRuleLimitText) || 20);
-                    const unit = ruleUnitOptions[newRuleUnitIdx];
-                    setRules((prev) => [
-                      {
-                        id: `r_${Date.now()}`,
-                        type: 'custom',
-                        target,
-                        appId: null,
-                        limit,
-                        unit,
-                        used: 0,
-                        autoBlock: true,
-                        active: true,
-                        combo: 'Custom + AutoBlock',
-                      },
-                      ...prev,
-                    ]);
-                    showToast(`Rule added for ${target}`);
-                  }}
-                  style={styles.indigoSmallBtn}
-                >
-                  <Plus size={15} color="#FFFFFF" />
-                  <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Add Auto-Block Rule</Text>
-                </TouchableOpacity>
-              </View>
-
-              {rules.map((r) => (
-                <UsageLimitCard
-                  key={r.id}
-                  rule={r}
-                  onToggle={(id) => setRules((prev) => prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x)))}
-                  onUpdateLimit={(id, lim) => setRules((prev) => prev.map((x) => (x.id === id ? { ...x, limit: lim } : x)))}
-                  onDelete={(id) => {
-                    setRules((prev) => prev.filter((x) => x.id !== id));
-                    showToast('Rule removed');
-                  }}
-                  theme={theme}
-                />
-              ))}
-            </ScrollView>
-          </View>
-        );
-
       case 'strict':
         return (
           <View style={styles.flex1}>
@@ -3455,7 +2841,7 @@ export default function FocusLockScreen() {
 
                 {([
                   { key: 'preventAccidental', label: 'Prevent accidental unlocking' },
-                  { key: 'pinProtection', label: `PIN protection (Demo: ${strictConfig.pinCode})` },
+                  { key: 'pinProtection', label: hasConfiguredPin ? 'PIN protection (Configured)' : 'PIN protection (Not configured)' },
                   { key: 'trustedApproval', label: 'Trusted person approval (Extreme)' },
                   { key: 'commitmentConfirm', label: 'Session commitment confirmation' },
                   { key: 'limitEmergencyExits', label: 'Limit emergency exits (2/week)' },
@@ -3465,12 +2851,65 @@ export default function FocusLockScreen() {
                   <View key={opt.key} style={styles.rowBetween}>
                     <Text style={[styles.textXsSemi, { color: theme.textSecondary, flex: 1 }]}>{opt.label}</Text>
                     <PillToggle
-                      value={strictConfig[opt.key]}
-                      onToggle={() => setStrictConfig((c) => ({ ...c, [opt.key]: !c[opt.key] }))}
+                      value={opt.key === 'pinProtection' ? strictConfig.pinProtection && hasConfiguredPin : strictConfig[opt.key]}
+                      onToggle={() => {
+                        const isSessionRunning = ['active_focus', 'active_strict', 'scheduled_lock'].includes(sessionState);
+                        if (opt.key === 'pinProtection') {
+                          if (isSessionRunning && strictLevel >= 2) {
+                            showToast('Cannot modify Exit PIN during an active Strict session');
+                            return;
+                          }
+                          if (!hasConfiguredPin) {
+                            setPinDraft('');
+                            setPinConfirmDraft('');
+                            setPinSetupError('');
+                            setShowPinSetupModal(true);
+                            return;
+                          }
+                          setStrictConfig((c) => ({ ...c, pinProtection: !c.pinProtection }));
+                          return;
+                        }
+                        setStrictConfig((c) => ({ ...c, [opt.key]: !c[opt.key] }));
+                      }}
                       isDark={theme.isDark}
                     />
                   </View>
                 ))}
+                {hasConfiguredPin && (
+                  <View style={styles.rowGap8}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (['active_focus', 'active_strict', 'scheduled_lock'].includes(sessionState) && strictLevel >= 2) {
+                          showToast('Cannot change Exit PIN during an active Strict session');
+                          return;
+                        }
+                        setPinDraft('');
+                        setPinConfirmDraft('');
+                        setPinSetupError('');
+                        setShowPinSetupModal(true);
+                      }}
+                      style={[styles.outlineActionBtn, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, paddingVertical: 8 }]}
+                    >
+                      <Text style={[styles.text11Bold, { color: theme.textPrimary }]}>Change Exit PIN</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (['active_focus', 'active_strict', 'scheduled_lock'].includes(sessionState) && strictLevel >= 2) {
+                          showToast('Cannot remove Exit PIN during an active Strict session');
+                          return;
+                        }
+                        void clearExitPin(state.user?.id).then(() => {
+                          setHasConfiguredPin(false);
+                          setStrictConfig((c) => ({ ...c, pinProtection: false }));
+                          showToast('Exit PIN removed');
+                        });
+                      }}
+                      style={[styles.outlineActionBtn, { backgroundColor: theme.roseSoft, borderColor: 'rgba(244,63,94,0.3)', paddingVertical: 8 }]}
+                    >
+                      <Text style={[styles.text11Bold, { color: theme.rose }]}>Remove PIN</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
 
               <View style={[styles.cardRounded2xl, { backgroundColor: theme.emeraldSoft, borderColor: 'rgba(16,185,129,0.22)', gap: 6 }]}>
@@ -3481,198 +2920,6 @@ export default function FocusLockScreen() {
                 <Text style={[styles.text11Relaxed, { color: theme.textSecondary }]}>
                   Emergency calling and critical device safety actions are never blocked. Note: As a frontend prototype, OS-level uninstall or force-stop prevention requires future native Android Device Policy integration.
                 </Text>
-              </View>
-            </ScrollView>
-          </View>
-        );
-
-      case 'breaks':
-        return (
-          <View style={styles.flex1}>
-            {renderSubHeader('Smart Break Management', 'Structured recovery without scroll relapse')}
-            <ScrollView contentContainerStyle={styles.scrollBody}>
-              <BreakManagementCard
-                breakConfig={breakConfig}
-                onUpdateConfig={(next) => {
-                  setBreakConfig(next);
-                  showToast('Break policy updated');
-                }}
-                onStartDemoBreak={handleStartBreak}
-                theme={theme}
-              />
-
-              <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 12 }]}>
-                <View style={styles.rowBetween}>
-                  <View style={styles.flex1}>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Automatic Focus Resumption</Text>
-                    <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Re-engage shield immediately when break ends</Text>
-                  </View>
-                  <PillToggle
-                    value={breakConfig.autoResume}
-                    activeColor="#14B8A6"
-                    onToggle={() => setBreakConfig((b) => ({ ...b, autoResume: !b.autoResume }))}
-                    isDark={theme.isDark}
-                  />
-                </View>
-
-                <View style={[styles.rowBetween, { paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.borderSubtle }]}>
-                  <Text style={[styles.textXsSemi, { color: theme.textSecondary }]}>Daily Break Budget</Text>
-                  <View style={styles.rowGap8}>
-                    <TouchableOpacity
-                      onPress={() => setBreakConfig((b) => ({ ...b, dailyBudget: Math.max(1, b.dailyBudget - 1) }))}
-                      style={[styles.stepperBtn, { backgroundColor: theme.surfaceElevated }]}
-                    >
-                      <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>−</Text>
-                    </TouchableOpacity>
-                    <Text style={[styles.textXsExtraBold, { color: theme.textPrimary, minWidth: 24, textAlign: 'center' }]}>
-                      {breakConfig.dailyBudget}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => setBreakConfig((b) => ({ ...b, dailyBudget: Math.min(10, b.dailyBudget + 1) }))}
-                      style={[styles.stepperBtn, { backgroundColor: theme.surfaceElevated }]}
-                    >
-                      <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        );
-
-      case 'schedules':
-        return (
-          <View style={styles.flex1}>
-            {renderSubHeader('Smart Scheduling', 'Study Planner sync & automated routines')}
-            <ScrollView contentContainerStyle={styles.scrollBody}>
-              <View style={[styles.cardRounded2xl, styles.rowBetween, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-                <View style={styles.flex1}>
-                  <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Holiday / Exam-Day Pause</Text>
-                  <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Temporarily pause all recurring schedules</Text>
-                </View>
-                <PillToggle
-                  value={holidayMode}
-                  activeColor="#F59E0B"
-                  onToggle={() => {
-                    setHolidayMode((h) => !h);
-                    showToast(!holidayMode ? 'Holiday mode enabled' : 'Schedules resumed');
-                  }}
-                  isDark={theme.isDark}
-                />
-              </View>
-
-              {scheduleConflicts.length > 0 && (
-                <View style={[styles.safetyBanner, { backgroundColor: theme.amberSoft, borderColor: 'rgba(245,158,11,0.32)' }]}>
-                  <AlertTriangle size={16} color="#F59E0B" />
-                  <Text style={[styles.text11Relaxed, { color: theme.amber, flex: 1 }]}>
-                    <Text style={{ fontWeight: '700' }}>Schedule Overlap Detected: </Text>
-                    {scheduleConflicts[0].a} overlaps with {scheduleConflicts[0].b} ({scheduleConflicts[0].days}).
-                  </Text>
-                </View>
-              )}
-
-              {!showAddSchedule ? (
-                <TouchableOpacity onPress={() => setShowAddSchedule(true)} style={styles.indigoFullBtn}>
-                  <Plus size={16} color="#FFFFFF" />
-                  <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>New Focus Schedule</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={[styles.cardRounded2xl, { backgroundColor: theme.indigoSoft, borderColor: theme.indigoBorder, gap: 10 }]}>
-                  <TextInput
-                    value={newSchName}
-                    onChangeText={setNewSchName}
-                    placeholder="Schedule title..."
-                    placeholderTextColor={theme.textMuted}
-                    style={[styles.textInputField, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textPrimary }]}
-                  />
-                  <View style={styles.grid2}>
-                    <TextInput
-                      value={newSchStart}
-                      onChangeText={setNewSchStart}
-                      placeholder="21:00"
-                      placeholderTextColor={theme.textMuted}
-                      style={[styles.textInputField, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textPrimary, fontWeight: '700' }]}
-                    />
-                    <TextInput
-                      value={newSchEnd}
-                      onChangeText={setNewSchEnd}
-                      placeholder="23:00"
-                      placeholderTextColor={theme.textMuted}
-                      style={[styles.textInputField, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textPrimary, fontWeight: '700' }]}
-                    />
-                  </View>
-                  <View style={styles.rowGap8}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setSchedules((prev) => [
-                          ...prev,
-                          {
-                            id: `sch_${Date.now()}`,
-                            name: newSchName || 'Study Block',
-                            start: newSchStart,
-                            end: newSchEnd,
-                            days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-                            profile: 'Complete Distraction Block',
-                            strictLevel: 2,
-                            enabled: true,
-                            autoStart: true,
-                            autoEnd: true,
-                            conditions: ['Time based'],
-                            plannerTask: 'Custom Planner Target',
-                          },
-                        ]);
-                        setShowAddSchedule(false);
-                        showToast('Schedule created');
-                      }}
-                      style={[styles.indigoSmallBtn, { flex: 1 }]}
-                    >
-                      <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Save Schedule</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => setShowAddSchedule(false)}
-                      style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated }]}
-                    >
-                      <Text style={[styles.textXsBold, { color: theme.textSecondary }]}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              <View style={styles.wrapRow}>
-                {[
-                  { icon: Clock, label: 'Time' },
-                  { icon: Wifi, label: 'Library Wi-Fi' },
-                  { icon: MapPin, label: 'Study Room' },
-                  { icon: BatteryCharging, label: 'Charging' },
-                  { icon: BookOpen, label: 'Planner Task' },
-                ].map((c, idx) => {
-                  const Icon = c.icon;
-                  return (
-                    <View key={idx} style={[styles.triggerChip, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-                      <Icon size={12} color="#6366F1" />
-                      <Text style={[styles.text10Semi, { color: theme.textSecondary }]}>{c.label}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-
-              <View style={{ gap: 10, opacity: holidayMode ? 0.5 : 1 }}>
-                {schedules.map((sch) => (
-                  <ScheduleCard
-                    key={sch.id}
-                    schedule={sch}
-                    onToggle={(id) => setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)))}
-                    onActivateNow={(s) => {
-                      setSessionState('scheduled_lock');
-                      handleStartFocus(60, s.strictLevel);
-                    }}
-                    onDelete={(id) => {
-                      setSchedules((prev) => prev.filter((s) => s.id !== id));
-                      showToast('Schedule deleted');
-                    }}
-                    theme={theme}
-                  />
-                ))}
               </View>
             </ScrollView>
           </View>
@@ -3761,165 +3008,6 @@ export default function FocusLockScreen() {
           </View>
         );
 
-      case 'sakha':
-        return (
-          <View style={styles.flex1}>
-            {renderSubHeader('Study Sakha Suite', 'AI Insights, Group Hall, Rewards & Partner')}
-            <ScrollView contentContainerStyle={styles.scrollBody}>
-              {/* AI Distraction Analysis */}
-              <LinearGradient
-                colors={['rgba(79,70,229,0.14)', 'rgba(124,58,237,0.07)']}
-                style={[styles.cardRounded2xl, { borderColor: theme.indigoBorder, padding: 16, gap: 10 }]}
-              >
-                <View style={styles.rowGap8}>
-                  <Sparkles size={16} color="#6366F1" />
-                  <Text style={[styles.textXsExtraBold, { color: theme.textPrimary }]}>Sakha AI Distraction Analysis</Text>
-                </View>
-                <Text style={[styles.textXsRelaxed, { color: theme.textSecondary }]}>
-                  Complete focus sessions and grant Usage Access to unlock personalized distraction analysis. No behavioral recommendation is shown until verified usage data is available.
-                </Text>
-                <View style={[styles.aiActionBox, { backgroundColor: theme.isDark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.75)' }]}>
-                  <Text style={[styles.text11Bold, { color: theme.indigoLight, flex: 1 }]}>
-                    Activate Evening Deep Focus from 7 PM
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      showToast('Create a schedule first to activate Deep Focus');
-                    }}
-                    style={styles.simulateBtn}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>Apply Now</Text>
-                  </TouchableOpacity>
-                </View>
-              </LinearGradient>
-
-              {/* Focus Rewards */}
-              <FocusRewardCard
-                points={focusPoints}
-                streak={historyRecords.some((record) => record.status === 'completed') ? 1 : 0}
-                dailyClaimed={dailyClaimed}
-                onClaimDaily={() => {
-                  if (!historyRecords.some((record) => record.status === 'completed')) {
-                    showToast('Complete a verified focus session to unlock rewards');
-                    return;
-                  }
-                  setDailyClaimed(true);
-                  setFocusPoints((p) => p + 100);
-                  showToast('+100 Focus Points added!');
-                }}
-                theme={theme}
-              />
-
-              {/* Group Focus Lock */}
-              <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 12 }]}>
-                <View style={styles.rowBetween}>
-                  <View style={styles.rowGap10}>
-                    <View style={[styles.iconBox36, { backgroundColor: theme.emeraldSoft }]}>
-                      <Users size={16} color={theme.emerald} />
-                    </View>
-                    <View>
-                      <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Group Study Hall</Text>
-                      <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Connect an authenticated group to see live participation</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.textSmExtraBold, { color: theme.emerald }]}>{formatDurationMMSS(groupCountdown)}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    showToast('Group Focus requires an authenticated group session');
-                  }}
-                  style={[
-                    styles.groupJoinBtn,
-                    groupJoined
-                      ? { backgroundColor: theme.emeraldSoft, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)' }
-                      : { backgroundColor: '#4F46E5' },
-                  ]}
-                >
-                  <Text style={[styles.textXsBold, { color: groupJoined ? theme.emerald : '#FFFFFF' }]}>
-                    {groupJoined ? 'Committed to Group Challenge ✓' : 'Join Shared Focus Session'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Earn Your Screen Time */}
-              <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 12 }]}>
-                <View style={styles.rowBetween}>
-                  <View>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Earn Your Screen Time</Text>
-                    <Text style={[styles.text10Muted, { color: theme.textMuted }]}>
-                      Study {earnRatioStudy}m → Earn {earnRatioReward}m entertainment
-                    </Text>
-                  </View>
-                  <View style={[styles.statusTag, { backgroundColor: theme.indigoSoft }]}>
-                    <Text style={[styles.textXsExtraBold, { color: theme.indigoLight }]}>{earnedMinutesBank}m banked</Text>
-                  </View>
-                </View>
-                <View style={styles.grid2}>
-                  <TouchableOpacity
-                    onPress={() => setEarnRatioStudy((v) => (v === 30 ? 60 : v === 60 ? 90 : 30))}
-                    style={[styles.ratioBox, { backgroundColor: theme.surfaceBg }]}
-                  >
-                    <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Study Goal</Text>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>{earnRatioStudy}m</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setEarnRatioReward((v) => (v === 5 ? 10 : v === 10 ? 15 : 5))}
-                    style={[styles.ratioBox, { backgroundColor: theme.surfaceBg }]}
-                  >
-                    <Text style={[styles.text10Muted, { color: theme.textMuted }]}>Reward</Text>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>{earnRatioReward}m</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (earnedMinutesBank < 5) {
-                      showToast('Study more to earn entertainment minutes!');
-                      return;
-                    }
-                    setEarnedMinutesBank((m) => m - 5);
-                    showToast('Redeemed 5m guilt-free entertainment pass');
-                  }}
-                  style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center' }]}
-                >
-                  <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Redeem 5m Earned Break</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Accountability Partner */}
-              <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 10 }]}>
-                <View style={styles.rowGap10}>
-                  <View style={[styles.iconBox36, { backgroundColor: theme.amberSoft }]}>
-                    <UserCheck size={16} color="#F59E0B" />
-                  </View>
-                  <View>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Accountability Partner</Text>
-                    <Text style={{ fontSize: 10, fontWeight: '600', color: theme.emerald }}>{partnerStatus}</Text>
-                  </View>
-                </View>
-                <TextInput
-                  value={partnerName}
-                  onChangeText={setPartnerName}
-                  style={[styles.textInputField, { backgroundColor: theme.surfaceBg, borderColor: theme.border, color: theme.textPrimary, fontWeight: '600' }]}
-                />
-                <View style={styles.grid2}>
-                  <TouchableOpacity
-                    onPress={() => showToast('Partner invitations require backend connectivity')}
-                    style={[styles.cancelSmallBtn, { backgroundColor: theme.indigoSoft, alignItems: 'center' }]}
-                  >
-                    <Text style={[styles.text11Bold, { color: theme.indigoLight }]}>Invite New Partner</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => showToast(`Session report sent to ${partnerName}`)}
-                    style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center' }]}
-                  >
-                    <Text style={[styles.text11Bold, { color: theme.textPrimary }]}>Send Daily Report</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        );
-
       case 'content':
         return (
           <View style={styles.flex1}>
@@ -3928,20 +3016,20 @@ export default function FocusLockScreen() {
               <View style={[styles.safetyBanner, { backgroundColor: theme.amberSoft, borderColor: 'rgba(245,158,11,0.28)' }]}>
                 <Info size={16} color={theme.amber} />
                 <Text style={[styles.text11Relaxed, { color: theme.amber, flex: 1 }]}>
-                  <Text style={{ fontWeight: '700' }}>Native / Browser Integration Required: </Text>
-                  Short-form feed interception and URL blocking activate once the Android Accessibility & VPN/Browser filter module is connected.
+                  <Text style={{ fontWeight: '700' }}>App-Level Browser Shielding Only: </Text>
+                  Browser Blocking shields installed browser apps (Chrome, Brave, Samsung Internet, Firefox) during Blocklist sessions. Per-URL, keyword, and in-app Shorts/Reels filtering are not supported without a local VPN or window-content service.
                 </Text>
               </View>
 
               <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 12 }]}>
-                <Text style={[styles.textXsExtraBold, { color: theme.textPrimary }]}>In-App Short-Form Blockers</Text>
+                <Text style={[styles.textXsExtraBold, { color: theme.textPrimary }]}>Browser & Short-Form Controls</Text>
                 {([
-                  { key: 'ytShorts', label: 'YouTube Shorts Blocking', sub: 'Keep long lectures, block Shorts shelf' },
-                  { key: 'igReels', label: 'Instagram Reels Blocking', sub: 'Block Reels tab & feed scroll' },
-                  { key: 'igStories', label: 'Instagram Stories Blocking', sub: 'Hide top stories tray' },
-                  { key: 'snapSpotlight', label: 'Snapchat Spotlight Blocking', sub: 'Disable infinite Spotlight feed' },
-                  { key: 'websiteBlocking', label: 'Browser Website Blocking', sub: 'Chrome, Brave & Samsung Internet' },
-                  { key: 'adultFilter', label: 'Adult & Explicit Site Filter', sub: 'Always-on DNS/keyword safe shield' },
+                  { key: 'websiteBlocking', label: 'Browser App Blocking (Active)', sub: 'Blocks installed browser apps during Blocklist sessions' },
+                  { key: 'ytShorts', label: 'YouTube Shorts (Unsupported)', sub: 'Requires window-content inspection; block YouTube app instead' },
+                  { key: 'igReels', label: 'Instagram Reels (Unsupported)', sub: 'Requires window-content inspection; block Instagram app instead' },
+                  { key: 'igStories', label: 'Instagram Stories (Unsupported)', sub: 'Requires window-content inspection; not active in this build' },
+                  { key: 'snapSpotlight', label: 'Snapchat Spotlight (Unsupported)', sub: 'Requires window-content inspection; not active in this build' },
+                  { key: 'adultFilter', label: 'Adult & Explicit Filter (Unsupported)', sub: 'Requires local DNS/VPN service; not active in this build' },
                 ] as const).map((item) => (
                   <View key={item.key} style={styles.rowBetween}>
                     <View style={[styles.flex1, { paddingRight: 10 }]}>
@@ -4068,14 +3156,14 @@ export default function FocusLockScreen() {
               <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border, padding: 16, gap: 12 }]}>
                 <Text style={[styles.textXsExtraBold, { color: theme.textPrimary }]}>Android Notification & Device Controls</Text>
                 {([
-                  { key: 'dndIntegration', label: 'Do Not Disturb Integration', desc: 'Auto-enable DND during Deep Focus' },
-                  { key: 'allowSelectedCalls', label: 'Allow Selected Calls', desc: 'Whitelist family & mentors' },
-                  { key: 'allowEmergencyContacts', label: 'Allow Emergency Contacts', desc: 'Always ring for critical contacts' },
-                  { key: 'suppressNotifications', label: 'Suppress Distracting Banners', desc: 'Silence social alerts while locked' },
-                  { key: 'sessionStartNotif', label: 'Session Start & End Alerts', desc: 'Notify on scheduled transitions' },
-                  { key: 'breakReminders', label: 'Break Reminders', desc: 'Gentle chime before break ends' },
-                  { key: 'lockStatusPersistent', label: 'Persistent Lock Status', desc: 'Pinned Android notification timer' },
-                  { key: 'restartRecovery', label: 'Device Restart Recovery', desc: 'Restore active lock after reboot' },
+                  { key: 'dndIntegration', label: 'Do Not Disturb Integration', desc: nativeStatus?.dndAccessEnabled ? 'Auto-enable DND during sessions & restore on end' : 'Grant Do Not Disturb Access below to enable' },
+                  { key: 'allowSelectedCalls', label: 'Allow Selected Calls (OS DND Policy)', desc: 'Configured in Android System Do Not Disturb settings' },
+                  { key: 'allowEmergencyContacts', label: 'Allow Emergency Contacts (OS DND Policy)', desc: 'Configured in Android System Do Not Disturb settings' },
+                  { key: 'suppressNotifications', label: 'Suppress Distracting Banners (OS DND)', desc: 'Applied by Android DND interruption filter while active' },
+                  { key: 'sessionStartNotif', label: 'Session Start & End Alerts', desc: 'Local notification when Focus Lock starts or completes' },
+                  { key: 'sessionCompleteNotif', label: 'Completion Summary Alert', desc: 'Notify when Focus Lock finishes' },
+                  { key: 'breakReminders', label: 'Break Reminders (In-App)', desc: 'In-app toast when Smart Break ends' },
+                  { key: 'restartRecovery', label: 'Device Restart Recovery', desc: 'Restore active Focus Lock after Android reboot' },
                 ] as const).map((s) => (
                   <View key={s.key} style={styles.rowBetween}>
                     <View style={[styles.flex1, { paddingRight: 10 }]}>
@@ -4083,8 +3171,31 @@ export default function FocusLockScreen() {
                       <Text style={[styles.text10Muted, { color: theme.textMuted }]}>{s.desc}</Text>
                     </View>
                     <PillToggle
-                      value={notifSettings[s.key]}
-                      onToggle={() => setNotifSettings((prev) => ({ ...prev, [s.key]: !prev[s.key] }))}
+                      value={s.key === 'dndIntegration' ? notifSettings.dndIntegration && Boolean(nativeStatus?.dndAccessEnabled) : notifSettings[s.key]}
+                      onToggle={() => {
+                        if (s.key === 'dndIntegration') {
+                          if (Platform.OS === 'android' && !nativeStatus?.dndAccessEnabled) {
+                            void focusLockNative?.openDndSettings?.();
+                            showToast('Grant Do Not Disturb Access first');
+                            return;
+                          }
+                          setNotifSettings((prev) => ({ ...prev, dndIntegration: !prev.dndIntegration }));
+                          return;
+                        }
+                        if (s.key === 'sessionStartNotif') {
+                          setNotifSettings((prev) => ({ ...prev, sessionStartNotif: !prev.sessionStartNotif, sessionCompleteNotif: !prev.sessionStartNotif }));
+                          return;
+                        }
+                        if (s.key === 'restartRecovery') {
+                          const next = !notifSettings.restartRecovery;
+                          setNotifSettings((prev) => ({ ...prev, restartRecovery: next }));
+                          if (Platform.OS === 'android') {
+                            void focusLockNative?.setRestartRecoveryEnabled?.(next).catch(() => undefined);
+                          }
+                          return;
+                        }
+                        setNotifSettings((prev) => ({ ...prev, [s.key]: !prev[s.key] }));
+                      }}
                       isDark={theme.isDark}
                     />
                   </View>
@@ -4109,10 +3220,46 @@ export default function FocusLockScreen() {
   };
 
   return (
-    <Shell active="Dashboard" title="" scroll={false} fitContentToBottomNav>
+    <Shell active="Dashboard" title="" scroll={false} fitContentToBottomNav onAndroidBack={handleAndroidBack}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.screenBg} />
 
       <View style={styles.flex1}>{renderScreenContent()}</View>
+
+      {/* Custom Profile Save/Rename Modal */}
+      <Modal visible={showProfileModal} transparent animationType="fade">
+        <View style={styles.modalBackdropCenter}>
+          <View style={[styles.centerModalCard, { backgroundColor: theme.isDark ? '#141824' : '#FFFFFF', borderColor: theme.border }]}>
+            <Text style={[styles.textBaseExtraBold, { color: theme.textPrimary }]}>
+              {editingProfileId ? 'Rename Profile' : 'Save Focus Profile'}
+            </Text>
+            <Text style={[styles.textXsMutedCenter, { color: theme.textMuted }]}>
+              Saves your current {selectedAppIds.length} selected apps ({appStrategy === 'allow' ? 'Allowlist' : 'Blocklist'}) and {activeMode.name}.
+            </Text>
+            <TextInput
+              value={profileDraftName}
+              onChangeText={setProfileDraftName}
+              placeholder="e.g., UPSC Deep Study"
+              placeholderTextColor={theme.textMuted}
+              style={[styles.textInputField, { width: '100%', backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary }]}
+            />
+            <View style={[styles.grid2, { width: '100%' }]}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowProfileModal(false);
+                  setProfileDraftName('');
+                  setEditingProfileId(null);
+                }}
+                style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center', paddingVertical: 11, flex: 1 }]}
+              >
+                <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSaveCustomProfile} style={[styles.indigoFullBtn, { flex: 1, paddingVertical: 11 }]}>
+                <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Extreme Mode Confirmation Modal */}
       <Modal visible={pendingExtremeConfirm} transparent animationType="fade">
@@ -4204,51 +3351,105 @@ export default function FocusLockScreen() {
                 })}
               </View>
 
-              <TouchableOpacity
-                onPress={() => {
-                  setShowStateLab(false);
-                  setShowIntervention(true);
-                }}
-                style={styles.indigoSmallBtn}
-              >
-                <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Trigger Mindful Intervention Modal</Text>
-              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Core Modals */}
-      <InterventionModal
-        open={showIntervention}
-        appName="Instagram"
-        attemptCount={blockedAttemptsToday}
-        dailyIntention={dailyIntention}
-        onCloseReturnStudy={() => {
-          setShowIntervention(false);
-          showToast('Returned to Study • Focus Protected!');
-        }}
-        onContinueFocus={() => {
-          setShowIntervention(false);
-          showToast('Impulse resisted!');
-        }}
-        onRequestEmergency={() => {
-          setShowIntervention(false);
-          setSessionState('emergency_requested');
-          setShowEmergencyModal(true);
-        }}
-      />
+      {/* Exit PIN Setup Modal */}
+      <Modal visible={showPinSetupModal} transparent animationType="fade">
+        <View style={styles.modalBackdropCenter}>
+          <View style={[styles.centerModalCard, { backgroundColor: theme.isDark ? '#141824' : '#FFFFFF', borderColor: theme.border }]}>
+            <Text style={[styles.textBaseExtraBold, { color: theme.textPrimary }]}>Set 4-Digit Exit PIN</Text>
+            <Text style={[styles.textXsMutedCenter, { color: theme.textMuted }]}>
+              Required to authorize Emergency Access in Strict Mode. Stored securely on this device.
+            </Text>
+            <View style={{ width: '100%', gap: 10 }}>
+              <TextInput
+                secureTextEntry
+                keyboardType="number-pad"
+                maxLength={4}
+                value={pinDraft}
+                onChangeText={setPinDraft}
+                placeholder="Enter 4-digit PIN"
+                placeholderTextColor={theme.textMuted}
+                style={[styles.pinInput, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary }]}
+              />
+              <TextInput
+                secureTextEntry
+                keyboardType="number-pad"
+                maxLength={4}
+                value={pinConfirmDraft}
+                onChangeText={setPinConfirmDraft}
+                placeholder="Confirm 4-digit PIN"
+                placeholderTextColor={theme.textMuted}
+                style={[styles.pinInput, { backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary }]}
+              />
+              {Boolean(pinSetupError) && <Text style={{ fontSize: 11, color: theme.rose }}>{pinSetupError}</Text>}
+            </View>
+            <View style={[styles.grid2, { width: '100%' }]}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowPinSetupModal(false);
+                  setPinDraft('');
+                  setPinConfirmDraft('');
+                  setPinSetupError('');
+                }}
+                style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center', paddingVertical: 11, flex: 1 }]}
+              >
+                <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!isValidExitPin(pinDraft)) {
+                    setPinSetupError('PIN must be exactly 4 digits.');
+                    return;
+                  }
+                  if (pinDraft !== pinConfirmDraft) {
+                    setPinSetupError('PIN entries do not match.');
+                    return;
+                  }
+                  void saveExitPin(pinDraft, state.user?.id).then((saved) => {
+                    if (!saved) {
+                      setPinSetupError('Could not save PIN securely.');
+                      return;
+                    }
+                    setHasConfiguredPin(true);
+                    setStrictConfig((c) => ({ ...c, pinProtection: true }));
+                    setShowPinSetupModal(false);
+                    setPinDraft('');
+                    setPinConfirmDraft('');
+                    setPinSetupError('');
+                    showToast('Exit PIN configured');
+                  });
+                }}
+                style={[styles.indigoFullBtn, { flex: 1, paddingVertical: 11 }]}
+              >
+                <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Save PIN</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
+      {/* Core Modals */}
       <EmergencyAccessModal
         open={showEmergencyModal}
         strictLevel={strictLevel}
         strictConfig={strictConfig}
+        hasConfiguredPin={hasConfiguredPin}
         partnerName={partnerName}
         onClose={() => setShowEmergencyModal(false)}
+        onVerifyPin={(pin) => verifyExitPin(pin, state.user?.id)}
+        onForgotPinReset={async () => {
+          await clearExitPin(state.user?.id);
+          setHasConfiguredPin(false);
+          setStrictConfig((c) => ({ ...c, pinProtection: false }));
+        }}
         onGrantEmergency={() => {
           setShowEmergencyModal(false);
           if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, true).catch(() => undefined);
-          completeSession(Date.now());
+          completeSession(Date.now(), 'interrupted');
           setSessionState('interrupted');
           setScreen('home');
           showToast('5-min Emergency Pass granted & logged');

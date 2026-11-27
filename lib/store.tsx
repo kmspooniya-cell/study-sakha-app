@@ -564,8 +564,14 @@ export type Action =
   | { type: 'chatEphemeral'; msg: ChatMsg }
   | { type: 'clearChat' }
   | { type: 'readNotif'; id?: string }
+  | { type: 'unreadNotif'; id?: string; ids?: string[] }
+  | { type: 'markNotifsRead'; ids: string[] }
   | { type: 'notify'; notif: AppNotification; fromSystem?: boolean }
   | { type: 'deleteNotif'; id: string }
+  | { type: 'deleteNotifs'; ids: string[] }
+  | { type: 'restoreNotifs'; items: AppNotification[] }
+  | { type: 'setNotifications'; items: AppNotification[] }
+  | { type: 'setAnnouncements'; items: Announcement[] }
   | { type: 'learnerStatus'; id: string; status: 'active' | 'suspended' }
   | { type: 'reviewContent'; id: string; status: 'pending' | 'approved' | 'rejected' }
   | { type: 'saveManagedContent'; content: ManagedContent }
@@ -602,8 +608,13 @@ const PERSISTED_ACTION_TYPES: ReadonlySet<Action['type']> = new Set([
   'clearChat',
   'importLegacyLearningData',
   'readNotif',
+  'unreadNotif',
+  'markNotifsRead',
   'notify',
   'deleteNotif',
+  'deleteNotifs',
+  'restoreNotifs',
+  'setNotifications',
   'learnerStatus',
   'reviewContent',
   'announce',
@@ -1136,20 +1147,82 @@ export function reducer(state: State, action: Action): State {
       };
     case 'clearChat':
       return { ...state, chat: [] };
-    case 'readNotif':
+    case 'readNotif': {
+      const now = Date.now();
       return {
         ...state,
-        notifications: state.notifications.map((n) => (!action.id || n.id === action.id ? { ...n, read: true } : n)),
+        notifications: state.notifications.map((n) =>
+          (!action.id || n.id === action.id) && !n.read ? { ...n, read: true, updatedAt: now } : n
+        ),
       };
-    case 'notify':
+    }
+    case 'unreadNotif': {
+      const now = Date.now();
+      const targetSet = action.ids ? new Set(action.ids) : null;
+      return {
+        ...state,
+        notifications: state.notifications.map((n) => {
+          const match = targetSet ? targetSet.has(n.id) : !action.id || n.id === action.id;
+          return match && n.read ? { ...n, read: false, updatedAt: now } : n;
+        }),
+      };
+    }
+    case 'markNotifsRead': {
+      const now = Date.now();
+      const targetSet = new Set(action.ids);
+      return {
+        ...state,
+        notifications: state.notifications.map((n) =>
+          targetSet.has(n.id) && !n.read ? { ...n, read: true, updatedAt: now } : n
+        ),
+      };
+    }
+    case 'notify': {
       if (!state.settings.notifications && !action.fromSystem) return state;
-      if (state.notifications.some((n) => n.id === action.notif.id)) return state;
+      const incomingEventKey = action.notif.eventKey?.trim();
+      const existingIdx = state.notifications.findIndex(
+        (n) => n.id === action.notif.id || (incomingEventKey && n.eventKey === incomingEventKey)
+      );
+      if (existingIdx >= 0) {
+        const existing = state.notifications[existingIdx];
+        const existingUpdated = existing.updatedAt ?? existing.at ?? 0;
+        const incomingUpdated = action.notif.updatedAt ?? action.notif.at ?? 0;
+        if (incomingUpdated <= existingUpdated) return state;
+        const next = [...state.notifications];
+        next[existingIdx] = { ...existing, ...action.notif };
+        return { ...state, notifications: next };
+      }
       return { ...state, notifications: [action.notif, ...state.notifications] };
+    }
     case 'deleteNotif':
       return {
         ...state,
         notifications: state.notifications.filter((n) => n.id !== action.id),
       };
+    case 'deleteNotifs': {
+      const removeSet = new Set(action.ids);
+      return {
+        ...state,
+        notifications: state.notifications.filter((n) => !removeSet.has(n.id)),
+      };
+    }
+    case 'restoreNotifs': {
+      const existingIds = new Set(state.notifications.map((n) => n.id));
+      const toRestore = action.items.filter((item) => !existingIds.has(item.id));
+      if (toRestore.length === 0) return state;
+      return {
+        ...state,
+        notifications: [...toRestore, ...state.notifications],
+      };
+    }
+    case 'setNotifications': {
+      const deduped = Array.from(
+        new Map(action.items.map((item) => [item.id, item])).values()
+      );
+      return { ...state, notifications: deduped };
+    }
+    case 'setAnnouncements':
+      return { ...state, announcements: action.items };
     case 'learnerStatus':
       return { ...state, learners: state.learners.map((l) => (l.id === action.id ? { ...l, status: action.status } : l)) };
     case 'reviewContent':
@@ -2481,7 +2554,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const todayMinutes = state.studyLog[todayKey()] ?? 0;
   const todayDone = state.planDone[todayKey()] ?? [];
-  const unread = state.notifications.filter((n) => !n.read).length;
+  const unread = state.notifications.filter((n) => !n.read && !n.archivedAt).length;
 
   const badges = useMemo(() => {
     return BADGES.map((b) => {

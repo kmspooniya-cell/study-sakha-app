@@ -14,6 +14,7 @@ const KOTLIN_FILES = [
   'FocusLockBlockingActivity.kt',
   'FocusLockAlarm.kt',
   'FocusLockBootReceiver.kt',
+  'FocusLockSessionTiming.kt',
   'FocusLockPackage.kt',
 ];
 
@@ -91,6 +92,12 @@ module.exports = function withFocusLock(config) {
     if (!permissions.some((item) => item.$?.['android:name'] === 'android.permission.RECEIVE_BOOT_COMPLETED')) {
       permissions.push({ $: { 'android:name': 'android.permission.RECEIVE_BOOT_COMPLETED' } });
     }
+    if (!permissions.some((item) => item.$?.['android:name'] === 'android.permission.SCHEDULE_EXACT_ALARM')) {
+      permissions.push({ $: { 'android:name': 'android.permission.SCHEDULE_EXACT_ALARM' } });
+    }
+    if (!permissions.some((item) => item.$?.['android:name'] === 'android.permission.ACCESS_NOTIFICATION_POLICY')) {
+      permissions.push({ $: { 'android:name': 'android.permission.ACCESS_NOTIFICATION_POLICY' } });
+    }
     manifest.manifest['uses-permission'] = permissions;
     manifest.manifest.queries = manifest.manifest.queries ?? [];
     const hasLauncherQuery = manifest.manifest.queries.some((query) =>
@@ -127,6 +134,8 @@ module.exports = function withFocusLock(config) {
         'intent-filter': [{ action: [
           { $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } },
           { $: { 'android:name': 'android.intent.action.MY_PACKAGE_REPLACED' } },
+          { $: { 'android:name': 'android.intent.action.TIME_SET' } },
+          { $: { 'android:name': 'android.intent.action.TIMEZONE_CHANGED' } },
         ] }],
       }, '.FocusLockBootReceiver');
     application.receiver = receivers;

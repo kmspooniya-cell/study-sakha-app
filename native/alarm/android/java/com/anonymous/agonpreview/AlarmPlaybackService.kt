@@ -22,12 +22,26 @@ import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 
 class AlarmPlaybackService : Service() {
+  private data class ActiveAlarmMeta(
+    val title: String,
+    val soundId: String,
+    val volume: Int,
+    val gradualVolume: Boolean,
+    val vibration: Boolean,
+    val vibrationPattern: String,
+    val snoozeEnabled: Boolean,
+    val snoozeDuration: Int,
+    val heavySleeper: Boolean,
+    val missionBeforeSnooze: Boolean,
+  )
+
   private val players = mutableMapOf<String, MediaPlayer>()
   private val vibrators = mutableMapOf<String, Vibrator>()
-  private val titles = mutableMapOf<String, String>()
+  private val activeMeta = mutableMapOf<String, ActiveAlarmMeta>()
   private val volumeRamps = mutableMapOf<String, Runnable>()
   private val handler = Handler(Looper.getMainLooper())
   private var wakeLock: PowerManager.WakeLock? = null
+  private var isForeground = false
 
   override fun onCreate() {
     super.onCreate()
@@ -41,7 +55,6 @@ class AlarmPlaybackService : Service() {
       return START_NOT_STICKY
     }
     val title = intent.getStringExtra(AlarmEngineScheduler.EXTRA_TITLE) ?: "Study Sakha Alarm"
-    titles[alarmId] = title
     val soundId = intent.getStringExtra(AlarmEngineScheduler.EXTRA_SOUND_ID) ?: "default"
     val rawVolume = intent.getIntExtra(AlarmEngineScheduler.EXTRA_VOLUME, 100)
     val volume = rawVolume.coerceIn(0, 100) / 100f
@@ -51,23 +64,41 @@ class AlarmPlaybackService : Service() {
     val snoozeEnabled = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_SNOOZE_ENABLED, true)
     val snoozeDuration = intent.getIntExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, 5)
     val antiSnooze = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_ANTI_SNOOZE, false)
+    val heavySleeper = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, false)
+    val missionBeforeSnooze = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, false)
+    val effectiveSnoozeEnabled = snoozeEnabled && !antiSnooze && !(heavySleeper && missionBeforeSnooze)
 
-    acquireWakeLock()
-    createChannel()
-    val notificationId = notificationId(alarmId)
-    val notification = buildNotification(
-      alarmId = alarmId,
+    val alreadyRinging = activeMeta.containsKey(alarmId) && (players.containsKey(alarmId) || vibrators.containsKey(alarmId))
+    activeMeta[alarmId] = ActiveAlarmMeta(
       title = title,
       soundId = soundId,
       volume = rawVolume,
       gradualVolume = gradualVolume,
       vibration = vibrationEnabled,
       vibrationPattern = vibrationPattern,
-      snoozeEnabled = snoozeEnabled && !antiSnooze,
+      snoozeEnabled = effectiveSnoozeEnabled,
       snoozeDuration = snoozeDuration,
+      heavySleeper = heavySleeper,
+      missionBeforeSnooze = missionBeforeSnooze,
     )
-    if (players.isEmpty()) startForeground(notificationId, notification)
-    else getSystemService(NotificationManager::class.java)?.notify(notificationId, notification)
+
+    acquireWakeLock()
+    createChannel()
+    val notificationId = notificationId(alarmId)
+    val notification = buildNotification(
+      alarmId = alarmId,
+      meta = activeMeta.getValue(alarmId),
+    )
+    if (!isForeground) {
+      startForeground(notificationId, notification)
+      isForeground = true
+    } else {
+      getSystemService(NotificationManager::class.java)?.notify(notificationId, notification)
+    }
+
+    if (alreadyRinging) {
+      return START_NOT_STICKY
+    }
 
     val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
       ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -101,12 +132,13 @@ class AlarmPlaybackService : Service() {
 
   override fun onDestroy() {
     if (activeService === this) activeService = null
+    isForeground = false
     players.values.forEach { player ->
       player.runCatching { stop() }
       player.runCatching { release() }
     }
     players.clear()
-    titles.clear()
+    activeMeta.clear()
     vibrators.values.forEach { it.runCatching { cancel() } }
     vibrators.clear()
     volumeRamps.values.forEach(handler::removeCallbacks)
@@ -133,14 +165,7 @@ class AlarmPlaybackService : Service() {
 
   private fun buildNotification(
     alarmId: String,
-    title: String,
-    soundId: String,
-    volume: Int,
-    gradualVolume: Boolean,
-    vibration: Boolean,
-    vibrationPattern: String,
-    snoozeEnabled: Boolean,
-    snoozeDuration: Int,
+    meta: ActiveAlarmMeta,
   ): Notification {
     val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent(Intent.ACTION_VIEW)).apply {
       data = Uri.parse("studysakha://alarm")
@@ -168,8 +193,8 @@ class AlarmPlaybackService : Service() {
 
     val builder = NotificationCompat.Builder(this, CHANNEL_ID)
       .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-      .setContentTitle("Alarm ringing")
-      .setContentText(title)
+      .setContentTitle(if (meta.heavySleeper) "Alarm ringing · Mission required" else "Alarm ringing")
+      .setContentText(meta.title)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -177,21 +202,26 @@ class AlarmPlaybackService : Service() {
       .setAutoCancel(false)
       .setContentIntent(contentPending)
       .setFullScreenIntent(contentPending, true)
-      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPending)
 
-    if (snoozeEnabled) {
-      val mins = if (snoozeDuration > 0) snoozeDuration else 5
+    if (!meta.heavySleeper) {
+      builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPending)
+    }
+
+    if (meta.snoozeEnabled) {
+      val mins = if (meta.snoozeDuration > 0) meta.snoozeDuration else 5
       val snoozeIntent = Intent(this, AlarmEngineReceiver::class.java).apply {
         action = AlarmEngineScheduler.ACTION_SNOOZE_NOTIFICATION
         data = Uri.parse("studysakha-alarm://snooze-now/$alarmId")
         putExtra(AlarmEngineScheduler.EXTRA_ALARM_ID, alarmId)
-        putExtra(AlarmEngineScheduler.EXTRA_TITLE, title)
-        putExtra(AlarmEngineScheduler.EXTRA_SOUND_ID, soundId)
-        putExtra(AlarmEngineScheduler.EXTRA_VOLUME, volume)
-        putExtra(AlarmEngineScheduler.EXTRA_GRADUAL_VOLUME, gradualVolume)
-        putExtra(AlarmEngineScheduler.EXTRA_VIBRATION, vibration)
-        putExtra(AlarmEngineScheduler.EXTRA_VIBRATION_PATTERN, vibrationPattern)
+        putExtra(AlarmEngineScheduler.EXTRA_TITLE, meta.title)
+        putExtra(AlarmEngineScheduler.EXTRA_SOUND_ID, meta.soundId)
+        putExtra(AlarmEngineScheduler.EXTRA_VOLUME, meta.volume)
+        putExtra(AlarmEngineScheduler.EXTRA_GRADUAL_VOLUME, meta.gradualVolume)
+        putExtra(AlarmEngineScheduler.EXTRA_VIBRATION, meta.vibration)
+        putExtra(AlarmEngineScheduler.EXTRA_VIBRATION_PATTERN, meta.vibrationPattern)
         putExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, mins)
+        putExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, meta.heavySleeper)
+        putExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, meta.missionBeforeSnooze)
       }
       val snoozePending = PendingIntent.getBroadcast(
         this,
@@ -242,33 +272,40 @@ class AlarmPlaybackService : Service() {
       player.runCatching { release() }
     }
     vibrators.remove(alarmId)?.runCatching { cancel() }
-    titles.remove(alarmId)
+    activeMeta.remove(alarmId)
     getSystemService(NotificationManager::class.java)?.cancel(notificationId(alarmId))
-    if (players.isEmpty() && vibrators.isEmpty()) {
+    if (players.isEmpty() && vibrators.isEmpty() && activeMeta.isEmpty()) {
+      isForeground = false
       releaseWakeLock()
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
       else @Suppress("DEPRECATION") stopForeground(true)
       stopSelf()
     } else {
-      val remainingId = players.keys.firstOrNull() ?: vibrators.keys.first()
+      val remainingId = players.keys.firstOrNull() ?: vibrators.keys.firstOrNull() ?: activeMeta.keys.first()
+      val remainingMeta = activeMeta[remainingId] ?: ActiveAlarmMeta(
+        title = "Study Sakha Alarm",
+        soundId = "default",
+        volume = 100,
+        gradualVolume = false,
+        vibration = true,
+        vibrationPattern = "Pulse",
+        snoozeEnabled = true,
+        snoozeDuration = 5,
+        heavySleeper = false,
+        missionBeforeSnooze = false,
+      )
       startForeground(
         notificationId(remainingId),
         buildNotification(
           alarmId = remainingId,
-          title = titles[remainingId] ?: "Study Sakha Alarm",
-          soundId = "default",
-          volume = 100,
-          gradualVolume = false,
-          vibration = true,
-          vibrationPattern = "Pulse",
-          snoozeEnabled = true,
-          snoozeDuration = 5,
+          meta = remainingMeta,
         ),
       )
     }
   }
 
   private fun rampVolume(alarmId: String, target: Float) {
+    volumeRamps.remove(alarmId)?.let(handler::removeCallbacks)
     val steps = 10
     val runnable = object : Runnable {
       var step = 0

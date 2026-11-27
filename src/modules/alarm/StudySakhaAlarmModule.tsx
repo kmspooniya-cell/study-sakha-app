@@ -27,7 +27,10 @@ View,
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ALARM_STORAGE_KEY, getSecondsUntilAlarm as getStoredSecondsUntilAlarm } from './alarmStorage';
+import { NativeDatePicker, WebDatePicker } from '../../../components/NativeSchedulePickers';
 import {
+  captureNativeBarcode,
+  captureNativeReferencePhoto,
   clearPendingNativeAlarm,
   consumePendingNativeAction,
   peekPendingNativeAlarm,
@@ -37,6 +40,21 @@ import {
   subscribeToNativeAlarmAction,
   syncNativeAlarms,
 } from './alarmNative';
+import {
+  type ActiveMissionSession,
+  clampMissionCount,
+  clampPhotoThreshold,
+  clampShakeTarget,
+  clampStepsTarget,
+  defaultShakeTargetForDifficulty,
+  defaultStepsTargetForDifficulty,
+  loadActiveMissionSession,
+  type MissionDifficulty,
+  type MissionId,
+  type PerMissionSettings,
+  saveActiveMissionSession,
+} from './alarmMissions';
+import { HeavySleeperMissionView } from './HeavySleeperMissionView';
 import {
   type AlarmFriendsDashboard,
   type AlarmUserSearchResult,
@@ -78,6 +96,7 @@ Brain,
 Calculator,
 Camera,
 CheckCircle2,
+ChevronDown,
 ChevronLeft,
 Clock,
 Copy,
@@ -86,7 +105,6 @@ Eye,
 FileText,
 Flame,
 Footprints,
-GraduationCap,
 History,
 Keyboard,
 Moon,
@@ -126,15 +144,12 @@ export type AlarmCategoryId =
 | 'focus'
 | 'personal'
 | 'bedtime';
-export type MissionId = 'math' | 'memory' | 'shake' | 'typing' | 'qr' | 'photo' | 'steps';
-export type MissionDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert';
 export type AlarmScreenId =
 | 'dashboard'
 | 'editor'
 | 'ringing'
 | 'morning'
 | 'sleep'
-| 'studyAlarms'
 | 'stats'
 | 'history'
 | 'themes'
@@ -167,7 +182,11 @@ missions: MissionId[];
 missionDifficulty: MissionDifficulty;
 missionCount: number;
 randomMission: boolean;
+allowDuplicateMissions?: boolean;
 missionBeforeSnooze: boolean;
+missionRetryLimit?: number;
+missionTimeoutSeconds?: number;
+perMission?: Partial<PerMissionSettings>;
 motivationalMsg: string;
 spokenMessage: boolean;
 flashAlert: boolean;
@@ -266,6 +285,8 @@ onExitToHome?: () => void;
 onOpenStudyPlanner?: () => void;
 /* Initial screen inside the Alarm Module (defaults to 'dashboard') */
 initialScreen?: AlarmScreenId;
+/* Optional global bottom navigation rendered by the host app */
+globalBottomNav?: React.ReactNode;
 }
 // ============================================================================
 // 2. STATIC LIBRARIES: CATEGORIES, SOUNDS, FOUR THEMES, MISSIONS, DEMO DATA
@@ -604,8 +625,100 @@ charcoal: '#333847',
 };
 }
 // ============================================================================
-// 4. REUSABLE NATIVE COMPONENTS (TOGGLE, AVATARS, CHARTS)
+// 4. REUSABLE NATIVE COMPONENTS (WHEEL PICKER, TOGGLE, AVATARS, CHARTS)
 // ============================================================================
+const WHEEL_ITEM_HEIGHT = 44;
+
+function parseAlarmSpecificDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value || '').trim());
+  if (!match) return null;
+  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatAlarmSpecificDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function WheelColumn({
+  items,
+  selectedIndex,
+  onSelectIndex,
+  textColor,
+  mutedColor,
+  accentColor,
+  testID,
+}: {
+  items: readonly string[];
+  selectedIndex: number;
+  onSelectIndex: (index: number) => void;
+  textColor: string;
+  mutedColor: string;
+  accentColor: string;
+  testID?: string;
+}) {
+  const scrollRef = useRef<ScrollView | null>(null);
+  const clampedIndex = Math.max(0, Math.min(items.length - 1, selectedIndex));
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: clampedIndex * WHEEL_ITEM_HEIGHT, animated: false });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [clampedIndex]);
+
+  const handleScrollEnd = (offsetY: number) => {
+    const nextIdx = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / WHEEL_ITEM_HEIGHT)));
+    if (nextIdx !== clampedIndex) {
+      onSelectIndex(nextIdx);
+    }
+  };
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      testID={testID}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+      snapToInterval={WHEEL_ITEM_HEIGHT}
+      decelerationRate="fast"
+      contentContainerStyle={{ paddingVertical: WHEEL_ITEM_HEIGHT * 2 }}
+      onMomentumScrollEnd={(e) => handleScrollEnd(e.nativeEvent.contentOffset.y)}
+      onScrollEndDrag={(e) => handleScrollEnd(e.nativeEvent.contentOffset.y)}
+      style={styles.wheelColumnScroll}
+    >
+      {items.map((item, idx) => {
+        const selected = idx === clampedIndex;
+        return (
+          <Pressable
+            key={`${item}-${idx}`}
+            onPress={() => {
+              scrollRef.current?.scrollTo({ y: idx * WHEEL_ITEM_HEIGHT, animated: true });
+              onSelectIndex(idx);
+            }}
+            style={styles.wheelItem}
+          >
+            <Text
+              style={{
+                fontSize: selected ? 22 : 16,
+                fontWeight: selected ? '800' : '500',
+                color: selected ? accentColor : mutedColor,
+                opacity: selected ? 1 : Math.abs(idx - clampedIndex) === 1 ? 0.72 : 0.4,
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {item}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 function CustomToggle({
 value,
 onChange,
@@ -885,445 +998,6 @@ textAnchor="middle"
 );
 }
 // ============================================================================
-// 5. HEAVY SLEEPER INTERACTIVE MISSION RUNNER (ALL 7 MISSIONS)
-// ============================================================================
-function HeavySleeperMissionModal({
-alarm,
-activeTheme,
-onComplete,
-onEmergencyExit,
-modeLabel = 'Dismiss Alarm',
-}: {
-alarm: AlarmItem;
-activeTheme: AlarmThemeConfig;
-onComplete: (missionName: string) => void;
-onEmergencyExit: () => void;
-modeLabel?: string;
-}) {
-const missionList: MissionId[] =
-alarm.missions && alarm.missions.length > 0 ? alarm.missions : ['math'];
-const [missionIdx, setMissionIdx] = useState(0);
-const currentMissionId: MissionId = alarm.randomMission
-? missionList[missionIdx % missionList.length]
-: missionList[missionIdx] || 'math';
-const totalSteps = Math.max(1, alarm.missionCount || 1);
-const [stepCount, setStepCount] = useState(0);
-const [showEmergency, setShowEmergency] = useState(false);
-// Mission 1: Math
-const generateMathProblem = useCallback((diff: MissionDifficulty) => {
-if (diff === 'Easy') {
-const a = Math.floor(Math.random() * 15) + 5;
-const b = Math.floor(Math.random() * 15) + 4;
-      return { q: `${a} + ${b}`, ans: a + b };
-}
-if (diff === 'Medium') {
-const a = Math.floor(Math.random() * 20) + 12;
-const b = Math.floor(Math.random() * 8) + 3;
-      return { q: `${a} × ${b}`, ans: a * b };
-}
-if (diff === 'Hard') {
-const a = Math.floor(Math.random() * 25) + 15;
-const b = Math.floor(Math.random() * 9) + 4;
-const c = Math.floor(Math.random() * 40) + 10;
-      return { q: `${a} × ${b} + ${c}`, ans: a * b + c };
-}
-const a = Math.floor(Math.random() * 19) + 13;
-const b = Math.floor(Math.random() * 14) + 11;
-const c = Math.floor(Math.random() * 35) + 15;
-    return { q: `(${a} × ${b}) - ${c}`, ans: a * b - c };
-}, []);
-const [mathProblem, setMathProblem] = useState(() =>
-generateMathProblem(alarm.missionDifficulty || 'Medium')
-);
-const [mathInput, setMathInput] = useState('');
-const [mathError, setMathError] = useState(false);
-// Mission 2: Memory
-const [memSeq, setMemSeq] = useState<number[]>([0, 4, 8, 2]);
-const [memPhase, setMemPhase] = useState<'showing' | 'input' | 'success'>('showing');
-const [memHighlight, setMemHighlight] = useState(-1);
-const [memUserInput, setMemUserInput] = useState<number[]>([]);
-const [memError, setMemError] = useState(false);
-useEffect(() => {
-if (currentMissionId !== 'memory') return;
-const len =
-alarm.missionDifficulty === 'Easy' ? 3 : alarm.missionDifficulty === 'Hard' ? 5 : 4;
-const seq = Array.from({ length: len }, () => Math.floor(Math.random() * 9));
-setMemSeq(seq);
-setMemUserInput([]);
-setMemPhase('showing');
-let i = 0;
-const iv = setInterval(() => {
-if (i < seq.length) {
-setMemHighlight(seq[i]);
-setTimeout(() => setMemHighlight(-1), 420);
-i++;
-} else {
-clearInterval(iv);
-setMemPhase('input');
-}
-}, 680);
-return () => clearInterval(iv);
-}, [currentMissionId, stepCount, alarm.missionDifficulty]);
-// Mission 3: Shake
-const shakeTarget =
-alarm.missionDifficulty === 'Easy'
-? 20
-: alarm.missionDifficulty === 'Hard'
-? 60
-: alarm.missionDifficulty === 'Expert'
-? 100
-: 40;
-const [shakes, setShakes] = useState(0);
-// Mission 4: Typing
-const sentences = [
-'Small steps every day lead to massive success.',
-'Consistency beats intensity in RAS preparation.',
-'Wake up with determination and study with focus.',
-];
-const targetSentence = sentences[stepCount % sentences.length];
-const [typedText, setTypedText] = useState('');
-// Mission 5: QR
-const [qrScanning, setQrScanning] = useState(false);
-const [qrProgress, setQrProgress] = useState(0);
-// Mission 6: Photo
-const [photoCapturing, setPhotoCapturing] = useState(false);
-const [photoMatch, setPhotoMatch] = useState(0);
-// Mission 7: Steps
-const stepsTarget =
-alarm.missionDifficulty === 'Easy' ? 15 : alarm.missionDifficulty === 'Hard' ? 40 : 25;
-const [walkedSteps, setWalkedSteps] = useState(0);
-const missionMeta = MISSION_TYPES.find((m) => m.id === currentMissionId) || MISSION_TYPES[0];
-const MissionIcon = missionMeta.icon;
-const advanceMission = () => {
-const nextStep = stepCount + 1;
-if (nextStep < totalSteps) {
-setStepCount(nextStep);
-setMathProblem(generateMathProblem(alarm.missionDifficulty || 'Medium'));
-setMathInput('');
-setTypedText('');
-setShakes(0);
-setWalkedSteps(0);
-if (missionList.length > 1) {
-setMissionIdx((prev) => (prev + 1) % missionList.length);
-}
-} else {
-onComplete(missionMeta.name);
-}
-};
-const handleMathVerify = () => {
-if (parseInt(mathInput, 10) === mathProblem.ans) {
-setMathError(false);
-advanceMission();
-} else {
-setMathError(true);
-setMathInput('');
-Vibration.vibrate(120);
-}
-};
-const handleMemoryTap = (idx: number) => {
-if (memPhase !== 'input') return;
-const next = [...memUserInput, idx];
-const pos = next.length - 1;
-if (memSeq[pos] !== idx) {
-setMemError(true);
-setMemUserInput([]);
-Vibration.vibrate(120);
-setTimeout(() => setMemError(false), 600);
-return;
-}
-setMemUserInput(next);
-if (next.length === memSeq.length) {
-setMemPhase('success');
-setTimeout(() => advanceMission(), 450);
-}
-};
-const triggerShake = (amount = 5) => {
-Vibration.vibrate(40);
-setShakes((prev) => {
-const next = Math.min(shakeTarget, prev + amount);
-if (next >= shakeTarget) setTimeout(() => advanceMission(), 300);
-return next;
-});
-};
-const triggerQrScan = () => {
-if (qrScanning) return;
-setQrScanning(true);
-setQrProgress(20);
-const iv = setInterval(() => {
-setQrProgress((p) => {
-if (p >= 100) {
-clearInterval(iv);
-setTimeout(() => advanceMission(), 300);
-return 100;
-}
-return p + 25;
-});
-}, 300);
-};
-const triggerPhotoMatch = () => {
-if (photoCapturing) return;
-setPhotoCapturing(true);
-setPhotoMatch(32);
-setTimeout(() => setPhotoMatch(74), 400);
-setTimeout(() => setPhotoMatch(96), 850);
-setTimeout(() => advanceMission(), 1300);
-};
-const triggerStep = (amt = 5) => {
-Vibration.vibrate(30);
-setWalkedSteps((prev) => {
-const next = Math.min(stepsTarget, prev + amt);
-if (next >= stepsTarget) setTimeout(() => advanceMission(), 300);
-return next;
-});
-};
-return (
-<LinearGradient colors={[...activeTheme.colors]} style={styles.fullScreen}>
-<View style={{ flex: 1, padding: 24, justifyContent: 'space-between' }}>
-<ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between', padding: 20 }}>
-<View>
-{/* Header pills */}
-<View style={styles.rowBetween}>
-<View style={styles.glassPill}>
-<MissionIcon size={15} color="#FFFFFF" />
-<Text style={styles.glassPillText}>
-{missionMeta.name} · {stepCount + 1}/{totalSteps}
-</Text>
-</View>
-<View style={[styles.glassPill, { backgroundColor: 'rgba(0,0,0,0.3)' }]}>
-<Text style={styles.glassPillText}>{alarm.missionDifficulty || 'Medium'}</Text>
-</View>
-</View>
-<View style={{ alignItems: 'center', marginTop: 18, marginBottom: 20 }}>
-<Text style={styles.missionSubheading}>
-HEAVY SLEEPER MODE · {modeLabel.toUpperCase()}
-</Text>
-<Text style={styles.missionHeading}>{alarm.title}</Text>
-</View>
-{/* Mission Card */}
-<View style={styles.missionCard}>
-{/* 1. MATH */}
-{currentMissionId === 'math' && (
-<View style={{ gap: 14 }}>
-<View style={styles.mathBox}>
-<Text style={styles.whiteMuted12}>Solve to silence alarm</Text>
-<Text style={styles.mathQuestion}>{mathProblem.q} = ?</Text>
-</View>
-<TextInput
-keyboardType="number-pad"
-value={mathInput}
-onChangeText={setMathInput}
-placeholder="Enter answer..."
-placeholderTextColor="rgba(255,255,255,0.5)"
-style={[
-styles.mathInput,
-mathError && { borderColor: '#FB7185' },
-]}
-onSubmitEditing={handleMathVerify}
-/>
-{mathError && (
-<Text style={{ textAlign: 'center', color: '#FDA4AF', fontSize: 12, fontWeight: '600' }}>
-Incorrect answer — try again!
-</Text>
-)}
-<Pressable onPress={handleMathVerify} style={styles.tealPrimaryBtn}>
-<Text style={styles.tealPrimaryBtnText}>Verify Answer</Text>
-</Pressable>
-</View>
-)}
-{/* 2. MEMORY */}
-{currentMissionId === 'memory' && (
-<View style={{ gap: 16, alignItems: 'center' }}>
-<Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
-{memPhase === 'showing'
-? 'Watch the glowing tiles carefully...'
-: memPhase === 'success'
-? 'Sequence Matched!'
-          : `Tap ${memSeq.length - memUserInput.length} remaining tile(s) in order`}
-</Text>
-<View style={styles.memoryGrid}>
-{Array.from({ length: 9 }).map((_, idx) => {
-const isGlowing = memHighlight === idx;
-const isSelected = memUserInput.includes(idx);
-return (
-<Pressable
-key={idx}
-onPress={() => handleMemoryTap(idx)}
-style={[
-styles.memoryTile,
-isGlowing && { backgroundColor: '#2DD4BF', borderColor: '#FFFFFF' },
-isSelected && !isGlowing && { backgroundColor: 'rgba(20,184,166,0.5)', borderColor: '#5EEAD4' },
-memError && { backgroundColor: 'rgba(244,63,94,0.45)', borderColor: '#FDA4AF' },
-]}
-/>
-);
-})}
-</View>
-</View>
-)}
-{/* 3. SHAKE */}
-{currentMissionId === 'shake' && (
-<View style={{ alignItems: 'center', gap: 14 }}>
-<View style={styles.circleCounter}>
-<Smartphone size={28} color="#5EEAD4" />
-<Text style={styles.circleCounterText}>
-{shakes}/{shakeTarget}
-</Text>
-</View>
-<View style={styles.progressTrackWhite}>
-<View
-style={[
-styles.progressFillTeal,
-            { width: `${Math.min(100, (shakes / shakeTarget) * 100)}%` },
-]}
-/>
-</View>
-<Text style={styles.whiteMuted12}>
-Simulated motion sensor: tap rapidly to shake your device
-</Text>
-<View style={styles.rowGap10}>
-<Pressable onPress={() => triggerShake(5)} style={[styles.tealPrimaryBtn, { flex: 1 }]}>
-<Text style={styles.tealPrimaryBtnText}>Shake (+5)</Text>
-</Pressable>
-<Pressable onPress={() => triggerShake(15)} style={[styles.glassBtn, { flex: 1 }]}>
-<Text style={styles.glassBtnText}>Power (+15)</Text>
-</Pressable>
-</View>
-</View>
-)}
-{/* 4. TYPING */}
-{currentMissionId === 'typing' && (
-<View style={{ gap: 14 }}>
-<View style={styles.mathBox}>
-<Text style={{ color: '#FFFFFF', fontSize: 14, lineHeight: 21, fontWeight: '600' }}>
-{targetSentence}
-</Text>
-</View>
-<TextInput
-multiline
-numberOfLines={3}
-value={typedText}
-onChangeText={(val) => {
-setTypedText(val);
-if (val.trim().toLowerCase() === targetSentence.toLowerCase()) {
-setTimeout(() => advanceMission(), 250);
-}
-}}
-placeholder="Type the sentence above..."
-placeholderTextColor="rgba(255,255,255,0.5)"
-style={styles.typingInput}
-/>
-<Pressable
-onPress={() => {
-setTypedText(targetSentence);
-setTimeout(() => advanceMission(), 300);
-}}
-style={styles.glassBtn}
->
-<Text style={styles.glassBtnText}>Auto-fill Prototype Demo Text</Text>
-</Pressable>
-</View>
-)}
-{/* 5. QR / BARCODE */}
-{currentMissionId === 'qr' && (
-<View style={{ alignItems: 'center', gap: 14 }}>
-<View style={styles.qrFrame}>
-<QrCode size={72} color="rgba(255,255,255,0.45)" />
-<Text style={{ color: '#99F6E4', fontSize: 12, fontWeight: '600', marginTop: 10 }}>
-          {qrScanning ? `Matching Study Desk QR... ${qrProgress}%` : 'Saved Code: Study Desk Book'}
-</Text>
-</View>
-<Pressable onPress={triggerQrScan} style={[styles.tealPrimaryBtn, { width: '100%' }]}>
-<Text style={styles.tealPrimaryBtnText}>
-{qrScanning ? 'Verifying Barcode...' : 'Simulate QR Scan'}
-</Text>
-</Pressable>
-</View>
-)}
-{/* 6. PHOTO */}
-{currentMissionId === 'photo' && (
-<View style={{ gap: 14 }}>
-<View style={[styles.rowBetween, styles.mathBox, { paddingHorizontal: 14 }]}>
-<View>
-<Text style={styles.whiteMuted12}>Reference Object</Text>
-<Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800' }}>Study Desk & Lamp</Text>
-</View>
-<View style={[styles.glassPill, { backgroundColor: 'rgba(20,184,166,0.3)' }]}>
-<Text style={{ color: '#99F6E4', fontSize: 11, fontWeight: '700' }}>
-          {photoMatch > 0 ? `${photoMatch}% Match` : 'Required > 85%'}
-</Text>
-</View>
-</View>
-<View style={styles.photoFrame}>
-<Camera size={36} color="#5EEAD4" />
-<Text style={styles.whiteMuted12}>
-{photoCapturing ? 'Analyzing reference scene...' : 'Simulated Camera Viewfinder'}
-</Text>
-</View>
-<Pressable onPress={triggerPhotoMatch} style={styles.tealPrimaryBtn}>
-<Text style={styles.tealPrimaryBtnText}>
-{photoCapturing ? 'Matching Photo...' : 'Capture Reference Photo'}
-</Text>
-</Pressable>
-</View>
-)}
-{/* 7. STEPS */}
-{currentMissionId === 'steps' && (
-<View style={{ alignItems: 'center', gap: 14 }}>
-<View style={styles.circleCounter}>
-<Footprints size={28} color="#5EEAD4" />
-<Text style={styles.circleCounterText}>
-{walkedSteps}/{stepsTarget}
-</Text>
-</View>
-<View style={styles.progressTrackWhite}>
-<View
-style={[
-styles.progressFillTeal,
-            { width: `${Math.min(100, (walkedSteps / stepsTarget) * 100)}%` },
-]}
-/>
-</View>
-<Text style={styles.whiteMuted12}>Walk out of bed · Simulated activity pedometer</Text>
-<Pressable onPress={() => triggerStep(5)} style={[styles.tealPrimaryBtn, { width: '100%' }]}>
-<Text style={styles.tealPrimaryBtnText}>Simulate Walking (+5 Steps)</Text>
-</Pressable>
-</View>
-)}
-</View>
-</View>
-{/* Accessibility / Emergency Exit */}
-<View style={{ marginTop: 20, alignItems: 'center' }}>
-{!showEmergency ? (
-<Pressable onPress={() => setShowEmergency(true)} style={{ padding: 8 }}>
-<Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecorationLine: 'underline' }}>
-Need accessibility or emergency exit?
-</Text>
-</Pressable>
-) : (
-<View style={styles.emergencyBox}>
-<Text style={{ color: '#FFFFFF', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>
-Accessibility fallback lets you safely dismiss this alarm without completing the mission.
-</Text>
-<View style={styles.rowGap10}>
-<Pressable onPress={() => setShowEmergency(false)} style={[styles.glassBtn, { flex: 1, paddingVertical: 10 }]}>
-<Text style={styles.glassBtnText}>Keep Mission</Text>
-</Pressable>
-<Pressable
-onPress={onEmergencyExit}
-style={[styles.tealPrimaryBtn, { flex: 1, paddingVertical: 10, backgroundColor: '#F43F5E' }]}
->
-<Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 12 }}>Emergency Dismiss</Text>
-</Pressable>
-</View>
-</View>
-)}
-</View>
-</ScrollView>
-</View>
-</LinearGradient>
-);
-}
-// ============================================================================
 // 6. PERSISTENT ALARM STORE CONTEXT (ASYNCSTORAGE BACKED)
 // ============================================================================
 interface AlarmStoreValue {
@@ -1477,6 +1151,7 @@ onToggleDarkMode,
 onExitToHome,
 onOpenStudyPlanner,
 initialScreen = 'dashboard',
+globalBottomNav,
 }: StudySakhaAlarmModuleProps) {
 const {
 alarms,
@@ -1514,6 +1189,8 @@ const [editingAlarm, setEditingAlarm] = useState<AlarmItem | null>(null);
 const [ringingAlarm, setRingingAlarm] = useState<AlarmItem | null>(null);
 const [dismissedAlarm, setDismissedAlarm] = useState<AlarmItem | null>(null);
 const [missionRunnerMode, setMissionRunnerMode] = useState<'dismiss' | 'snooze' | null>(null);
+const [restoredMissionSession, setRestoredMissionSession] = useState<ActiveMissionSession | null>(null);
+const [missionSetupBusy, setMissionSetupBusy] = useState(false);
 const [snoozedBanner, setSnoozedBanner] = useState<{
 alarmTitle: string;
 mins: number;
@@ -1525,20 +1202,17 @@ const [previewSoundId, setPreviewSoundId] = useState<string | null>(null);
 const [toastMsg, setToastMsg] = useState<string | null>(null);
 // Sub-screen states
 const [soundFilterCat, setSoundFilterCat] = useState('All');
-const [studySubTab, setStudySubTab] = useState<'planner' | 'revision' | 'pyq' | 'mocktest' | 'current' | 'exam'>('planner');
-const [examTarget, setExamTarget] = useState({ name: 'RAS Prelims 2026', date: '2026-12-27', m30: true, m15: true, m7: true, m1: true });
 const [historyFilter, setHistoryFilter] = useState('All');
 const [historySearch, setHistorySearch] = useState('');
 // Modals
+const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+const [showCategoryModal, setShowCategoryModal] = useState(false);
+const [showSpecificDatePicker, setShowSpecificDatePicker] = useState(false);
+const [themePreviewVisible, setThemePreviewVisible] = useState(false);
 const [showSaveConfirm, setShowSaveConfirm] = useState(false);
 const [showResetConfirm, setShowResetConfirm] = useState(false);
-const [showAddTaskModal, setShowAddTaskModal] = useState(false);
-const [showFocusCenterModal, setShowFocusCenterModal] = useState(false);
 const [showInviteFriendModal, setShowInviteFriendModal] = useState(false);
 // Modal Form Inputs
-const [newTaskTitle, setNewTaskTitle] = useState('');
-const [newTaskTime, setNewTaskTime] = useState('07:00');
-const [newTaskSubject, setNewTaskSubject] = useState('Rajasthan History');
 const [inviteInput, setInviteInput] = useState('');
 // Real Supabase Friends & Accountability state
 const [friendsDashboard, setFriendsDashboard] = useState<AlarmFriendsDashboard | null>(null);
@@ -1625,10 +1299,6 @@ return activeAlarms
   .filter((entry) => Number.isFinite(entry.seconds))
   .sort((a, b) => a.seconds - b.seconds)[0]?.alarm || null;
 }, [activeAlarms, now]);
-const nextAlarmCountdown = useMemo(
-() => (nextAlarm ? formatCountdown(getSecondsUntilAlarm(nextAlarm, now)) : null),
-[nextAlarm, now]
-);
 useEffect(() => {
 if (!hydrated) return;
 void syncNativeAlarms(alarms, settings).catch(() => {});
@@ -1709,7 +1379,16 @@ missions: [settings.defaultMission],
 missionDifficulty: 'Medium',
 missionCount: 1,
 randomMission: false,
+allowDuplicateMissions: false,
 missionBeforeSnooze: false,
+missionRetryLimit: 0,
+missionTimeoutSeconds: 0,
+perMission: {
+  shakeTarget: 40,
+  stepsTarget: 25,
+  photoSimilarityThreshold: 80,
+  registeredQrCode: '',
+},
 motivationalMsg: 'Stay consistent. Every session counts!',
 spokenMessage: settings.spokenMessages,
 flashAlert: false,
@@ -1791,12 +1470,39 @@ const triggerAlarmRinging = useCallback((alarm: AlarmItem) => {
 dismissingAlarmIdRef.current = null;
 setOpenMenuId(null);
 setRingingAlarm(alarm);
-setMissionRunnerMode(null);
+setMissionRunnerMode(alarm.heavySleeper ? 'dismiss' : null);
 setActiveScreen('ringing');
 if (alarm.vibration) {
 Vibration.vibrate([400, 600, 400, 600], true);
 }
 }, []);
+
+// Restore persisted mission state once after hydration across app restart / process recreation
+const missionRestoredRef = useRef(false);
+const activeRingingIdRef = useRef<string | null>(null);
+useEffect(() => {
+  activeRingingIdRef.current = ringingAlarm?.id ?? null;
+}, [ringingAlarm]);
+
+useEffect(() => {
+  if (!hydrated || missionRestoredRef.current) return;
+  missionRestoredRef.current = true;
+  let cancelled = false;
+  void loadActiveMissionSession().then((saved) => {
+    if (cancelled || !saved) return;
+    if (activeRingingIdRef.current) return;
+    const targetAlarm = alarms.find((a) => a.id === saved.alarmId);
+    if (!targetAlarm || !targetAlarm.heavySleeper) {
+      void saveActiveMissionSession(null);
+      return;
+    }
+    setRestoredMissionSession(saved);
+    setRingingAlarm(targetAlarm);
+    setMissionRunnerMode(saved.mode);
+    setActiveScreen('ringing');
+  });
+  return () => { cancelled = true; };
+}, [hydrated, alarms]);
 
 const buildFallbackAlarm = useCallback((alarmId: string, title?: string): AlarmItem => ({
 id: alarmId,
@@ -1846,6 +1552,8 @@ const mins = alarm.snoozeDuration || 5;
 setAlarms((prev) => prev.map((item) => (item.id === alarm.id ? { ...item, snoozeCount: snoozeCount + 1 } : item)));
 void clearPendingNativeAlarm(alarm.id).catch(() => {});
 void stopNativeAlarm(alarm.id).catch(() => {});
+void saveActiveMissionSession(null);
+setRestoredMissionSession(null);
 void scheduleNativeSnooze({
 alarmId: alarm.id,
 atMillis: Date.now() + mins * 60 * 1000,
@@ -1855,6 +1563,8 @@ volume: alarm.volume,
 vibration: alarm.vibration,
 gradualVolume: alarm.gradualVolume,
 vibrationPattern: alarm.vibrationPattern,
+heavySleeper: alarm.heavySleeper,
+missionBeforeSnooze: alarm.missionBeforeSnooze,
 }).catch(() => {});
 setSnoozedBanner({ alarmTitle: alarm.title, mins, secondsLeft: mins * 60 });
 const { timeStr, period } = formatAlarmTime(alarm.hour, alarm.minute, settings.use24h);
@@ -1885,6 +1595,8 @@ dismissingAlarmIdRef.current = alarm.id;
 Vibration.cancel();
 void clearPendingNativeAlarm(alarm.id).catch(() => {});
 void stopNativeAlarm(alarm.id).catch(() => {});
+void saveActiveMissionSession(null);
+setRestoredMissionSession(null);
 setAlarms((prev) =>
 prev.map((item) => {
 if (item.id !== alarm.id) return item;
@@ -1925,12 +1637,16 @@ if (!hydrated) return undefined;
 let mounted = true;
 const handleNativeAlarm = (payload: { alarmId: string; title?: string }) => {
 if (!mounted || !payload?.alarmId) return;
+if (activeRingingIdRef.current === payload.alarmId) return;
 const alarm = alarms.find((item) => item.id === payload.alarmId) || buildFallbackAlarm(payload.alarmId, payload.title);
 triggerAlarmRinging(alarm);
 };
 const handleNativeAction = (payload: { alarmId: string; action: 'dismissed' | 'snoozed'; snoozeMinutes: number }) => {
 if (!mounted || !payload?.alarmId) return;
 Vibration.cancel();
+void saveActiveMissionSession(null);
+setRestoredMissionSession(null);
+setMissionRunnerMode(null);
 const target = alarms.find((item) => item.id === payload.alarmId) || buildFallbackAlarm(payload.alarmId);
 if (payload.action === 'dismissed') {
 handleDismissAlarm(target, 'Notification Stop');
@@ -2125,110 +1841,6 @@ if (unreadIds.length === 0) return;
 await markAlarmNotificationsRead(unreadIds);
 void loadFriendsDashboard();
 }, [friendsDashboard?.notifications, loadFriendsDashboard]);
-// --- Study Planner Task Creation ---
-const handleCreateTask = (withAlarm: boolean) => {
-if (!newTaskTitle.trim()) return;
-const [hh, mm] = newTaskTime.split(':').map(Number);
-if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
-showToast('Enter a valid task time in HH:MM format');
-return;
-}
-const { timeStr, period } = formatAlarmTime(hh, mm, false);
-let createdAlarmId: string | null = null;
-if (withAlarm) {
-    createdAlarmId = `alm-${Date.now()}`;
-setAlarms((prev) => [
-{
-...INITIAL_ALARMS[1],
-id: createdAlarmId as string,
-hour: hh,
-minute: mm,
-title: newTaskTitle.trim(),
-category: 'study',
-enabled: true,
-linkedModule: 'planner',
-},
-...prev,
-]);
-}
-setPlannerTasks((prev) => [
-{
-      id: `t-${Date.now()}`,
-      time: `${timeStr} ${period}`,
-title: newTaskTitle.trim(),
-subject: newTaskSubject,
-completed: false,
-alarmId: createdAlarmId,
-missed: false,
-},
-...prev,
-]);
-setNewTaskTitle('');
-setShowAddTaskModal(false);
-showToast(withAlarm ? 'Task & Smart Alarm created!' : 'Study task added to planner');
-};
-// ============================================================================
-// 8. SHARED ALARM BOTTOM NAVIGATION BAR
-// ============================================================================
-const renderAlarmBottomNav = () => {
-const items: {
-id: AlarmScreenId;
-label: string;
-icon: React.ComponentType<{ size?: number; color?: string }>;
-badge?: number;
-}[] = [
-{ id: 'dashboard', label: 'Alarms', icon: AlarmClock },
-{ id: 'stats', label: 'Statistics', icon: BarChart3 },
-{ id: 'friends', label: 'Friends', icon: Users, badge: friends.length > 0 ? friends.length : undefined },
-{ id: 'settings', label: 'Settings', icon: Settings },
-];
-return (
-<View
-style={[
-styles.bottomNav,
-{ backgroundColor: P.card, borderTopColor: P.borderSubtle },
-]}
->
-{items.map((item) => {
-const Icon = item.icon;
-const active = activeScreen === item.id;
-return (
-<Pressable
-key={item.id}
-onPress={() => setActiveScreen(item.id)}
-style={styles.bottomNavItem}
->
-<View
-style={[
-styles.bottomNavPill,
-active && { backgroundColor: darkMode ? P.teal : '#1E293B' },
-]}
->
-<Icon
-size={20}
-color={active ? (darkMode ? '#020617' : '#FFFFFF') : P.textSecondary}
-/>
-{item.badge !== undefined && (
-<View style={styles.navBadge}>
-<Text style={styles.navBadgeText}>{item.badge}</Text>
-</View>
-)}
-</View>
-<Text
-style={{
-fontSize: 10,
-fontWeight: active ? '800' : '500',
-color: active ? (darkMode ? P.teal : '#0F172A') : P.textSecondary,
-}}
->
-{item.label}
-</Text>
-</Pressable>
-);
-})}
-</View>
-);
-};
 // ============================================================================
 // 9. SCREEN RENDERERS
 // ============================================================================
@@ -2260,15 +1872,68 @@ Wake up. Show up. Stay consistent.
 </View>
 </View>
 <View style={styles.rowCenter}>
-<Pressable onPress={() => setActiveScreen('sleep')} style={styles.iconBtn}>
-<BedDouble size={20} color="#6366F1" />
-</Pressable>
-<Pressable onPress={() => setActiveScreen('settings')} style={styles.iconBtn}>
-<Settings size={20} color={P.textSecondary} />
+<Pressable
+  onPress={() => setHeaderMenuOpen(true)}
+  style={styles.iconBtn}
+  accessibilityRole="button"
+  accessibilityLabel="Alarm menu"
+  testID="alarm-header-menu-button"
+>
+  <MoreVertical size={20} color={P.textSecondary} />
 </Pressable>
 </View>
 </View>
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 145, gap: 16 }}>
+<Modal
+  visible={headerMenuOpen}
+  transparent
+  animationType="none"
+  statusBarTranslucent
+  onRequestClose={() => setHeaderMenuOpen(false)}
+>
+  <Pressable
+    style={styles.headerMenuBackdrop}
+    onPress={() => setHeaderMenuOpen(false)}
+    accessibilityLabel="Close alarm menu"
+  >
+    <View
+      style={[
+        styles.headerMenuDropdown,
+        {
+          top: Math.max(insets.top, 8) + 54,
+          backgroundColor: P.card,
+          borderColor: P.borderSubtle,
+        },
+      ]}
+    >
+      {(
+        [
+          { id: 'sleep', label: 'Sleep', icon: BedDouble, color: '#6366F1' },
+          { id: 'stats', label: 'Analytics', icon: BarChart3, color: '#10B981' },
+          { id: 'history', label: 'History', icon: History, color: '#0EA5E9' },
+          { id: 'friends', label: 'Friends', icon: Users, color: '#F59E0B' },
+          { id: 'settings', label: 'Settings', icon: Settings, color: P.textSecondary },
+        ] as const
+      ).map((item) => {
+        const Icon = item.icon;
+        return (
+          <Pressable
+            key={item.id}
+            onPress={() => {
+              setHeaderMenuOpen(false);
+              setActiveScreen(item.id);
+            }}
+            style={styles.headerMenuItem}
+            accessibilityRole="menuitem"
+          >
+            <Icon size={17} color={item.color} />
+            <Text style={[styles.headerMenuItemText, { color: P.text }]}>{item.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  </Pressable>
+</Modal>
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 90, gap: 16 }}>
 {/* Active Snooze Banner */}
 {snoozedBanner && (
 <View style={styles.snoozeBanner}>
@@ -2289,93 +1954,55 @@ Ringing again in {Math.floor(snoozedBanner.secondsLeft / 60)}m {snoozedBanner.se
 </View>
 )}
 {/* Next Alarm Hero Card */}
-<LinearGradient colors={['#191A2E', '#1E293B', '#0F3D3E']} style={styles.heroCard}>
+<View style={[styles.heroCard, { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: P.borderSubtle }]}>
 {nextAlarm && nextFmt ? (
 <>
 <View style={styles.rowBetween}>
-<View style={styles.nextBadge}>
+<View style={[styles.nextBadge, { backgroundColor: 'rgba(20,184,166,0.12)', borderColor: 'rgba(20,184,166,0.3)' }]}>
 <View style={styles.tealDot} />
-<Text style={styles.nextBadgeText}>NEXT SCHEDULED ALARM</Text>
+<Text style={[styles.nextBadgeText, { color: '#0F766E' }]}>NEXT SCHEDULED ALARM</Text>
 </View>
-<View style={styles.heroCatPill}>
-<Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+<View style={[styles.heroCatPill, { backgroundColor: '#F1F5F9' }]}>
+<Text style={{ color: '#334155', fontSize: 11, fontWeight: '600' }}>
 {getCategoryMeta(nextAlarm.category).label}
 </Text>
 </View>
 </View>
 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 12 }}>
-<Text style={styles.heroTime}>{nextFmt.timeStr}</Text>
-{!!nextFmt.period && <Text style={styles.heroPeriod}>{nextFmt.period}</Text>}
+<Text style={[styles.heroTime, { color: '#0F172A' }]}>{nextFmt.timeStr}</Text>
+{!!nextFmt.period && <Text style={[styles.heroPeriod, { color: '#0D9488' }]}>{nextFmt.period}</Text>}
 </View>
-<Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginTop: 4 }}>
+<Text style={{ color: '#0F172A', fontSize: 14, fontWeight: '700', marginTop: 4 }}>
 {nextAlarm.title}
 </Text>
-<Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 2 }}>
+<Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
 Tomorrow · {formatRepeatLabel(nextAlarm.days, nextAlarm.specificDate)}
 </Text>
-<View style={styles.countdownBar}>
-<Text style={{ color: '#CBD5E1', fontSize: 12 }}>Next alarm in</Text>
-<Text style={styles.countdownMono}>{nextAlarmCountdown}</Text>
-</View>
 <View style={[styles.rowGap8, { marginTop: 14 }]}>
-<Pressable onPress={() => openEditAlarm(nextAlarm)} style={[styles.heroActionBtn, { flex: 1 }]}>
-<Edit3 size={14} color="#FFFFFF" />
-<Text style={styles.heroActionText}>Edit</Text>
+<Pressable onPress={() => openEditAlarm(nextAlarm)} style={[styles.heroActionBtn, { flex: 1, backgroundColor: '#F1F5F9' }]}>
+<Edit3 size={14} color="#0F172A" />
+<Text style={[styles.heroActionText, { color: '#0F172A' }]}>Edit</Text>
 </Pressable>
-<Pressable onPress={() => toggleAlarmEnabled(nextAlarm.id)} style={[styles.heroActionBtn, { flex: 1 }]}>
-<BellOff size={14} color="#FFFFFF" />
-<Text style={styles.heroActionText}>Disable</Text>
-</Pressable>
-<Pressable
-onPress={() => triggerAlarmRinging(nextAlarm)}
-style={[styles.heroActionBtn, { flex: 1, backgroundColor: '#14B8A6' }]}
->
-<Play size={14} color="#020617" />
-<Text style={[styles.heroActionText, { color: '#020617', fontWeight: '800' }]}>Test Ring</Text>
+<Pressable onPress={() => toggleAlarmEnabled(nextAlarm.id)} style={[styles.heroActionBtn, { flex: 1, backgroundColor: '#F1F5F9' }]}>
+<BellOff size={14} color="#0F172A" />
+<Text style={[styles.heroActionText, { color: '#0F172A' }]}>Disable</Text>
 </Pressable>
 </View>
 </>
 ) : (
 <View style={{ alignItems: 'center', paddingVertical: 14 }}>
-<AlarmClock size={36} color="#2DD4BF" />
-<Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '800', marginTop: 8 }}>
+<AlarmClock size={36} color="#0D9488" />
+<Text style={{ color: '#0F172A', fontSize: 16, fontWeight: '800', marginTop: 8 }}>
 No Active Alarms
 </Text>
-<Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+<Text style={{ color: '#64748B', fontSize: 12, marginTop: 4, textAlign: 'center' }}>
 Enable an alarm or create a new smart schedule.
 </Text>
 <Pressable onPress={() => openCreateAlarm()} style={styles.heroCreateBtn}>
-<Text style={{ color: '#020617', fontSize: 12, fontWeight: '800' }}>+ Create Alarm</Text>
+<Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Add Alarm</Text>
 </Pressable>
 </View>
 )}
-</LinearGradient>
-{/* Ecosystem Navigation Shortcuts (3x2 Grid) */}
-<View style={styles.shortcutGrid}>
-{[
-{ id: 'studyAlarms' as AlarmScreenId, label: 'Study Sync', icon: GraduationCap, color: '#14B8A6', bg: 'rgba(20,184,166,0.12)' },
-{ id: 'friends' as AlarmScreenId, label: 'Friends', icon: Users, color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
-{ id: 'sleep' as AlarmScreenId, label: 'Sleep', icon: BedDouble, color: '#6366F1', bg: 'rgba(99,102,241,0.12)' },
-{ id: 'stats' as AlarmScreenId, label: 'Analytics', icon: BarChart3, color: '#10B981', bg: 'rgba(16,185,129,0.12)' },
-{ id: 'history' as AlarmScreenId, label: 'History', icon: History, color: '#0EA5E9', bg: 'rgba(14,165,233,0.12)' },
-{ id: 'themes' as AlarmScreenId, label: 'Themes', icon: Palette, color: '#EC4899', bg: 'rgba(236,72,153,0.12)' },
-].map((nav) => {
-const Icon = nav.icon;
-return (
-<Pressable
-key={nav.id}
-onPress={() => setActiveScreen(nav.id)}
-style={[styles.shortcutCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}
->
-<View style={[styles.shortcutIconBox, { backgroundColor: nav.bg }]}>
-<Icon size={16} color={nav.color} />
-</View>
-<Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '700', color: P.text, flex: 1 }}>
-{nav.label}
-</Text>
-</Pressable>
-);
-})}
 </View>
 {/* Bulk Actions */}
 <View style={styles.rowBetween}>
@@ -2448,14 +2075,6 @@ No alarms in this category
 <Text style={{ fontSize: 12, color: P.textSecondary, textAlign: 'center', marginTop: 4 }}>
 Build a consistent study & wake-up routine by creating your first Smart Alarm.
 </Text>
-<Pressable
-onPress={() =>
-openCreateAlarm({ category: dashboardCategory === 'all' ? 'wakeup' : dashboardCategory })
-}
-style={[styles.heroCreateBtn, { marginTop: 14 }]}
->
-<Text style={{ color: '#020617', fontSize: 12, fontWeight: '800' }}>+ Add Smart Alarm</Text>
-</Pressable>
 </View>
 ) : (
 <View style={{ gap: 12 }}>
@@ -2576,7 +2195,6 @@ style={{ padding: 6, marginLeft: 4 }}
 <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800' }}>Add Alarm</Text>
 </LinearGradient>
 </Pressable>
-{renderAlarmBottomNav()}
 </View>
 );
 };
@@ -2584,9 +2202,18 @@ style={{ padding: 6, marginLeft: 4 }}
 const renderEditorScreen = () => {
 if (!editingAlarm) return null;
 const { timeStr, period } = formatAlarmTime(editingAlarm.hour, editingAlarm.minute, settings.use24h);
-const previewSec = getSecondsUntilAlarm(editingAlarm, now);
 const updateField = <K extends keyof AlarmItem>(k: K, v: AlarmItem[K]) =>
 setEditingAlarm((prev) => (prev ? { ...prev, [k]: v } : prev));
+const hourItems12 = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'] as const;
+const hourItems24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const minuteItems = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const periodItems = ['AM', 'PM'] as const;
+const selectedHourIndex = settings.use24h
+  ? editingAlarm.hour
+  : ((editingAlarm.hour % 12) === 0 ? 11 : (editingAlarm.hour % 12) - 1);
+const selectedPeriodIndex = editingAlarm.hour >= 12 ? 1 : 0;
+const selectedCategory = getCategoryMeta(editingAlarm.category);
+const SelectedCategoryIcon = selectedCategory.icon;
 const toggleDay = (d: string) => {
 const exists = editingAlarm.days.includes(d);
 updateField('days', exists ? editingAlarm.days.filter((x) => x !== d) : [...editingAlarm.days, d]);
@@ -2596,7 +2223,11 @@ const toggleMission = (mId: MissionId) => {
 const cur = editingAlarm.missions || [];
 const exists = cur.includes(mId);
 const next = exists ? cur.filter((x) => x !== mId) : [...cur, mId];
-updateField('missions', next.length > 0 ? next : [mId]);
+const finalMissions = next.length > 0 ? next : [mId];
+updateField('missions', finalMissions);
+if (!editingAlarm.allowDuplicateMissions) {
+  updateField('missionCount', clampMissionCount(editingAlarm.missionCount, finalMissions, false));
+}
 };
 const filteredSounds = SOUND_LIBRARY.filter((s) =>
 soundFilterCat === 'All' ? true : s.category === soundFilterCat
@@ -2614,139 +2245,99 @@ return (
 <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Save</Text>
 </Pressable>
 </View>
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 16 }}>
-{/* A. Time Selection */}
-<LinearGradient colors={['#0F172A', '#1E1B4B']} style={styles.heroCard}>
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28, gap: 16 }}>
+{/* A. Time Selection (Vertical Scrolling Wheel Picker) */}
+<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
 <View style={styles.rowBetween}>
-<Text style={{ fontSize: 11, fontWeight: '800', color: '#5EEAD4', letterSpacing: 1 }}>
-TIME SELECTION
-</Text>
+<Text style={[styles.sectionLabel, { color: P.textMuted }]}>TIME SELECTION</Text>
 <Pressable
 onPress={() => setSettings((s) => ({ ...s, use24h: !s.use24h }))}
-style={styles.heroCatPill}
+style={[styles.smallChipBtn, { backgroundColor: P.cardAlt }]}
 >
-<Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
+<Text style={{ color: P.text, fontSize: 11, fontWeight: '700' }}>
 {settings.use24h ? '24-Hour' : '12-Hour'}
 </Text>
 </Pressable>
 </View>
-<View style={styles.timeStepperRow}>
-<View style={{ alignItems: 'center' }}>
-<Pressable
-onPress={() => updateField('hour', (editingAlarm.hour + 1) % 24)}
-style={styles.stepBtn}
->
-<Text style={styles.stepBtnText}>▲</Text>
-</Pressable>
-<Text style={styles.stepperDigits}>{timeStr.split(':')[0]}</Text>
-<Pressable
-onPress={() => updateField('hour', (editingAlarm.hour + 23) % 24)}
-style={styles.stepBtn}
->
-<Text style={styles.stepBtnText}>▼</Text>
-</Pressable>
+<View style={styles.wheelColumnsRow} testID="alarm-wheel-time-picker">
+<View
+pointerEvents="none"
+style={[
+styles.wheelSelectionBand,
+{ backgroundColor: P.tealSoft, borderColor: 'rgba(20,184,166,0.35)' },
+]}
+/>
+<View style={styles.wheelColumnWrap}>
+<WheelColumn
+testID="alarm-wheel-hour"
+items={settings.use24h ? hourItems24 : hourItems12}
+selectedIndex={selectedHourIndex}
+onSelectIndex={(idx) => {
+  if (settings.use24h) {
+    updateField('hour', idx);
+  } else {
+    const hour12 = idx + 1;
+    const isPm = editingAlarm.hour >= 12;
+    const nextHour24 = isPm ? (hour12 % 12) + 12 : hour12 % 12;
+    updateField('hour', nextHour24);
+  }
+}}
+textColor={P.text}
+mutedColor={P.textMuted}
+accentColor={P.teal}
+/>
 </View>
-<Text style={{ fontSize: 36, fontWeight: '900', color: '#2DD4BF' }}>:</Text>
-<View style={{ alignItems: 'center' }}>
-<Pressable
-onPress={() => updateField('minute', (editingAlarm.minute + 5) % 60)}
-style={styles.stepBtn}
->
-<Text style={styles.stepBtnText}>▲</Text>
-</Pressable>
-<Text style={styles.stepperDigits}>{timeStr.split(':')[1]}</Text>
-<Pressable
-onPress={() => updateField('minute', (editingAlarm.minute + 55) % 60)}
-style={styles.stepBtn}
->
-<Text style={styles.stepBtnText}>▼</Text>
-</Pressable>
+<Text style={{ fontSize: 22, fontWeight: '800', color: P.teal, marginHorizontal: 2 }}>:</Text>
+<View style={styles.wheelColumnWrap}>
+<WheelColumn
+testID="alarm-wheel-minute"
+items={minuteItems}
+selectedIndex={editingAlarm.minute}
+onSelectIndex={(idx) => updateField('minute', idx)}
+textColor={P.text}
+mutedColor={P.textMuted}
+accentColor={P.teal}
+/>
 </View>
 {!settings.use24h && (
-<View style={{ gap: 8, marginLeft: 8 }}>
-{(['AM', 'PM'] as const).map((p) => (
-<Pressable
-key={p}
-onPress={() => {
-if (p === 'AM' && editingAlarm.hour >= 12) updateField('hour', editingAlarm.hour - 12);
-if (p === 'PM' && editingAlarm.hour < 12) updateField('hour', editingAlarm.hour + 12);
+<View style={styles.wheelColumnWrap}>
+<WheelColumn
+testID="alarm-wheel-period"
+items={periodItems}
+selectedIndex={selectedPeriodIndex}
+onSelectIndex={(idx) => {
+  if (idx === 0 && editingAlarm.hour >= 12) updateField('hour', editingAlarm.hour - 12);
+  if (idx === 1 && editingAlarm.hour < 12) updateField('hour', editingAlarm.hour + 12);
 }}
-style={[
-styles.periodBtn,
-period === p && { backgroundColor: '#2DD4BF' },
-]}
->
-<Text
-style={{
-fontSize: 12,
-fontWeight: '800',
-color: period === p ? '#020617' : 'rgba(255,255,255,0.7)',
-}}
->
-{p}
-</Text>
-</Pressable>
-))}
+textColor={P.text}
+mutedColor={P.textMuted}
+accentColor={P.teal}
+/>
 </View>
 )}
 </View>
-<Text style={{ textAlign: 'center', color: '#5EEAD4', fontSize: 12, fontWeight: '700', marginTop: 10 }}>
-Next alarm in {formatCountdown(previewSec)}
-</Text>
-</LinearGradient>
+</View>
 {/* B. Alarm Details */}
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
 <Text style={[styles.sectionLabel, { color: P.textMuted }]}>ALARM DETAILS</Text>
-<TextInput
-value={editingAlarm.title}
-onChangeText={(t) => updateField('title', t)}
-placeholder="e.g., Wake Up — RAS Preparation"
-placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
-/>
-<View style={styles.badgeWrap}>
-{['Wake Up', 'Rajasthan History', 'Indian Polity Revision', 'Geography PYQ', 'Mock Test', 'Daily Current Affairs'].map((preset) => (
 <Pressable
-key={preset}
-onPress={() => updateField('title', preset)}
-style={[styles.smallChipBtn, { backgroundColor: P.cardAlt }]}
+onPress={() => setShowCategoryModal(true)}
+style={[styles.categorySelectorRow, { backgroundColor: P.cardAlt, borderColor: P.border }]}
+accessibilityRole="button"
+accessibilityLabel="Select alarm category"
+testID="alarm-category-selector"
 >
-<Text style={{ fontSize: 11, fontWeight: '600', color: P.textSecondary }}>{preset}</Text>
-</Pressable>
-))}
+<View style={styles.rowCenter}>
+<View style={[styles.shortcutIconBox, { backgroundColor: selectedCategory.bg }]}>
+<SelectedCategoryIcon size={16} color={selectedCategory.color} />
 </View>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text, marginTop: 4 }}>Category</Text>
-<View style={styles.catGrid}>
-{ALARM_CATEGORIES.map((c) => {
-const Icon = c.icon;
-const sel = editingAlarm.category === c.id;
-return (
-<Pressable
-key={c.id}
-onPress={() => updateField('category', c.id)}
-style={[
-styles.catGridItem,
-{
-borderColor: sel ? P.teal : P.borderSubtle,
-backgroundColor: sel ? P.tealSoft : P.card,
-},
-]}
->
-<Icon size={16} color={sel ? P.teal : P.textSecondary} />
-<Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '700', color: sel ? P.teal : P.textSecondary }}>
-{c.label}
-</Text>
-</Pressable>
-);
-})}
+<View style={{ marginLeft: 10 }}>
+<Text style={{ fontSize: 11, fontWeight: '600', color: P.textSecondary }}>Category</Text>
+<Text style={{ fontSize: 14, fontWeight: '800', color: P.text }}>{selectedCategory.label}</Text>
 </View>
-<TextInput
-value={editingAlarm.motivationalMsg}
-onChangeText={(t) => updateField('motivationalMsg', t)}
-placeholder="Optional motivational wake-up message..."
-placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text, fontSize: 12 }]}
-/>
+</View>
+<ChevronDown size={18} color={P.textSecondary} />
+</Pressable>
 </View>
 {/* C. Repeat Schedule */}
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
@@ -2790,14 +2381,18 @@ style={[styles.smallChipBtn, { backgroundColor: P.cardAlt }]}
 ))}
 </View>
 <View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Specific Date (YYYY-MM-DD)</Text>
-<TextInput
-value={editingAlarm.specificDate}
-onChangeText={(t) => updateField('specificDate', t)}
-placeholder="2026-11-29"
-placeholderTextColor={P.textMuted}
-style={[styles.inlineInput, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
-/>
+<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Specific Date</Text>
+<Pressable
+onPress={() => setShowSpecificDatePicker(true)}
+style={[styles.inlineInput, { backgroundColor: P.cardAlt, borderColor: P.border }]}
+accessibilityRole="button"
+accessibilityLabel="Select specific date"
+testID="alarm-specific-date-field"
+>
+<Text style={{ fontSize: 12, fontWeight: '600', color: editingAlarm.specificDate ? P.text : P.textMuted, textAlign: 'center' }}>
+{editingAlarm.specificDate || 'Select date'}
+</Text>
+</Pressable>
 </View>
 <View style={styles.rowBetween}>
 <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Skip Public Holidays</Text>
@@ -2871,7 +2466,14 @@ styles.shortcutIconBox,
 {(['Easy', 'Medium', 'Hard', 'Expert'] as MissionDifficulty[]).map((d) => (
 <Pressable
 key={d}
-onPress={() => updateField('missionDifficulty', d)}
+onPress={() => {
+  updateField('missionDifficulty', d);
+  updateField('perMission', {
+    ...editingAlarm.perMission,
+    shakeTarget: defaultShakeTargetForDifficulty(d),
+    stepsTarget: defaultStepsTargetForDifficulty(d),
+  });
+}}
 style={[
 styles.segBtn,
 { backgroundColor: editingAlarm.missionDifficulty === d ? '#F43F5E' : P.cardAlt },
@@ -2891,26 +2493,49 @@ color: editingAlarm.missionDifficulty === d ? '#FFFFFF' : P.textSecondary,
 </View>
 <Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Mission Count</Text>
 <View style={styles.rowGap8}>
-{[1, 2, 3, 5].map((cnt) => (
+{[1, 2, 3, 5].map((cnt) => {
+  const allowDups = Boolean(editingAlarm.allowDuplicateMissions);
+  const disabled = !allowDups && cnt > editingAlarm.missions.length;
+  const activeCount = clampMissionCount(editingAlarm.missionCount, editingAlarm.missions, allowDups);
+  return (
 <Pressable
 key={cnt}
+disabled={disabled}
 onPress={() => updateField('missionCount', cnt)}
 style={[
 styles.segBtn,
-{ backgroundColor: editingAlarm.missionCount === cnt ? '#F43F5E' : P.cardAlt },
+{
+  backgroundColor: activeCount === cnt ? '#F43F5E' : P.cardAlt,
+  opacity: disabled ? 0.4 : 1,
+},
 ]}
 >
 <Text
 style={{
 fontSize: 12,
 fontWeight: '800',
-color: editingAlarm.missionCount === cnt ? '#FFFFFF' : P.textSecondary,
+color: activeCount === cnt ? '#FFFFFF' : P.textSecondary,
 }}
 >
 {cnt}
 </Text>
 </Pressable>
-))}
+  );
+})}
+</View>
+<View style={styles.rowBetween}>
+<Text style={{ fontSize: 12, fontWeight: '600', color: P.text }}>Allow Duplicate Missions</Text>
+<CustomToggle
+value={Boolean(editingAlarm.allowDuplicateMissions)}
+onChange={(v) => {
+  updateField('allowDuplicateMissions', v);
+  if (!v) {
+    updateField('missionCount', clampMissionCount(editingAlarm.missionCount, editingAlarm.missions, false));
+  }
+}}
+activeColor="#F43F5E"
+dark={darkMode}
+/>
 </View>
 <View style={styles.rowBetween}>
 <Text style={{ fontSize: 12, fontWeight: '600', color: P.text }}>Randomize Missions</Text>
@@ -2930,6 +2555,193 @@ activeColor="#F43F5E"
 dark={darkMode}
 />
 </View>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Retry Limit</Text>
+<View style={styles.rowGap8}>
+{[
+  { label: 'Unlimited', val: 0 },
+  { label: '3', val: 3 },
+  { label: '5', val: 5 },
+  { label: '10', val: 10 },
+].map((opt) => {
+  const active = (editingAlarm.missionRetryLimit ?? 0) === opt.val;
+  return (
+    <Pressable
+      key={opt.val}
+      onPress={() => updateField('missionRetryLimit', opt.val)}
+      style={[styles.segBtn, { backgroundColor: active ? '#F43F5E' : P.cardAlt }]}
+    >
+      <Text style={{ fontSize: 11, fontWeight: '700', color: active ? '#FFFFFF' : P.textSecondary }}>
+        {opt.label}
+      </Text>
+    </Pressable>
+  );
+})}
+</View>
+<Text style={{ fontSize: 11, fontWeight: '700', color: P.textSecondary }}>Mission Timeout</Text>
+<View style={styles.rowGap8}>
+{[
+  { label: 'None', val: 0 },
+  { label: '60s', val: 60 },
+  { label: '120s', val: 120 },
+  { label: '180s', val: 180 },
+].map((opt) => {
+  const active = (editingAlarm.missionTimeoutSeconds ?? 0) === opt.val;
+  return (
+    <Pressable
+      key={opt.val}
+      onPress={() => updateField('missionTimeoutSeconds', opt.val)}
+      style={[styles.segBtn, { backgroundColor: active ? '#F43F5E' : P.cardAlt }]}
+    >
+      <Text style={{ fontSize: 11, fontWeight: '700', color: active ? '#FFFFFF' : P.textSecondary }}>
+        {opt.label}
+      </Text>
+    </Pressable>
+  );
+})}
+</View>
+{editingAlarm.missions.includes('shake') && (
+<View style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 12 }]}>
+  <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>
+    Shake Target: {clampShakeTarget(editingAlarm.perMission?.shakeTarget ?? defaultShakeTargetForDifficulty(editingAlarm.missionDifficulty))}
+  </Text>
+  <View style={styles.rowGap8}>
+    <Pressable
+      onPress={() => {
+        const cur = clampShakeTarget(editingAlarm.perMission?.shakeTarget ?? defaultShakeTargetForDifficulty(editingAlarm.missionDifficulty));
+        updateField('perMission', { ...editingAlarm.perMission, shakeTarget: clampShakeTarget(cur - 10) });
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+    >
+      <Text style={{ fontWeight: '800', color: P.text }}>-10</Text>
+    </Pressable>
+    <Pressable
+      onPress={() => {
+        const cur = clampShakeTarget(editingAlarm.perMission?.shakeTarget ?? defaultShakeTargetForDifficulty(editingAlarm.missionDifficulty));
+        updateField('perMission', { ...editingAlarm.perMission, shakeTarget: clampShakeTarget(cur + 10) });
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+    >
+      <Text style={{ fontWeight: '800', color: P.text }}>+10</Text>
+    </Pressable>
+  </View>
+</View>
+)}
+{editingAlarm.missions.includes('steps') && (
+<View style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 10, borderRadius: 12 }]}>
+  <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>
+    Steps Target: {clampStepsTarget(editingAlarm.perMission?.stepsTarget ?? defaultStepsTargetForDifficulty(editingAlarm.missionDifficulty))}
+  </Text>
+  <View style={styles.rowGap8}>
+    <Pressable
+      onPress={() => {
+        const cur = clampStepsTarget(editingAlarm.perMission?.stepsTarget ?? defaultStepsTargetForDifficulty(editingAlarm.missionDifficulty));
+        updateField('perMission', { ...editingAlarm.perMission, stepsTarget: clampStepsTarget(cur - 5) });
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+    >
+      <Text style={{ fontWeight: '800', color: P.text }}>-5</Text>
+    </Pressable>
+    <Pressable
+      onPress={() => {
+        const cur = clampStepsTarget(editingAlarm.perMission?.stepsTarget ?? defaultStepsTargetForDifficulty(editingAlarm.missionDifficulty));
+        updateField('perMission', { ...editingAlarm.perMission, stepsTarget: clampStepsTarget(cur + 5) });
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+    >
+      <Text style={{ fontWeight: '800', color: P.text }}>+5</Text>
+    </Pressable>
+  </View>
+</View>
+)}
+{editingAlarm.missions.includes('qr') && (
+<View style={{ backgroundColor: P.cardAlt, padding: 10, borderRadius: 12, gap: 8 }}>
+  <View style={styles.rowBetween}>
+    <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Registered QR / Barcode</Text>
+    <Text style={{ fontSize: 11, fontWeight: '700', color: editingAlarm.perMission?.registeredQrCode ? P.teal : P.textMuted }}>
+      {editingAlarm.perMission?.registeredQrCode || 'None'}
+    </Text>
+  </View>
+  <Pressable
+    disabled={missionSetupBusy}
+    onPress={async () => {
+      setMissionSetupBusy(true);
+      try {
+        const res = await captureNativeBarcode();
+        if (res.ok) {
+          updateField('perMission', {
+            ...editingAlarm.perMission,
+            registeredQrCode: res.code,
+            registeredQrFormat: res.format,
+          });
+          showToast(`Registered ${res.format}: ${res.code}`);
+        } else {
+          showToast(`QR scan failed (${res.reason})`);
+        }
+      } finally {
+        setMissionSetupBusy(false);
+      }
+    }}
+    style={[styles.smallChipBtn, { backgroundColor: '#F43F5E', alignSelf: 'flex-start' }]}
+  >
+    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
+      {missionSetupBusy ? 'Scanning...' : editingAlarm.perMission?.registeredQrCode ? 'Re-scan QR / Barcode' : 'Scan & Register QR / Barcode'}
+    </Text>
+  </Pressable>
+</View>
+)}
+{editingAlarm.missions.includes('photo') && (
+<View style={{ backgroundColor: P.cardAlt, padding: 10, borderRadius: 12, gap: 8 }}>
+  <View style={styles.rowBetween}>
+    <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Reference Photo</Text>
+    <Text style={{ fontSize: 11, fontWeight: '700', color: editingAlarm.perMission?.referencePhotoUri ? P.teal : P.textMuted }}>
+      {editingAlarm.perMission?.referencePhotoUri ? 'Captured' : 'Not set'}
+    </Text>
+  </View>
+  <Pressable
+    disabled={missionSetupBusy}
+    onPress={async () => {
+      setMissionSetupBusy(true);
+      try {
+        const targetId = editingAlarm.id || `alm-${Date.now()}`;
+        if (!editingAlarm.id) updateField('id', targetId);
+        const res = await captureNativeReferencePhoto(targetId);
+        if (res.ok) {
+          updateField('perMission', {
+            ...editingAlarm.perMission,
+            referencePhotoUri: res.referenceUri,
+          });
+          showToast('Reference photo saved');
+        } else {
+          showToast(`Photo capture failed (${res.reason})`);
+        }
+      } finally {
+        setMissionSetupBusy(false);
+      }
+    }}
+    style={[styles.smallChipBtn, { backgroundColor: '#F43F5E', alignSelf: 'flex-start' }]}
+  >
+    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
+      {missionSetupBusy ? 'Opening Camera...' : editingAlarm.perMission?.referencePhotoUri ? 'Retake Reference Photo' : 'Capture Reference Photo'}
+    </Text>
+  </Pressable>
+  <View style={styles.rowGap8}>
+    {[70, 80, 85, 90].map((pct) => {
+      const cur = clampPhotoThreshold(editingAlarm.perMission?.photoSimilarityThreshold ?? 80);
+      return (
+        <Pressable
+          key={pct}
+          onPress={() => updateField('perMission', { ...editingAlarm.perMission, photoSimilarityThreshold: pct })}
+          style={[styles.segBtn, { backgroundColor: cur === pct ? '#F43F5E' : P.card }]}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '700', color: cur === pct ? '#FFFFFF' : P.textSecondary }}>
+            {pct}%
+          </Text>
+        </Pressable>
+      );
+    })}
+  </View>
+</View>
+)}
 </View>
 )}
 </View>
@@ -2958,7 +2770,7 @@ color: soundFilterCat === sc ? '#FFFFFF' : P.textSecondary,
 </Pressable>
 ))}
 </ScrollView>
-<View style={{ gap: 8 }}>
+<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
 {filteredSounds.map((s) => {
 const selected = editingAlarm.soundId === s.id;
 const playing = previewSoundId === s.id;
@@ -2967,32 +2779,35 @@ return (
 key={s.id}
 onPress={() => updateField('soundId', s.id)}
 style={[
-styles.missionSelectRow,
+styles.soundCard,
 {
 borderColor: selected ? P.teal : P.borderSubtle,
-backgroundColor: selected ? P.tealSoft : P.card,
+backgroundColor: selected ? P.tealSoft : P.cardAlt,
 },
 ]}
+testID={`alarm-sound-card-${s.id}`}
 >
-<View style={styles.rowCenter}>
+<View style={styles.rowBetween}>
 <Music size={15} color={selected ? P.teal : P.textMuted} />
-<View style={{ marginLeft: 10 }}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>{s.name}</Text>
-<Text style={{ fontSize: 10, color: P.textSecondary }}>
-{s.category} · {s.duration}
-</Text>
-</View>
-</View>
 <Pressable
 onPress={() => toggleSoundPreview(s.id)}
-style={[styles.shortcutIconBox, { backgroundColor: playing ? P.teal : P.cardAlt }]}
+style={[styles.soundPreviewBtn, { backgroundColor: playing ? P.teal : P.card }]}
+accessibilityRole="button"
+accessibilityLabel={playing ? `Pause ${s.name}` : `Play ${s.name}`}
 >
-{playing ? <Pause size={14} color="#FFFFFF" /> : <Play size={14} color={P.teal} />}
+{playing ? <Pause size={12} color="#FFFFFF" /> : <Play size={12} color={P.teal} />}
 </Pressable>
+</View>
+<Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: P.text, marginTop: 8 }}>
+{s.name}
+</Text>
+<Text numberOfLines={1} style={{ fontSize: 10, color: P.textSecondary, marginTop: 2 }}>
+{s.category} · {s.duration}
+</Text>
 </Pressable>
 );
 })}
-</View>
+</ScrollView>
 {/* Volume Stepper Bar */}
 <View style={styles.rowBetween}>
 <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>
@@ -3109,19 +2924,88 @@ dark={darkMode}
 </View>
 </View>
 </ScrollView>
-{/* Sticky Save Footer */}
-<View style={[styles.editorFooter, { backgroundColor: P.card, borderTopColor: P.borderSubtle }]}>
-<Pressable
-onPress={() => commitSaveAlarm(true)}
-style={[styles.footerBtn, { backgroundColor: darkMode ? '#1E293B' : '#0F172A' }]}
->
-<Play size={14} color="#FFFFFF" />
-<Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Save & Test</Text>
-</Pressable>
-<Pressable onPress={() => setShowSaveConfirm(true)} style={[styles.footerBtn, { backgroundColor: P.teal }]}>
-<Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Save Alarm</Text>
+{/* Category Selection Modal */}
+<Modal visible={showCategoryModal} transparent animationType="slide" onRequestClose={() => setShowCategoryModal(false)}>
+<View style={styles.modalBackdrop}>
+<View style={[styles.bottomSheet, { backgroundColor: P.card }]}>
+<View style={styles.rowBetween}>
+<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Select Category</Text>
+<Pressable onPress={() => setShowCategoryModal(false)} accessibilityLabel="Close category selector">
+<X size={20} color={P.textSecondary} />
 </Pressable>
 </View>
+<View style={{ gap: 8 }}>
+{ALARM_CATEGORIES.map((c) => {
+const Icon = c.icon;
+const sel = editingAlarm.category === c.id;
+return (
+<Pressable
+key={c.id}
+onPress={() => {
+  updateField('category', c.id);
+  setShowCategoryModal(false);
+}}
+style={[
+styles.missionSelectRow,
+{
+borderColor: sel ? P.teal : P.borderSubtle,
+backgroundColor: sel ? P.tealSoft : P.cardAlt,
+},
+]}
+>
+<View style={styles.rowCenter}>
+<View style={[styles.shortcutIconBox, { backgroundColor: c.bg }]}>
+<Icon size={16} color={c.color} />
+</View>
+<Text style={{ fontSize: 13, fontWeight: '700', color: sel ? P.teal : P.text, marginLeft: 10 }}>
+{c.label}
+</Text>
+</View>
+{sel && <CheckCircle2 size={16} color={P.teal} />}
+</Pressable>
+);
+})}
+</View>
+</View>
+</View>
+</Modal>
+{/* Specific Date Picker (Reused from Study Planner) */}
+{Platform.OS === 'android' ? (
+<NativeDatePicker
+visible={showSpecificDatePicker}
+value={editingAlarm.specificDate || formatAlarmSpecificDate(new Date())}
+onSave={(dateStr) => {
+  updateField('specificDate', dateStr);
+  updateField('days', []);
+  setShowSpecificDatePicker(false);
+}}
+onCancel={() => setShowSpecificDatePicker(false)}
+parseDate={parseAlarmSpecificDate}
+formatDate={formatAlarmSpecificDate}
+/>
+) : (
+<WebDatePicker
+visible={showSpecificDatePicker}
+value={editingAlarm.specificDate || formatAlarmSpecificDate(new Date())}
+title="Select Specific Date"
+palette={{
+  card: P.card,
+  field: P.cardAlt,
+  text: P.text,
+  muted: P.textSecondary,
+  blue: P.teal,
+  border: P.border,
+}}
+onSave={(dateStr) => {
+  updateField('specificDate', dateStr);
+  updateField('days', []);
+  setShowSpecificDatePicker(false);
+}}
+onCancel={() => setShowSpecificDatePicker(false)}
+parseDate={parseAlarmSpecificDate}
+formatDate={formatAlarmSpecificDate}
+/>
+)}
 {/* Confirmation Summary Modal */}
 <Modal visible={showSaveConfirm} transparent animationType="slide">
 <View style={styles.modalBackdrop}>
@@ -3174,20 +3058,30 @@ const renderRingingScreen = () => {
 if (!ringingAlarm) return null;
 if (missionRunnerMode) {
 return (
-<HeavySleeperMissionModal
-alarm={ringingAlarm}
-activeTheme={activeTheme}
-modeLabel={missionRunnerMode === 'snooze' ? 'Snooze Verification' : 'Dismiss Alarm'}
-onComplete={(missionName) => {
-const mode = missionRunnerMode;
-setMissionRunnerMode(null);
-if (mode === 'snooze') handleSnoozeAlarm(ringingAlarm);
-else handleDismissAlarm(ringingAlarm, missionName);
-}}
-onEmergencyExit={() => {
-setMissionRunnerMode(null);
-handleDismissAlarm(ringingAlarm, 'Accessibility Exit');
-}}
+<HeavySleeperMissionView
+  alarm={ringingAlarm}
+  activeThemeColors={activeTheme.colors}
+  mode={missionRunnerMode}
+  restoredSession={restoredMissionSession}
+  onSwitchToSnoozeMode={() => setMissionRunnerMode('snooze')}
+  onSnoozeDirect={() => {
+    setMissionRunnerMode(null);
+    setRestoredMissionSession(null);
+    void saveActiveMissionSession(null);
+    handleSnoozeAlarm(ringingAlarm);
+  }}
+  onComplete={(missionName) => {
+    const mode = missionRunnerMode;
+    setMissionRunnerMode(null);
+    setRestoredMissionSession(null);
+    if (mode === 'snooze') handleSnoozeAlarm(ringingAlarm);
+    else handleDismissAlarm(ringingAlarm, missionName);
+  }}
+  onEmergencyExit={() => {
+    setMissionRunnerMode(null);
+    setRestoredMissionSession(null);
+    handleDismissAlarm(ringingAlarm, 'Accessibility Exit');
+  }}
 />
 );
 }
@@ -3251,7 +3145,7 @@ styles.ringingPulseCircle,
 </View>
 {/* Snooze & Dismiss */}
 <View style={{ gap: 12, marginBottom: 12 }}>
-{ringingAlarm.snoozeEnabled && !ringingAlarm.antiSnooze && (
+{ringingAlarm.snoozeEnabled && !ringingAlarm.antiSnooze && !(ringingAlarm.maxSnooze > 0 && (ringingAlarm.snoozeCount || 0) >= ringingAlarm.maxSnooze) && (
 <Pressable
 onPress={() => {
 if (ringingAlarm.heavySleeper && ringingAlarm.missionBeforeSnooze) {
@@ -3354,7 +3248,8 @@ You showed up on time for {dismissedAlarm?.title || 'your study routine'}.
 <Pressable
 onPress={() => {
     showToast(`Launched ${primaryCta}`);
-setActiveScreen('studyAlarms');
+if (onOpenStudyPlanner) onOpenStudyPlanner();
+else setActiveScreen('dashboard');
 }}
 style={[styles.tealPrimaryBtn, { backgroundColor: P.teal }]}
 >
@@ -3362,7 +3257,7 @@ style={[styles.tealPrimaryBtn, { backgroundColor: P.teal }]}
 </Pressable>
 <View style={styles.rowGap10}>
 <Pressable
-onPress={() => (onOpenStudyPlanner ? onOpenStudyPlanner() : setActiveScreen('studyAlarms'))}
+onPress={() => (onOpenStudyPlanner ? onOpenStudyPlanner() : setActiveScreen('dashboard'))}
 style={[styles.footerBtn, { backgroundColor: P.card, borderWidth: 1, borderColor: P.border }]}
 >
 <Text style={{ color: P.text, fontSize: 12, fontWeight: '700' }}>Open Study Planner</Text>
@@ -3504,299 +3399,6 @@ Note: Sleep insights are schedule-based estimates for routine planning, not medi
 </ScrollView>
 </View>
 );
-// --- SCREEN 6: STUDY SAKHA DEEP INTEGRATION HUB ---
-const renderStudyAlarmsScreen = () => {
-const missedTasks = plannerTasks.filter((t) => t.missed && !t.completed);
-return (
-<View style={{ flex: 1 }}>
-<View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle }]}>
-<View style={styles.rowCenter}>
-<Pressable onPress={() => setActiveScreen('dashboard')} style={styles.iconBtn}>
-<ChevronLeft size={22} color={P.text} />
-</Pressable>
-<View style={{ marginLeft: 4 }}>
-<Text style={[styles.headerTitle, { color: P.text }]}>Study Sakha Alarms</Text>
-<Text style={[styles.headerSub, { color: P.textSecondary }]}>Planner, Revision, PYQ & Exam Sync</Text>
-</View>
-</View>
-<View style={styles.rowGap8}>
-<Pressable onPress={() => setShowFocusCenterModal(true)} style={[styles.smallChipBtn, { backgroundColor: P.cardAlt }]}>
-<Text style={{ fontSize: 11, fontWeight: '700', color: P.text }}>Focus</Text>
-</Pressable>
-<Pressable onPress={() => setShowAddTaskModal(true)} style={styles.headerSaveBtn}>
-<Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>+ Task</Text>
-</Pressable>
-</View>
-</View>
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
-<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-{(
-[
-{ id: 'planner', label: 'Planner' },
-{ id: 'revision', label: 'Revision' },
-{ id: 'pyq', label: 'PYQ' },
-{ id: 'mocktest', label: 'Mock Test' },
-{ id: 'current', label: 'Current Affairs' },
-{ id: 'exam', label: 'Exam Countdown' },
-] as const
-).map((t) => (
-<Pressable
-key={t.id}
-onPress={() => setStudySubTab(t.id)}
-style={[styles.filterPill, { backgroundColor: studySubTab === t.id ? P.teal : P.cardAlt }]}
->
-<Text style={{ fontSize: 12, fontWeight: '700', color: studySubTab === t.id ? '#FFFFFF' : P.textSecondary }}>
-{t.label}
-</Text>
-</Pressable>
-))}
-</ScrollView>
-{missedTasks.length > 0 && studySubTab === 'planner' && (
-<View style={[styles.sectionCard, { backgroundColor: 'rgba(244,63,94,0.08)', borderColor: 'rgba(244,63,94,0.3)' }]}>
-<View style={styles.rowCenter}>
-<AlertTriangle size={15} color="#F43F5E" />
-<Text style={{ fontSize: 12, fontWeight: '800', color: '#F43F5E', marginLeft: 6 }}>
-Missed Study Reminder
-</Text>
-</View>
-<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>
-{missedTasks[0].time} — {missedTasks[0].title}
-</Text>
-<View style={styles.badgeWrap}>
-<Pressable
-onPress={() => openCreateAlarm({ title: missedTasks[0].title, category: 'study', hour: 17, minute: 0 })}
-style={[styles.smallChipBtn, { backgroundColor: '#F43F5E' }]}
->
-<Text style={{ fontSize: 11, fontWeight: '700', color: '#FFFFFF' }}>Reschedule</Text>
-</Pressable>
-<Pressable
-onPress={() => {
-setPlannerTasks((prev) =>
-prev.map((x) => (x.id === missedTasks[0].id ? { ...x, completed: true, missed: false } : x))
-);
-showToast('Marked as completed');
-}}
-style={[styles.smallChipBtn, { backgroundColor: P.card }]}
->
-<Text style={{ fontSize: 11, fontWeight: '700', color: P.text }}>Mark Completed</Text>
-</Pressable>
-<Pressable
-onPress={() => {
-setPlannerTasks((prev) =>
-prev.map((x) => (x.id === missedTasks[0].id ? { ...x, missed: false } : x))
-);
-showToast('Moved to tomorrow’s planner');
-}}
-style={[styles.smallChipBtn, { backgroundColor: P.card }]}
->
-<Text style={{ fontSize: 11, fontWeight: '700', color: P.text }}>Tomorrow</Text>
-</Pressable>
-</View>
-</View>
-)}
-{studySubTab === 'planner' &&
-plannerTasks.map((task) => {
-const linked = alarms.find((a) => a.id === task.alarmId);
-return (
-<View key={task.id} style={[styles.alarmCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<View style={styles.rowBetween}>
-<View style={{ flex: 1, paddingRight: 8 }}>
-<View style={styles.rowCenter}>
-<Text style={{ fontSize: 11, fontWeight: '800', color: P.teal }}>{task.time}</Text>
-<View style={[styles.smallChipBtn, { backgroundColor: P.cardAlt, marginLeft: 8, paddingVertical: 2 }]}>
-<Text style={{ fontSize: 10, fontWeight: '600', color: P.textSecondary }}>{task.subject}</Text>
-</View>
-</View>
-<Text
-style={{
-fontSize: 14,
-fontWeight: '700',
-color: task.completed ? P.textMuted : P.text,
-textDecorationLine: task.completed ? 'line-through' : 'none',
-marginTop: 4,
-}}
->
-{task.title}
-</Text>
-<Text style={{ fontSize: 11, color: P.textSecondary, marginTop: 2 }}>
-          {linked ? `Alarm linked (${linked.enabled ? 'Active' : 'Paused'})` : 'No alarm set'}
-</Text>
-</View>
-{linked ? (
-<Pressable onPress={() => openEditAlarm(linked)} style={[styles.smallChipBtn, { backgroundColor: P.tealSoft }]}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.teal }}>Edit Alarm</Text>
-</Pressable>
-) : (
-<Pressable
-onPress={() => openCreateAlarm({ title: task.title, category: 'study', linkedModule: 'planner' })}
-style={[styles.smallChipBtn, { backgroundColor: darkMode ? P.teal : '#0F172A' }]}
->
-<Text style={{ fontSize: 12, fontWeight: '700', color: darkMode ? '#020617' : '#FFFFFF' }}>+ Alarm</Text>
-</Pressable>
-)}
-</View>
-</View>
-);
-})}
-{studySubTab === 'revision' && (
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={{ fontSize: 14, fontWeight: '800', color: P.text }}>Schedule Topic Revision Alarm</Text>
-<View style={[styles.summaryBox, { backgroundColor: 'rgba(99,102,241,0.1)' }]}>
-<Text style={{ fontSize: 13, fontWeight: '800', color: '#6366F1' }}>Rajasthan History</Text>
-<Text style={{ fontSize: 12, color: P.text }}>Topic: Praja Mandal Movements</Text>
-<Text style={{ fontSize: 11, color: P.textSecondary }}>Suggested: 29 November · 07:00 AM</Text>
-</View>
-<Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'Revision: Praja Mandal Movements',
-description: 'Rajasthan History — Active Recall Revision',
-category: 'revision',
-hour: 7,
-minute: 0,
-specificDate: '2026-11-29',
-linkedModule: 'revision',
-})
-}
-style={[styles.tealPrimaryBtn, { backgroundColor: '#6366F1' }]}
->
-<Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Create Revision Alarm</Text>
-</Pressable>
-</View>
-)}
-{studySubTab === 'pyq' && (
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={{ fontSize: 14, fontWeight: '800', color: P.text }}>PYQ Practice Alarm</Text>
-<Text style={{ fontSize: 12, color: P.textSecondary }}>
-Set subject, topic & question count. Dismissing the alarm launches PYQ Practice directly.
-</Text>
-<View style={styles.rowGap10}>
-<View style={[styles.metricTile, { backgroundColor: P.cardAlt, borderColor: 'transparent', alignItems: 'flex-start' }]}>
-<Text style={{ fontSize: 10, color: P.textSecondary }}>Subject</Text>
-<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>Rajasthan Geography</Text>
-</View>
-<View style={[styles.metricTile, { backgroundColor: P.cardAlt, borderColor: 'transparent', alignItems: 'flex-start' }]}>
-<Text style={{ fontSize: 10, color: P.textSecondary }}>Target</Text>
-<Text style={{ fontSize: 12, fontWeight: '800', color: P.text }}>50 Questions</Text>
-</View>
-</View>
-<Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'PYQ Practice — Geography (50 Qs)',
-category: 'study',
-hour: 16,
-minute: 30,
-linkedModule: 'pyq',
-})
-}
-style={[styles.tealPrimaryBtn, { backgroundColor: P.teal }]}
->
-<Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Schedule PYQ Alarm</Text>
-</Pressable>
-</View>
-)}
-{studySubTab === 'mocktest' && (
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={{ fontSize: 14, fontWeight: '800', color: P.text }}>Mock Test Alarm</Text>
-<View style={[styles.summaryBox, { backgroundColor: 'rgba(244,63,94,0.1)' }]}>
-<Text style={{ fontSize: 13, fontWeight: '800', color: '#F43F5E' }}>RAS Prelims Full Test #08</Text>
-<Text style={{ fontSize: 12, color: P.textSecondary }}>Duration: 180 min · Pre-test alert: 15 min before</Text>
-</View>
-<Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'Mock Test: RAS Prelims #08',
-category: 'mocktest',
-hour: 10,
-minute: 0,
-linkedModule: 'mocktest',
-heavySleeper: true,
-missions: ['math'],
-})
-}
-style={[styles.tealPrimaryBtn, { backgroundColor: '#F43F5E' }]}
->
-<Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>Schedule Mock Test Alarm</Text>
-</Pressable>
-</View>
-)}
-{studySubTab === 'current' && (
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={{ fontSize: 14, fontWeight: '800', color: P.text }}>Daily Current Affairs Alarm</Text>
-<View style={styles.rowGap10}>
-<Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'Morning Current Affairs',
-category: 'study',
-hour: 7,
-minute: 30,
-days: [...DAYS_LIST],
-linkedModule: 'current_affairs',
-})
-}
-style={[styles.metricTile, { backgroundColor: 'rgba(245,158,11,0.1)', borderColor: 'rgba(245,158,11,0.3)', alignItems: 'flex-start', padding: 14 }]}
->
-<Sun size={18} color="#F59E0B" />
-<Text style={{ fontSize: 13, fontWeight: '800', color: P.text, marginTop: 6 }}>Morning Slot</Text>
-<Text style={{ fontSize: 11, color: P.textSecondary }}>07:30 AM Daily</Text>
-</Pressable>
-<Pressable
-onPress={() =>
-openCreateAlarm({
-title: 'Evening Current Affairs Digest',
-category: 'study',
-hour: 19,
-minute: 30,
-days: [...DAYS_LIST],
-linkedModule: 'current_affairs',
-})
-}
-style={[styles.metricTile, { backgroundColor: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', alignItems: 'flex-start', padding: 14 }]}
->
-<Moon size={18} color="#6366F1" />
-<Text style={{ fontSize: 13, fontWeight: '800', color: P.text, marginTop: 6 }}>Evening Slot</Text>
-<Text style={{ fontSize: 11, color: P.textSecondary }}>07:30 PM Daily</Text>
-</Pressable>
-</View>
-</View>
-)}
-{studySubTab === 'exam' && (
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<View style={styles.rowBetween}>
-<View>
-<Text style={{ fontSize: 10, fontWeight: '800', color: P.teal }}>TARGET EXAM</Text>
-<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>{examTarget.name}</Text>
-</View>
-<View style={[styles.summaryBox, { backgroundColor: P.tealSoft, alignItems: 'center', paddingHorizontal: 14 }]}>
-<Text style={{ fontSize: 18, fontWeight: '900', color: P.teal }}>30</Text>
-<Text style={{ fontSize: 9, fontWeight: '800', color: P.teal }}>DAYS LEFT</Text>
-</View>
-</View>
-{(
-[
-{ key: 'm30', label: '30-Day Strategy Milestone Reminder' },
-{ key: 'm15', label: '15-Day Rapid Revision Reminder' },
-{ key: 'm7', label: '7-Day Final Mock & Admit Card Alert' },
-{ key: 'm1', label: '1-Day Exam Readiness Reminder' },
-] as const
-).map((m) => (
-<View key={m.key} style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 12, borderRadius: 14 }]}>
-<Text style={{ fontSize: 12, fontWeight: '600', color: P.text, flex: 1 }}>{m.label}</Text>
-<CustomToggle
-value={examTarget[m.key]}
-onChange={(v) => setExamTarget((p) => ({ ...p, [m.key]: v }))}
-dark={darkMode}
-/>
-</View>
-))}
-</View>
-)}
-</ScrollView>
-</View>
-);
-};
 // --- SCREEN 7: ALARM STATISTICS & PERFORMANCE ANALYTICS ---
 const renderStatsScreen = () => {
 const weeklyTrend = Array.from({ length: 7 }, (_, index) => {
@@ -3831,7 +3433,7 @@ return (
 </View>
 <Award size={20} color="#F59E0B" />
 </View>
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 16 }}>
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
 <View style={styles.statsGrid}>
 {[
       { label: 'Success Rate', val: `${analytics.successRate}%`, color: '#14B8A6' },
@@ -3873,7 +3475,6 @@ SMART INSIGHTS
 </Text>
 </View>
 </ScrollView>
-{renderAlarmBottomNav()}
 </View>
 );
 };
@@ -3980,37 +3581,38 @@ Task: {item.linkedTask}
 </View>
 );
 };
-// --- SCREEN 9: ALARM THEME LIBRARY (ALL 22 THEMES) ---
+// --- SCREEN 9: ALARM THEME LIBRARY (4 THEMES) ---
 const renderThemesScreen = () => (
 <View style={{ flex: 1 }}>
-<View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle }]}>
-<View style={[styles.rowCenter, { flex: 1 }]}>
-<Pressable onPress={() => setActiveScreen('dashboard')} style={styles.iconBtn} accessibilityLabel="Back to Smart Alarm">
+<View style={[styles.header, { backgroundColor: P.card, borderBottomColor: P.borderSubtle, paddingHorizontal: 12 }]}>
+<View style={[styles.rowCenter, { flex: 1, minWidth: 0, marginRight: 8 }]}>
+<Pressable onPress={() => setActiveScreen('settings')} style={styles.iconBtn} accessibilityLabel="Back to Alarm Settings">
 <ChevronLeft size={22} color={P.text} />
 </Pressable>
-<View style={{ marginLeft: 4 }}>
-<Text style={[styles.headerTitle, { color: P.text }]}>Alarm Themes</Text>
-<Text style={[styles.headerSub, { color: P.textSecondary }]}>
-{ALARM_THEMES.length} curated immersive themes
+<View style={{ marginLeft: 4, flex: 1, minWidth: 0 }}>
+<Text numberOfLines={1} style={[styles.headerTitle, { color: P.text }]}>Alarm Themes</Text>
+<Text numberOfLines={1} style={[styles.headerSub, { color: P.textSecondary }]}>
+{ALARM_THEMES.length} curated themes
 </Text>
 </View>
 </View>
-<View style={styles.rowGap8}>
+<View style={[styles.rowGap8, { flexShrink: 0 }]}>
 <Pressable
-onPress={() => {
-if (alarms[0]) triggerAlarmRinging(alarms[0]);
-else showToast('Create an alarm to preview the ringing theme');
-}}
+onPress={() => setThemePreviewVisible(true)}
 style={[styles.smallChipBtn, styles.rowCenter, { gap: 4, backgroundColor: P.cardAlt }]}
+accessibilityRole="button"
+accessibilityLabel="Preview alarm theme"
+testID="alarm-theme-preview-btn"
 >
 <Eye size={13} color={P.text} />
 <Text style={{ color: P.text, fontSize: 12, fontWeight: '700' }}>Preview</Text>
 </Pressable>
 <Pressable
-onPress={() => setActiveScreen('dashboard')}
-style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4 }]}
+onPress={() => setActiveScreen('settings')}
+style={[styles.headerSaveBtn, styles.rowCenter, { gap: 4, paddingHorizontal: 12 }]}
 accessibilityRole="button"
 accessibilityLabel="Done selecting alarm theme"
+testID="alarm-theme-done-btn"
 >
 <CheckCircle2 size={13} color="#FFFFFF" />
 <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>Done</Text>
@@ -4025,7 +3627,7 @@ accessibilityLabel="Done selecting alarm theme"
 </View>
 <Text style={{ color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 12 }}>{nextAlarm ? `${formatAlarmTime(nextAlarm.hour, nextAlarm.minute, settings.use24h).timeStr} ${formatAlarmTime(nextAlarm.hour, nextAlarm.minute, settings.use24h).period}`.trim() : 'No alarm'}</Text>
 <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 }}>
-{nextAlarm?.title || 'Create an alarm to preview this theme'}
+{nextAlarm?.title || 'Previewing theme appearance'}
 </Text>
 </LinearGradient>
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
@@ -4066,9 +3668,10 @@ showToast(`Selected "${t.name}" theme`);
 accessibilityRole="button"
 accessibilityState={{ selected }}
 accessibilityLabel={`Select ${t.name} theme`}
+testID={`alarm-theme-card-${t.id}`}
 style={[
 styles.themeCardWrap,
-selected && { borderColor: '#2DD4BF', borderWidth: 2.5 },
+{ borderColor: selected ? '#2DD4BF' : 'transparent' },
 ]}
 >
 <LinearGradient colors={[...t.colors]} style={styles.themeCardInner}>
@@ -4085,6 +3688,42 @@ selected && { borderColor: '#2DD4BF', borderWidth: 2.5 },
 })}
 </View>
 </ScrollView>
+<Modal
+  visible={themePreviewVisible}
+  transparent={false}
+  animationType="fade"
+  statusBarTranslucent
+  onRequestClose={() => setThemePreviewVisible(false)}
+>
+  <LinearGradient colors={[...activeTheme.colors]} style={styles.fullScreen}>
+    <View style={{ flex: 1, justifyContent: 'space-between', padding: 24, paddingTop: Math.max(insets.top + 20, 48), paddingBottom: Math.max(insets.bottom + 24, 36) }}>
+      <View style={{ alignItems: 'center' }}>
+        <View style={styles.glassPill}>
+          <Eye size={14} color="#FFFFFF" />
+          <Text style={styles.glassPillText}>Theme Preview · {activeTheme.name}</Text>
+        </View>
+        <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14, marginTop: 18 }}>
+          {now.toDateString()}
+        </Text>
+        <Text style={[styles.ringingClock, { marginTop: 12 }]}>
+          {nextAlarm ? formatAlarmTime(nextAlarm.hour, nextAlarm.minute, settings.use24h).timeStr : '06:30'}
+        </Text>
+        <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '600', marginTop: 10 }}>
+          {activeTheme.group} Theme
+        </Text>
+      </View>
+      <Pressable
+        onPress={() => setThemePreviewVisible(false)}
+        style={styles.tealPrimaryBtn}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss theme preview"
+        testID="alarm-theme-preview-dismiss"
+      >
+        <Text style={styles.tealPrimaryBtnText}>Dismiss Preview</Text>
+      </Pressable>
+    </View>
+  </LinearGradient>
+</Modal>
 </View>
 );
 // --- SCREEN 10: ALARM SETTINGS ---
@@ -4104,93 +3743,25 @@ return (
 </View>
 </View>
 </View>
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 14 }}>
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 14 }}>
 <Pressable onPress={() => setActiveScreen('themes')}>
-<LinearGradient colors={[...activeTheme.colors]} style={[styles.heroCard, styles.rowBetween]}>
+<View style={[styles.heroCard, styles.rowBetween, { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: P.borderSubtle }]}>
 <View>
-<View style={[styles.themeGroupPill, { alignSelf: 'flex-start', marginBottom: 6 }]}>
-<Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '800' }}>PREMIUM PERSONALIZATION</Text>
+<View style={[styles.themeGroupPill, { alignSelf: 'flex-start', marginBottom: 6, backgroundColor: 'rgba(20,184,166,0.12)' }]}>
+<Text style={{ color: '#0F766E', fontSize: 9, fontWeight: '800' }}>PREMIUM PERSONALIZATION</Text>
 </View>
-<Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>
+<Text style={{ color: '#0F172A', fontSize: 15, fontWeight: '800' }}>
 Theme Library ({ALARM_THEMES.length} Styles)
 </Text>
-<Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11, marginTop: 2 }}>
+<Text style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>
 Current: {activeTheme.name}
 </Text>
 </View>
-<Palette size={26} color="#FFFFFF" />
-</LinearGradient>
+<Palette size={26} color="#0F766E" />
+</View>
 </Pressable>
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={[styles.sectionLabel, { color: P.textMuted }]}>DISPLAY SETTINGS</Text>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Appearance Mode</Text>
-<View style={[styles.rowGap8, { backgroundColor: P.cardAlt, padding: 3, borderRadius: 12 }]}>
-<Pressable
-onPress={() => setDarkMode(false)}
-style={[styles.smallChipBtn, !darkMode && { backgroundColor: '#FFFFFF' }]}
->
-<Text style={{ fontSize: 11, fontWeight: '700', color: !darkMode ? '#0F172A' : P.textSecondary }}>
-Light
-</Text>
-</Pressable>
-<Pressable
-onPress={() => setDarkMode(true)}
-style={[styles.smallChipBtn, darkMode && { backgroundColor: '#334155' }]}
->
-<Text style={{ fontSize: 11, fontWeight: '700', color: darkMode ? '#FFFFFF' : P.textSecondary }}>
-Dark
-</Text>
-</Pressable>
-</View>
-</View>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Minimal Display Mode</Text>
-<CustomToggle value={settings.minimalDisplay} onChange={(v) => setS('minimalDisplay', v)} dark={darkMode} />
-</View>
-</View>
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={[styles.sectionLabel, { color: P.textMuted }]}>WAKE-UP & SOUND DEFAULTS</Text>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Default Snooze</Text>
-<View style={styles.rowGap8}>
-{[5, 10, 15].map((m) => (
-<Pressable
-key={m}
-onPress={() => setS('defaultSnooze', m)}
-style={[
-styles.smallChipBtn,
-{ backgroundColor: settings.defaultSnooze === m ? P.teal : P.cardAlt },
-]}
->
-<Text
-style={{
-fontSize: 11,
-fontWeight: '700',
-color: settings.defaultSnooze === m ? '#FFFFFF' : P.textSecondary,
-}}
->
-{m}m
-</Text>
-</Pressable>
-))}
-</View>
-</View>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Gradual Volume Increase</Text>
-<CustomToggle value={settings.gradualVolume} onChange={(v) => setS('gradualVolume', v)} dark={darkMode} />
-</View>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Spoken Wake-up Messages</Text>
-<CustomToggle value={settings.spokenMessages} onChange={(v) => setS('spokenMessages', v)} dark={darkMode} />
-</View>
-</View>
-<View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
-<Text style={[styles.sectionLabel, { color: P.textMuted }]}>NOTIFICATIONS & GENERAL</Text>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>24-Hour Time Format</Text>
-<CustomToggle value={settings.use24h} onChange={(v) => setS('use24h', v)} dark={darkMode} />
-</View>
+<Text style={[styles.sectionLabel, { color: P.textMuted }]}>NOTIFICATIONS</Text>
 <View style={styles.rowBetween}>
 <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Upcoming Alarm Notifications</Text>
 <CustomToggle value={settings.notifyUpcoming} onChange={(v) => setS('notifyUpcoming', v)} dark={darkMode} />
@@ -4198,10 +3769,6 @@ color: settings.defaultSnooze === m ? '#FFFFFF' : P.textSecondary,
 <View style={styles.rowBetween}>
 <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Missed Study Task Alerts</Text>
 <CustomToggle value={settings.notifyMissed} onChange={(v) => setS('notifyMissed', v)} dark={darkMode} />
-</View>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Time Zone</Text>
-<Text style={{ fontSize: 12, color: P.textSecondary }}>{settings.timezone}</Text>
 </View>
 <Pressable
 onPress={() => setShowResetConfirm(true)}
@@ -4238,7 +3805,6 @@ style={[styles.footerBtn, { backgroundColor: '#F43F5E' }]}
 </View>
 </View>
 </Modal>
-{renderAlarmBottomNav()}
 </View>
 );
 };
@@ -4290,7 +3856,7 @@ style={[styles.inviteMainBtn, { backgroundColor: darkMode ? P.teal : '#333847' }
 </Pressable>
 </View>
 ) : (
-<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 14 }}>
+<ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 14 }}>
 {/* My Target Wake-Up Time */}
 <View style={[styles.sectionCard, { backgroundColor: P.card, borderColor: P.borderSubtle }]}>
 <View style={styles.rowBetween}>
@@ -4536,7 +4102,6 @@ color: f.nudged ? P.teal : darkMode ? '#020617' : '#FFFFFF',
 )}
 </ScrollView>
 )}
-{renderAlarmBottomNav()}
 </View>
 );
 };
@@ -4550,7 +4115,6 @@ case 'editor': return renderEditorScreen();
 case 'ringing': return renderRingingScreen();
 case 'morning': return renderMorningScreen();
 case 'sleep': return renderSleepScreen();
-case 'studyAlarms': return renderStudyAlarmsScreen();
 case 'stats': return renderStatsScreen();
 case 'history': return renderHistoryScreen();
 case 'themes': return renderThemesScreen();
@@ -4559,13 +4123,17 @@ case 'friends': return renderFriendsScreen();
 default: return renderDashboardScreen();
 }
 };
+const showGlobalBottomNav = Boolean(globalBottomNav) && activeScreen !== 'ringing';
 return (
-<SafeAreaView edges={['top', 'right', 'bottom', 'left']} style={{ flex: 1, backgroundColor: P.bg }}>
+<SafeAreaView edges={showGlobalBottomNav ? ['top', 'right', 'left'] : ['top', 'right', 'bottom', 'left']} style={{ flex: 1, backgroundColor: P.bg }}>
 <StatusBar
   barStyle={darkMode || activeScreen === 'ringing' ? 'light-content' : 'dark-content'}
   backgroundColor={activeScreen === 'ringing' ? activeTheme.colors[0] : P.card}
 />
+<View style={{ flex: 1 }}>
 {renderScreen()}
+</View>
+{showGlobalBottomNav ? globalBottomNav : null}
 {/* Toast Pill */}
 {!!toastMsg && (
 <View style={[styles.toastPill, { top: Math.max(insets.top + 8, 16), backgroundColor: darkMode ? '#FFFFFF' : '#0F172A' }]}>
@@ -4575,95 +4143,6 @@ return (
 </Text>
 </View>
 )}
-{/* Add Study Planner Task Modal ("Add Alarm for this task?") */}
-<Modal visible={showAddTaskModal} transparent animationType="slide">
-<View style={styles.modalBackdrop}>
-<View style={[styles.bottomSheet, { backgroundColor: P.card }]}>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Add Study Planner Task</Text>
-<Pressable onPress={() => setShowAddTaskModal(false)}>
-<X size={20} color={P.textSecondary} />
-</Pressable>
-</View>
-<TextInput
-value={newTaskTitle}
-onChangeText={setNewTaskTitle}
-placeholder="e.g., Mewar Dynasty Notes Revision"
-placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
-/>
-<View style={styles.rowGap10}>
-<TextInput
-value={newTaskTime}
-onChangeText={setNewTaskTime}
-placeholder="07:00"
-placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { flex: 1, backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
-/>
-<TextInput
-value={newTaskSubject}
-onChangeText={setNewTaskSubject}
-placeholder="Subject"
-placeholderTextColor={P.textMuted}
-style={[styles.inputBox, { flex: 1, backgroundColor: P.cardAlt, borderColor: P.border, color: P.text }]}
-/>
-</View>
-<View style={[styles.summaryBox, { backgroundColor: P.tealSoft }]}>
-<View style={styles.rowCenter}>
-<AlarmClock size={15} color={P.teal} />
-<Text style={{ fontSize: 12, fontWeight: '800', color: P.teal, marginLeft: 6 }}>
-Add Alarm for this task?
-</Text>
-</View>
-<Text style={{ fontSize: 11, color: P.textSecondary }}>
-Automatically links a Study Alarm to keep you on schedule.
-</Text>
-</View>
-<View style={styles.rowGap10}>
-<Pressable onPress={() => handleCreateTask(false)} style={[styles.footerBtn, { backgroundColor: P.cardAlt }]}>
-<Text style={{ color: P.text, fontWeight: '700', fontSize: 12 }}>Skip Alarm</Text>
-</Pressable>
-<Pressable onPress={() => handleCreateTask(true)} style={[styles.footerBtn, { backgroundColor: P.teal }]}>
-<Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 12 }}>Add Task + Alarm</Text>
-</Pressable>
-</View>
-</View>
-</View>
-</Modal>
-{/* Focus Center Integration Modal */}
-<Modal visible={showFocusCenterModal} transparent animationType="slide">
-<View style={styles.modalBackdrop}>
-<View style={[styles.bottomSheet, { backgroundColor: P.card }]}>
-<View style={styles.rowBetween}>
-<Text style={{ fontSize: 16, fontWeight: '800', color: P.text }}>Focus Center Alarms</Text>
-<Pressable onPress={() => setShowFocusCenterModal(false)}>
-<X size={20} color={P.textSecondary} />
-</Pressable>
-</View>
-{[
-{ title: 'Start Focus Session (50 min)', desc: 'Deep work block with Focus Lock', cat: 'focus' as AlarmCategoryId, h: 9, m: 0 },
-{ title: 'Pomodoro Break Reminder', desc: '10-minute eye & stretch break', cat: 'focus' as AlarmCategoryId, h: 10, m: 0 },
-{ title: 'Morning Meditation Reminder', desc: '15-minute calm mindfulness session', cat: 'personal' as AlarmCategoryId, h: 6, m: 30 },
-{ title: 'Long Study Session Check-in', desc: '3-hour RAS marathon checkpoint', cat: 'study' as AlarmCategoryId, h: 14, m: 0 },
-].map((item) => (
-<Pressable
-key={item.title}
-onPress={() => {
-setShowFocusCenterModal(false);
-openCreateAlarm({ title: item.title, description: item.desc, category: item.cat, hour: item.h, minute: item.m });
-}}
-style={[styles.rowBetween, { backgroundColor: P.cardAlt, padding: 12, borderRadius: 16 }]}
->
-<View style={{ flex: 1 }}>
-<Text style={{ fontSize: 13, fontWeight: '700', color: P.text }}>{item.title}</Text>
-<Text style={{ fontSize: 11, color: P.textSecondary }}>{item.desc}</Text>
-</View>
-<Plus size={18} color={P.teal} />
-</Pressable>
-))}
-</View>
-</View>
-</Modal>
 {/* Find & Add Real Study Friends Modal */}
 <Modal visible={showInviteFriendModal} transparent animationType="slide" onRequestClose={() => setShowInviteFriendModal(false)}>
 <View style={styles.modalBackdrop}>
@@ -4847,24 +4326,6 @@ borderRadius: 999,
 },
 heroTime: { fontSize: 38, fontWeight: '900', color: '#FFFFFF', letterSpacing: -1 },
 heroPeriod: { fontSize: 17, fontWeight: '700', color: '#5EEAD4' },
-countdownBar: {
-marginTop: 14,
-backgroundColor: 'rgba(0,0,0,0.26)',
-borderColor: 'rgba(255,255,255,0.12)',
-borderWidth: 1,
-borderRadius: 16,
-paddingHorizontal: 14,
-paddingVertical: 10,
-flexDirection: 'row',
-justifyContent: 'space-between',
-alignItems: 'center',
-},
-countdownMono: {
-color: '#5EEAD4',
-fontSize: 14,
-fontWeight: '800',
-fontVariant: ['tabular-nums'],
-},
 heroActionBtn: {
 flexDirection: 'row',
 alignItems: 'center',
@@ -4881,16 +4342,6 @@ backgroundColor: '#14B8A6',
 paddingHorizontal: 18,
 paddingVertical: 10,
 borderRadius: 14,
-},
-shortcutGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-shortcutCard: {
-width: '31.5%',
-flexDirection: 'row',
-alignItems: 'center',
-gap: 8,
-padding: 10,
-borderRadius: 16,
-borderWidth: 1,
 },
 shortcutIconBox: {
 width: 32,
@@ -4960,8 +4411,8 @@ elevation: 2,
 },
 fabWrap: {
 position: 'absolute',
-right: 18,
-bottom: 84,
+left: 18,
+bottom: 18,
 borderRadius: 999,
 elevation: 8,
 shadowColor: '#14B8A6',
@@ -4977,37 +4428,34 @@ paddingHorizontal: 20,
 paddingVertical: 13,
 borderRadius: 999,
 },
-bottomNav: {
-position: 'absolute',
-left: 0,
-right: 0,
-bottom: 0,
-flexDirection: 'row',
-justifyContent: 'space-around',
-paddingVertical: 8,
-paddingBottom: 10,
-borderTopWidth: 1,
+headerMenuBackdrop: {
+flex: 1,
+backgroundColor: 'rgba(2,6,23,0.18)',
 },
-bottomNavItem: { alignItems: 'center', gap: 3, minWidth: 68 },
-bottomNavPill: {
-paddingHorizontal: 16,
+headerMenuDropdown: {
+position: 'absolute',
+right: 16,
+width: 196,
+borderRadius: 16,
+borderWidth: 1,
 paddingVertical: 6,
-borderRadius: 999,
-position: 'relative',
+shadowColor: '#000',
+shadowOpacity: 0.16,
+shadowRadius: 14,
+shadowOffset: { width: 0, height: 6 },
+elevation: 10,
 },
-navBadge: {
-position: 'absolute',
-top: -3,
-right: 2,
-minWidth: 16,
-height: 16,
-borderRadius: 8,
-backgroundColor: '#F59E0B',
+headerMenuItem: {
+flexDirection: 'row',
 alignItems: 'center',
-justifyContent: 'center',
-paddingHorizontal: 3,
+gap: 12,
+paddingHorizontal: 14,
+paddingVertical: 11,
 },
-navBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
+headerMenuItemText: {
+fontSize: 13,
+fontWeight: '700',
+},
 snoozeBanner: {
 flexDirection: 'row',
 alignItems: 'center',
@@ -5047,15 +4495,57 @@ fontSize: 12,
 minWidth: 120,
 textAlign: 'center',
 },
-catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-catGridItem: {
-width: '23%',
+wheelColumnsRow: {
+height: WHEEL_ITEM_HEIGHT * 5,
+flexDirection: 'row',
 alignItems: 'center',
-gap: 4,
-paddingVertical: 10,
-paddingHorizontal: 4,
-borderRadius: 14,
+justifyContent: 'center',
+position: 'relative',
+overflow: 'hidden',
+},
+wheelSelectionBand: {
+position: 'absolute',
+left: 4,
+right: 4,
+top: WHEEL_ITEM_HEIGHT * 2,
+height: WHEEL_ITEM_HEIGHT,
+borderRadius: 12,
 borderWidth: 1,
+},
+wheelColumnWrap: {
+flex: 1,
+height: WHEEL_ITEM_HEIGHT * 5,
+alignItems: 'center',
+},
+wheelColumnScroll: {
+width: '100%',
+},
+wheelItem: {
+height: WHEEL_ITEM_HEIGHT,
+alignItems: 'center',
+justifyContent: 'center',
+},
+categorySelectorRow: {
+flexDirection: 'row',
+alignItems: 'center',
+justifyContent: 'space-between',
+borderWidth: 1,
+borderRadius: 16,
+paddingHorizontal: 12,
+paddingVertical: 10,
+},
+soundCard: {
+width: 156,
+borderRadius: 16,
+borderWidth: 1,
+padding: 12,
+},
+soundPreviewBtn: {
+width: 28,
+height: 28,
+borderRadius: 9,
+alignItems: 'center',
+justifyContent: 'center',
 },
 dayCircle: {
 width: 38,
@@ -5063,33 +4553,6 @@ height: 38,
 borderRadius: 19,
 alignItems: 'center',
 justifyContent: 'center',
-},
-timeStepperRow: {
-flexDirection: 'row',
-alignItems: 'center',
-justifyContent: 'center',
-gap: 14,
-marginVertical: 10,
-},
-stepBtn: {
-backgroundColor: 'rgba(255,255,255,0.12)',
-paddingHorizontal: 14,
-paddingVertical: 7,
-borderRadius: 10,
-},
-stepBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
-stepperDigits: {
-color: '#FFFFFF',
-fontSize: 44,
-fontWeight: '900',
-marginVertical: 4,
-fontVariant: ['tabular-nums'],
-},
-periodBtn: {
-backgroundColor: 'rgba(255,255,255,0.12)',
-paddingHorizontal: 14,
-paddingVertical: 9,
-borderRadius: 12,
 },
 missionSelectRow: {
 flexDirection: 'row',
@@ -5104,16 +4567,6 @@ flex: 1,
 paddingVertical: 9,
 borderRadius: 12,
 alignItems: 'center',
-},
-editorFooter: {
-position: 'absolute',
-left: 0,
-right: 0,
-bottom: 0,
-flexDirection: 'row',
-gap: 10,
-padding: 14,
-borderTopWidth: 1,
 },
 footerBtn: {
 flex: 1,
@@ -5334,15 +4787,18 @@ borderRadius: 16,
 paddingHorizontal: 14,
 paddingVertical: 10,
 },
-themeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+themeGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
 themeCardWrap: {
 width: '48.2%',
 height: 98,
 borderRadius: 18,
-overflow: 'hidden',
+borderWidth: 2.5,
+borderColor: 'transparent',
 },
 themeCardInner: {
 flex: 1,
+borderRadius: 15.5,
+overflow: 'hidden',
 padding: 12,
 justifyContent: 'space-between',
 },

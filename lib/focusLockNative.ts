@@ -14,14 +14,31 @@ export type NativeBlockingSession = {
   startedAt: number;
   endsAt: number;
   packageIds: string[];
-  status: 'active' | 'completed' | 'stopped';
+  strategy?: 'block' | 'allow';
+  status: 'active' | 'paused' | 'completed' | 'stopped';
+  pausedRemainingMs?: number;
+  pausedAt?: number;
   emergencyExit?: boolean;
+};
+
+export type PendingFocusCompletion = {
+  id: string;
+  userId: string;
+  startedAt: number;
+  endsAt: number;
+  completedAt: number;
+  packageIds: string[];
+  strategy?: 'block' | 'allow';
 };
 
 export type BlockingStatus = {
   available: boolean;
   accessibilityEnabled: boolean;
   usageAccessEnabled: boolean;
+  exactAlarmEnabled?: boolean;
+  notificationsEnabled?: boolean;
+  batteryOptimizationIgnored?: boolean;
+  dndAccessEnabled?: boolean;
   serviceRunning: boolean;
   activeSession: NativeBlockingSession | null;
   blockedAttemptsToday?: number;
@@ -29,6 +46,7 @@ export type BlockingStatus = {
 
 export type FocusLockEventName =
   | 'onBlockingStarted'
+  | 'onBlockingPaused'
   | 'onBlockingStopped'
   | 'onBlockedAppDetected'
   | 'onSessionExpired'
@@ -42,12 +60,23 @@ type FocusLockModule = {
   openAccessibilitySettings(): Promise<void>;
   requestAccessibilityPermission(): Promise<void>;
   openUsageAccessSettings(): Promise<void>;
+  openExactAlarmSettings?(): Promise<void>;
+  openNotificationSettings?(): Promise<void>;
+  openBatteryOptimizationSettings?(): Promise<void>;
+  openDndSettings?(): Promise<void>;
+  setDndEnabled?(enabled: boolean): Promise<boolean>;
+  setRestartRecoveryEnabled?(enabled: boolean): Promise<void>;
   isAccessibilityEnabled(): Promise<boolean>;
-  startBlockingSession(config: { sessionId: string; userId: string; startedAt: number; endsAt: number; packageIds: string[] }): Promise<NativeBlockingSession>;
+  startBlockingSession(config: { sessionId: string; userId: string; startedAt: number; endsAt: number; packageIds: string[]; strategy?: 'block' | 'allow' }): Promise<NativeBlockingSession>;
+  pauseBlockingSession?(sessionId: string): Promise<NativeBlockingSession>;
+  resumeBlockingSession?(sessionId: string): Promise<NativeBlockingSession>;
   stopBlockingSession(sessionId: string, emergencyExit?: boolean): Promise<NativeBlockingSession | null>;
   getActiveSession(): Promise<NativeBlockingSession | null>;
   getRemainingTime(): Promise<number>;
   getBlockedPackages(): Promise<string[]>;
+  peekPendingCompletions?(): Promise<PendingFocusCompletion[]>;
+  acknowledgePendingCompletions?(sessionIds: string[]): Promise<void>;
+  consumePendingCompletions?(): Promise<PendingFocusCompletion[]>;
   addBlockedPackage(packageId: string): Promise<string[]>;
   removeBlockedPackage(packageId: string): Promise<string[]>;
 };

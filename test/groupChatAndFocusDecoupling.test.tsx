@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActiveSessionBar } from '../components/ActiveSessionBar';
 

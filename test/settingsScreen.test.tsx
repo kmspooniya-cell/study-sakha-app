@@ -25,6 +25,7 @@ const mockStore = {
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate, popTo: mockNavigate }),
+  useRoute: () => ({ params: {} }),
 }));
 
 jest.mock('../components/Shell', () => {

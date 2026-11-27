@@ -43,6 +43,7 @@ export type AppStackParamList = {
   CurrentAffairs: OptionalScreenParams;
   Search: OptionalScreenParams;
   Notifications: OptionalScreenParams;
+  NotificationSettings: OptionalScreenParams;
   Statistics: OptionalScreenParams;
   TaskPerformance: (HeaderParams & { startDate?: string; endDate?: string }) | undefined;
   StudyPlanner: (HeaderParams & { openPlanId?: string; openDate?: string }) | undefined;
@@ -123,10 +124,12 @@ const APP_BACK_TARGETS: Partial<Record<AppStackRouteName, AppStackRouteName>> = 
   TestPlayer: 'Tests',
   TestResult: 'Tests',
   TaskPerformance: 'Statistics',
+  NotificationSettings: 'Notifications',
 };
 
 export function shouldHideAppShell(routeName?: string, params?: unknown): boolean {
   if (!routeName) return false;
+  if (routeName === 'Notifications' || routeName === 'NotificationSettings') return true;
   if (routeName === 'Groups' && params && typeof params === 'object' && 'fullScreen' in params) {
     return Boolean((params as { fullScreen?: boolean }).fullScreen);
   }

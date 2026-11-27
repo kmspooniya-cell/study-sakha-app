@@ -50,6 +50,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 jest.mock('@react-navigation/native', () => {
   const ReactActual = require('react');
   return {
+    NavigationContext: ReactActual.createContext(mockNavigation),
     useNavigation: () => mockNavigation,
     useRoute: () => mockRoute,
     useFocusEffect: (callback: React.EffectCallback) => ReactActual.useEffect(callback, [callback]),

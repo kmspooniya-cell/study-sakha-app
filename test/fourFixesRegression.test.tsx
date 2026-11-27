@@ -124,10 +124,15 @@ jest.mock('../components/Shell', () => {
   };
 });
 
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn(), canGoBack: () => false, setParams: jest.fn() }),
-  useRoute: () => ({ params: {} }),
-}));
+jest.mock('@react-navigation/native', () => {
+  const ReactActual = require('react');
+  const nav = { navigate: jest.fn(), goBack: jest.fn(), canGoBack: () => false, setParams: jest.fn() };
+  return {
+    NavigationContext: ReactActual.createContext(nav),
+    useNavigation: () => nav,
+    useRoute: () => ({ params: {} }),
+  };
+});
 
 const StudyPlannerScreen = require('../screens/StudyPlannerScreen').default;
 

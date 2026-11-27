@@ -1,5 +1,10 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-017 — 2026-11-27 — Unified Notification Centre with additive Supabase tables & preserved Alarm Engine
+- Extend the existing `StoreProvider` (`lib/store.tsx`) and `lib/notifications/` with a centralized `NotificationRegistry`, `NotificationRouter`, `NotificationPreferences`, and `NotificationSync` offline queue rather than introducing a separate state library or Expo Router.
+- Add `public.notifications`, `public.notification_preferences`, and `public.push_tokens` in `202611270002_notification_centre_backend.sql` with strict `auth.uid()` RLS, keeping `public.announcements` (with additive columns) and leaving `public.alarm_notifications` and `study-sakha-alarm-engine` untouched.
+- Separate push delivery preferences (including Quiet Hours across midnight) from in-app inbox visibility so suppressing push alerts never deletes or hides inbox history.
+
 ## DEC-016 — 2026-11-27 — Groups main is joined-only; discovery is separate
 
 The Groups landing surface displays only active memberships and only the minimum identity data needed for scanning: avatar, name, and member count. Discovery/search stays on a dedicated internal Explore surface backed by the existing Supabase discovery query, preventing recommended or unjoined groups from mixing with the user's main list.

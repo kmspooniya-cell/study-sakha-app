@@ -1,5 +1,19 @@
 # Next Task — Study Sakha
 
+## Notification Centre follow-up — 2026-11-27
+- Host implementation, unit/component/navigation/mocked-Supabase tests, Expo lint, TypeScript, and web export are complete.
+- Exact next actions:
+  1. Push `supabase/migrations/202611270002_notification_centre_backend.sql` to the linked Supabase project and verify RLS + RPCs (`mark_notifications_read`, `archive_notifications`, `upsert_push_token`).
+  2. Build an Android development/release APK via EAS and verify on a physical Android device: immersive safe areas, Android hardware/gesture back priority, swipe gestures, Quiet Hours, channel creation, and foreground/background/terminated push tap routing.
+
+## Focus Lock Screen UI Cleanup follow-up — 2026-11-27
+- Host cleanup and regression tests (`test/focusLockCleanup.test.tsx`, `expo lint`, `tsc` 0 errors in Focus Lock files) are complete.
+- Exact next action: visually verify the cleaned-up Focus Lock screen in Light and Dark modes on an Android dev/release build and confirm retained Discipline Controls navigation and native app-blocking behavior.
+
+## Heavy Sleeper Mode & Alarm Module follow-up — 2026-11-27
+- Host implementation for Heavy Sleeper Mode (all 7 missions, modular `alarmMissions.ts`, `HeavySleeperMissionView.tsx`, native `AlarmMissionEngine.kt`, CNG `withAlarmEngine.js` with `CAMERA`, `ACTIVITY_RECOGNITION`, `FileProvider`, and `com.google.zxing:core:3.5.3`) and Alarm UI updates are complete and host-verified (`expo prebuild`, Jest 4/4 suites 36/36, `expo lint` 0 errors, `tsc` 0 errors in alarm/mission files).
+- Exact next action: build the Android APK via EAS cloud (`eas build --platform android --profile preview`) and verify on a physical Android device: Kotlin compilation, `CAMERA` / `ACTIVITY_RECOGNITION` runtime permissions, real accelerometer shake, step counter, ZXing QR/barcode registration & scan, photo reference & similarity matching, and mission state persistence across app restart.
+
 ## Phase 1 Groups & Chat Full-Screen Redesign follow-up — 2026-11-27
 - Host implementation, modular components (`components/groups/*`), full-screen Shell visibility, Android Back priority, virtualized message list, contextual action sheet, and expandable composer are complete and verified on host.
 - Exact next action: verify on a physical Android device (gesture navigation + three-button navigation) for keyboard insets, bottom composer positioning above the soft keyboard and system bar, smooth FlatList scrolling, and multi-client Supabase Realtime message delivery.

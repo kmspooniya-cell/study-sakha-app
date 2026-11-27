@@ -54,7 +54,6 @@
     "backgroundColor": "#F6F8FC",
     "plugins": [
       "./plugins/withFocusLock",
-      "./plugins/withAlarmEngine",
       "expo-audio",
       "expo-notifications",
       [
@@ -75,7 +74,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Study Sakha uses your photos to set your profile picture.",
-          "cameraPermission": false,
+          "cameraPermission": "Study Sakha uses your camera for Heavy Sleeper QR and photo alarm missions.",
           "microphonePermission": false
         }
       ],
@@ -87,7 +86,8 @@
           "granularPermissions": []
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "./plugins/withAlarmEngine"
     ]
   }
 }

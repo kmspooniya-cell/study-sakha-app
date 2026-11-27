@@ -288,11 +288,15 @@ export default function TestPlayerScreen() {
     dispatch({
       type: 'notify',
       notif: {
-        id: `n-${Date.now()}`,
+        id: `test-result-${result.id}`,
+        eventKey: `test-result:${result.id}`,
         title: auto ? 'Time up — test submitted' : 'Test submitted successfully',
         body: `${test.title}: ${score.toFixed(2)}/${maxScore} with ${Math.round(attempted ? (correct / attempted) * 100 : 0)}% accuracy.`,
         at: Date.now(),
         kind: 'test',
+        resultId: result.id,
+        testId: test.id,
+        targetRoute: 'TestResult',
         read: false,
       },
     });

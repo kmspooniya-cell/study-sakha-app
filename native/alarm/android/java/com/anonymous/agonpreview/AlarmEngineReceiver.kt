@@ -24,6 +24,8 @@ class AlarmEngineReceiver : BroadcastReceiver() {
           putExtra(AlarmEngineScheduler.EXTRA_SNOOZE_ENABLED, intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_SNOOZE_ENABLED, true))
           putExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, intent.getIntExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, 5))
           putExtra(AlarmEngineScheduler.EXTRA_ANTI_SNOOZE, intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_ANTI_SNOOZE, false))
+          putExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, false))
+          putExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, false))
         }
         AlarmPlaybackService.start(context, serviceIntent)
         AlarmEngineScheduler.setPendingAlarm(context, alarmId, title)
@@ -34,6 +36,9 @@ class AlarmEngineReceiver : BroadcastReceiver() {
       }
 
       AlarmEngineScheduler.ACTION_DISMISS_NOTIFICATION -> {
+        if (AlarmEngineScheduler.isHeavySleeperAlarm(context, alarmId)) {
+          return
+        }
         AlarmEngineScheduler.cancelSnooze(context, alarmId)
         AlarmEngineScheduler.clearPendingAlarm(context, alarmId)
         AlarmPlaybackService.stop(context, alarmId)
@@ -42,6 +47,11 @@ class AlarmEngineReceiver : BroadcastReceiver() {
       }
 
       AlarmEngineScheduler.ACTION_SNOOZE_NOTIFICATION -> {
+        val heavySleeper = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, false)
+        val missionBeforeSnooze = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, false)
+        if (heavySleeper && missionBeforeSnooze) {
+          return
+        }
         val mins = intent.getIntExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, 5).coerceAtLeast(1)
         val title = intent.getStringExtra(AlarmEngineScheduler.EXTRA_TITLE) ?: "Study Sakha Alarm"
         AlarmEngineScheduler.clearPendingAlarm(context, alarmId)
@@ -56,6 +66,8 @@ class AlarmEngineReceiver : BroadcastReceiver() {
           gradualVolume = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_GRADUAL_VOLUME, false),
           vibration = intent.getBooleanExtra(AlarmEngineScheduler.EXTRA_VIBRATION, true),
           vibrationPattern = intent.getStringExtra(AlarmEngineScheduler.EXTRA_VIBRATION_PATTERN) ?: "Pulse",
+          heavySleeper = heavySleeper,
+          missionBeforeSnooze = missionBeforeSnooze,
         )
         AlarmEngineScheduler.recordPendingAction(context, alarmId, "snoozed", mins)
         AlarmEngineModule.emitAction(alarmId, "snoozed", mins)
