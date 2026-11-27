@@ -84,3 +84,8 @@ Run cold-start, Wi-Fi/mobile-data toggle, background/foreground, revoked-session
 
 ## Exact Next Action
 Retry `npx eas-cli@latest build --platform android --profile preview --non-interactive` after the quota reset, then install the APK and run the native Alarm device checklist. Do not claim Gradle or physical-device verification until those steps complete.
+
+
+## GitHub Actions `Build Study Sakha APK` (`withFocusLock`) — 2026-11-27
+- **Completed:** Root-caused `MODULE_NOT_FOUND` on `./plugins/withFocusLock` to missing `node_modules` installation in `.github/workflows/main.yml` and added `pnpm@12.16.1` + Node 22 + `pnpm install --frozen-lockfile` before `eas build`.
+- **Exact next action:** Trigger the `Build Study Sakha APK` workflow (`workflow_dispatch` on `.github/workflows/main.yml`) in GitHub Actions (once EAS quota is available) and verify the resulting APK artifact.

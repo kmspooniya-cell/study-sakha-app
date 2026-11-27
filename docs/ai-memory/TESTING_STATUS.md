@@ -259,3 +259,16 @@ Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests 
 | **Live Supabase Migrations & Multi-Device Sync / Realtime** | **NOT VERIFIED** | Requires live Supabase deployment + authenticated test accounts. |
 | **Live Sakha AI (`/api/chat`) on Native** | **NOT VERIFIED** | Requires deployed HTTPS `EXPO_PUBLIC_API_BASE_URL` + server `GEMINI_API_KEY`. |
 | **Physical Android Focus Lock & Notifications** | **NOT VERIFIED** | Requires dev/release APK on Android 13/14/15 device. |
+
+
+## GitHub Actions `Build Study Sakha APK` (`withFocusLock`) — 2026-11-27
+
+| Check | Command | Result | Notes |
+|---|---|---|---|
+| Plugin resolution | `resolveConfigPluginFunction(process.cwd(), './plugins/withFocusLock')` | **PASS** | Resolved `withFocusLock` function cleanly. |
+| Expo public config | `EXPO_NO_TELEMETRY=1 pnpm exec expo config --type public --json` | **PASS** | Validated with and without `EAS_BUILD=true EAS_BUILD_PLATFORM=android EAS_BUILD_ID=test-build` (with placeholder env vars). |
+| Release config validator | `pnpm run validate:release -- preview` (placeholder HTTPS env vars) | **PASS** | Exits 1 when env vars are unset in local `.env` (expected per `ISSUE-003`). |
+| Expo Android prebuild | `EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android` | **PASS** | Non-destructive; generated `FocusLockPackage`, `FocusLockAccessibilityService`, `FocusLockBlockingActivity`, `FocusLockAlarm$Receiver`, `FocusLockBootReceiver`, and Kotlin/XML files. |
+| Expo lint | `EXPO_NO_TELEMETRY=1 pnpm exec expo lint` | **PASS** | Exit 0. |
+| Focused Focus Jest | `pnpm test -- test/focusHistory.test.tsx test/focusTimerAccounting.test.tsx test/focusCompletionNavigation.test.tsx test/focusCompletionScreen.test.tsx test/focusUiSurface.test.tsx --runInBand` | **PASS** | 5 suites, 21 tests passed. |
+| APK compilation | Not run | **NOT VERIFIED** | No Android SDK in Codespace and GitHub Actions EAS build was not triggered from here. |
