@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StackActions, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, Share, TextInput, useWindowDimensions, View } from 'react-native';
+import { Alert, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, Share, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, radii, shadow, useTheme } from '../lib/theme';
 import { useStore } from '../lib/store';
@@ -11,6 +11,7 @@ import { getAndroidBackTarget, shouldHideAppShell } from '../lib/navigation';
 import type { AppHeaderRoute, AppNavigation, AppStackRouteName } from '../lib/navigation';
 import { translateLabel } from '../lib/i18n';
 import { getAppShareUrl, getDistributionLinkMessage } from '../lib/shareLinks';
+import { HelpFeedbackModal } from './HelpFeedbackModal';
 
 export type NavKey =
 | 'Dashboard'
@@ -140,14 +141,8 @@ const defaultAnchorTop = (safeAreaTop ? insets.top : 0) + 54;
 const defaultAnchorRight = width < 768 ? 14 : 22;
 const [menuAnchor, setMenuAnchor] = useState({ top: defaultAnchorTop, right: defaultAnchorRight });
 
-// Help Modal Multi-Step States
+// Help Modal State
 const [helpModalVisible, setHelpModalVisible] = useState(false);
-const [helpStep, setHelpStep] = useState<1 | 2 | 3>(1);
-const [selectedCategory, setSelectedCategory] = useState<'Report an issue' | 'Share an idea' | 'Appreciate the team'>('Report an issue');
-const [shareLogs, setShareLogs] = useState(true);
-const [includeScreenshot, setIncludeScreenshot] = useState(false);
-const [selectedSubIssue, setSelectedSubIssue] = useState('Subscription Issue');
-const [descriptionText, setDescriptionText] = useState('');
 
 const parentState = nav.getParent?.()?.getState?.();
 const parentRoute = parentState?.routes?.[parentState.index ?? parentState.routes?.length - 1];
@@ -202,7 +197,6 @@ setMenuAnchor({ top: clampedTop, right: clampedRight });
 
 const openHelpModal = useCallback(() => {
 setMenuVisible(false);
-setHelpStep(1);
 setHelpModalVisible(true);
 }, []);
 
@@ -230,31 +224,6 @@ error instanceof Error ? error.message : 'Sharing is not supported on this devic
 
 const glassBackground = scheme === 'dark' ? 'rgba(20,28,46,0.92)' : 'rgba(248,248,250,0.92)';
 const secondaryText = colors.textMuted;
-
-const handleContinue = () => {
-if (helpStep === 1) {
-if (selectedCategory === 'Report an issue') {
-setHelpStep(2);
-} else {
-setHelpStep(3);
-}
-} else if (helpStep === 2) {
-setHelpStep(3);
-} else {
-// Final Submit
-setHelpModalVisible(false);
-setHelpStep(1);
-setDescriptionText('');
-}
-};
-
-const handleBack = () => {
-if (helpStep === 3) {
-setHelpStep(selectedCategory === 'Report an issue' ? 2 : 1);
-} else if (helpStep === 2) {
-setHelpStep(1);
-}
-};
 
 return (
 <View style={{ backgroundColor: glassBackground, borderBottomWidth: 1, borderBottomColor: `${colors.border}CC`, paddingTop: safeAreaTop ? insets.top : 0 }}>
@@ -387,196 +356,12 @@ backgroundColor: pressed ? colors.surfaceInteractive : 'transparent',
 </Pressable>
 </Modal>
 
-{/* Multi-Step Help Modal */}
-<Modal
-animationType="fade"
-transparent
-visible={helpModalVisible}
-onRequestClose={() => setHelpModalVisible(false)}
->
-<View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.75)', justifyContent: 'flex-end' }}>
-<View style={{ width: '100%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderWidth: 1, borderBottomWidth: 0, backgroundColor: scheme === 'dark' ? '#141416' : colors.surface, borderColor: colors.border, maxHeight: '85%' }}>
-
-
-{/* Modal Header with Back & Close */}
-<View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-{helpStep > 1 ? (
-<Pressable onPress={handleBack} hitSlop={10}>
-<Ionicons name="arrow-back" size={22} color={colors.text} />
-</Pressable>
-) : <View />}
-<Pressable onPress={() => setHelpModalVisible(false)} hitSlop={10}>
-<Ionicons name="close" size={22} color={colors.textMuted} />
-</Pressable>
-</View>
-
-{/* STEP 1: Main Category Selection */}
-{helpStep === 1 && (
-<ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 20 }}>
-<View style={{ gap: 4, marginBottom: 10 }}>
-<Txt size={14} color={colors.textMuted} weight="600">Hey,</Txt>
-<Txt size={22} color={colors.text} weight="800">How can we help you?</Txt>
-</View>
-
-{[
-{ id: 'Report an issue', label: 'Report an issue' },
-{ id: 'Share an idea', label: 'Share an idea' },
-{ id: 'Appreciate the team', label: 'Appreciate the team' },
-].map((opt) => {
-const isSelected = selectedCategory === opt.id;
-return (
-<View
-key={opt.id}
-style={{
-borderRadius: 16,
-borderWidth: 1.5,
-padding: 16,
-backgroundColor: scheme === 'dark' ? '#1E2024' : colors.surfaceAlt,
-borderColor: isSelected ? '#34C759' : colors.border,
-gap: 12,
-}}
->
-<Pressable
-onPress={() => setSelectedCategory(opt.id as any)}
-style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
->
-<Txt size={15} color={colors.text} weight="700">{opt.label}</Txt>
-<View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center', borderColor: isSelected ? '#34C759' : colors.textMuted }}>
-{isSelected && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#34C759' }} />}
-</View>
-</Pressable>
-
-{/* Sub-options for Report an issue when selected */}
-{isSelected && opt.id === 'Report an issue' && (
-<View style={{ gap: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
-<Pressable
-onPress={() => setShareLogs(!shareLogs)}
-style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
->
-<View style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: shareLogs ? '#34C759' : 'transparent', borderWidth: 2, borderColor: shareLogs ? '#34C759' : colors.textMuted, alignItems: 'center', justifyContent: 'center' }}>
-{shareLogs && <Ionicons name="checkmark" size={12} color="#FFF" />}
-</View>
-<Txt size={13} color={colors.text}>Share logs to help us debug the issue</Txt>
-</Pressable>
-
-<Pressable
-onPress={() => setIncludeScreenshot(!includeScreenshot)}
-style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
->
-<View style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: includeScreenshot ? '#34C759' : 'transparent', borderWidth: 2, borderColor: includeScreenshot ? '#34C759' : colors.textMuted, alignItems: 'center', justifyContent: 'center' }}>
-{includeScreenshot && <Ionicons name="checkmark" size={12} color="#FFF" />}
-</View>
-<Txt size={13} color={colors.text}>Include Screenshot</Txt>
-</Pressable>
-</View>
-)}
-</View>
-);
-})}
-</ScrollView>
-)}
-
-{/* STEP 2: Sub-issue type (Only for Report an issue) */}
-{helpStep === 2 && (
-<ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
-<Txt size={22} color={colors.text} weight="800" style={{ marginBottom: 10 }}>What issue are you facing?</Txt>
-
-{[
-'Subscription Issue',
-'Block/Feature not working',
-'Permission Issue',
-'App crashing',
-'Other',
-].map((issue) => {
-const isSelected = selectedSubIssue === issue;
-return (
-<Pressable
-key={issue}
-onPress={() => setSelectedSubIssue(issue)}
-style={{
-flexDirection: 'row',
-alignItems: 'center',
-justifyContent: 'space-between',
-paddingVertical: 16,
-paddingHorizontal: 16,
-borderRadius: 16,
-borderWidth: 1.5,
-backgroundColor: scheme === 'dark' ? '#1E2024' : colors.surfaceAlt,
-borderColor: isSelected ? '#34C759' : colors.border,
-}}
->
-<Txt size={14.5} color={colors.text} weight="700">{issue}</Txt>
-<View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center', borderColor: isSelected ? '#34C759' : colors.textMuted }}>
-{isSelected && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#34C759' }} />}
-</View>
-</Pressable>
-);
-})}
-</ScrollView>
-)}
-
-{/* STEP 3: Description Input & Submit */}
-{helpStep === 3 && (
-<ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingBottom: 20 }}>
-<Txt size={22} color={colors.text} weight="800" style={{ marginBottom: 4 }}>
-{selectedCategory === 'Report an issue' ? 'Tell us more about the issue' : 'What would you like to see in Study Sakha?'}
-</Txt>
-
-<View
-style={{
-borderRadius: 16,
-borderWidth: 1.5,
-borderColor: colors.border,
-backgroundColor: scheme === 'dark' ? '#1E2024' : colors.surfaceAlt,
-padding: 12,
-}}
->
-<TextInput
-style={{
-color: colors.text,
-fontSize: 14,
-minHeight: 120,
-textAlignVertical: 'top',
-...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
-}}
-placeholder="Describe it..."
-placeholderTextColor={colors.textMuted}
-multiline
-maxLength={2000}
-value={descriptionText}
-onChangeText={setDescriptionText}
+{/* Multi-Step Help & Feedback Modal */}
+<HelpFeedbackModal
+  visible={helpModalVisible}
+  onClose={() => setHelpModalVisible(false)}
+  routeName={route.name}
 />
-<Txt size={11} color={colors.textMuted} style={{ textAlign: 'right', marginTop: 8 }}>
-{descriptionText.length}/2000 characters
-</Txt>
-</View>
-</ScrollView>
-)}
-
-{/* Bottom Continue / Submit Button */}
-<View style={{ marginTop: 10 }}>
-<Pressable
-onPress={handleContinue}
-style={{
-height: 52,
-borderRadius: 26,
-flexDirection: 'row',
-alignItems: 'center',
-justifyContent: 'center',
-gap: 8,
-backgroundColor: '#FFFFFF',
-}}
->
-<Txt size={15} color="#000000" weight="800">
-{helpStep === 3 ? (selectedCategory === 'Report an issue' ? 'Submit issue' : 'Submit idea') : 'Continue'}
-</Txt>
-{helpStep === 3 && <Ionicons name="logo-whatsapp" size={18} color="#25D366" />}
-</Pressable>
-</View>
-
-</View>
-</View>
-</Modal>
 </View>
 );
 }

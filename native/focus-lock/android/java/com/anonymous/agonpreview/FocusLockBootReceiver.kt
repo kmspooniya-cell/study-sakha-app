@@ -17,6 +17,13 @@ class FocusLockBootReceiver : BroadcastReceiver() {
     ) return
 
     synchronized(FocusLockModule.sessionLock) {
+      val nextEmergencyElapsed = FocusLockUsageLimits.rebaseEmergencyPassOnBootOrClockChange(context)
+      if (nextEmergencyElapsed != null) {
+        FocusLockAlarm.scheduleEmergencyExpiry(context, nextEmergencyElapsed)
+      } else {
+        FocusLockAlarm.cancelEmergencyExpiry(context)
+      }
+
       val prefs = context.getSharedPreferences(FocusLockModule.PREFS, Context.MODE_PRIVATE)
       val raw = prefs.getString(FocusLockModule.SESSION_KEY, null) ?: return
       val parsed = runCatching { JSONObject(raw) }.getOrNull()

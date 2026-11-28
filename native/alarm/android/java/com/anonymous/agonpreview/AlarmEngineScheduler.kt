@@ -17,6 +17,7 @@ object AlarmEngineScheduler {
   const val SCHEDULES_KEY = "alarm_snapshot"
   const val PENDING_KEY = "pending_alarm"
   const val PENDING_ACTION_KEY = "pending_alarm_action"
+  const val SNOOZE_KEY = "pending_snoozes"
   const val ACTION_FIRE = "com.anonymous.agonpreview.STUDY_SAKHA_ALARM_FIRE"
   const val ACTION_SNOOZE = "com.anonymous.agonpreview.STUDY_SAKHA_ALARM_SNOOZE"
   const val ACTION_DISMISS_NOTIFICATION = "com.anonymous.agonpreview.STUDY_SAKHA_ALARM_DISMISS_NOTIFICATION"
@@ -72,6 +73,7 @@ object AlarmEngineScheduler {
       }
     }
     scheduleSnapshot(context, snapshot)
+    rescheduleStoredSnoozes(context)
   }
 
   fun cancelFire(context: Context, alarmId: String) {
@@ -90,8 +92,7 @@ object AlarmEngineScheduler {
       if (alarm.optString("id") != alarmId) continue
       val days = alarm.optJSONArray("days")
       val hasRepeatDays = days != null && days.length() > 0
-      val hasSpecificDate = alarm.optString("specificDate", "").isNotBlank()
-      if (!hasRepeatDays && !hasSpecificDate) {
+      if (!hasRepeatDays) {
         alarm.put("enabled", false)
         modified = true
       }
@@ -106,20 +107,30 @@ object AlarmEngineScheduler {
     val manager = context.getSystemService(AlarmManager::class.java) ?: return
     manager.cancel(pendingIntent(context, ACTION_FIRE, alarmId, stableRequestCode(alarmId, false)))
     manager.cancel(pendingIntent(context, ACTION_SNOOZE, alarmId, stableRequestCode(alarmId, true)))
+    clearStoredSnooze(context, alarmId)
   }
 
   fun cancelSnooze(context: Context, alarmId: String) {
     val manager = context.getSystemService(AlarmManager::class.java) ?: return
     manager.cancel(pendingIntent(context, ACTION_SNOOZE, alarmId, stableRequestCode(alarmId, true)))
+    clearStoredSnooze(context, alarmId)
   }
 
-  fun setPendingAlarm(context: Context, alarmId: String, title: String) {
+  fun setPendingAlarm(
+    context: Context,
+    alarmId: String,
+    title: String,
+    heavySleeper: Boolean = false,
+    missionBeforeSnooze: Boolean = false,
+  ) {
     val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     preferences.edit().putString(
       PENDING_KEY,
       JSONObject().apply {
         put("alarmId", alarmId)
         put("title", title)
+        put("heavySleeper", heavySleeper)
+        put("missionBeforeSnooze", missionBeforeSnooze)
       }.toString(),
     ).apply()
   }
@@ -178,7 +189,97 @@ object AlarmEngineScheduler {
       putExtra(EXTRA_MISSION_BEFORE_SNOOZE, missionBeforeSnooze)
     }
     manager.cancel(intent)
-    setAlarm(manager, atMillis, intent)
+    saveStoredSnooze(
+      context = context,
+      alarmId = alarmId,
+      atMillis = atMillis,
+      title = title,
+      soundId = soundId,
+      volume = volume,
+      gradualVolume = gradualVolume,
+      vibration = vibration,
+      vibrationPattern = vibrationPattern,
+      heavySleeper = heavySleeper,
+      missionBeforeSnooze = missionBeforeSnooze,
+    )
+    setAlarm(context, manager, atMillis, intent)
+  }
+
+  private fun saveStoredSnooze(
+    context: Context,
+    alarmId: String,
+    atMillis: Long,
+    title: String,
+    soundId: String,
+    volume: Int,
+    gradualVolume: Boolean,
+    vibration: Boolean,
+    vibrationPattern: String,
+    heavySleeper: Boolean,
+    missionBeforeSnooze: Boolean,
+  ) {
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val snoozes = runCatching { JSONObject(preferences.getString(SNOOZE_KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
+    snoozes.put(
+      alarmId,
+      JSONObject().apply {
+        put("atMillis", atMillis)
+        put("title", title)
+        put("soundId", soundId)
+        put("volume", volume)
+        put("gradualVolume", gradualVolume)
+        put("vibration", vibration)
+        put("vibrationPattern", vibrationPattern)
+        put("heavySleeper", heavySleeper)
+        put("missionBeforeSnooze", missionBeforeSnooze)
+      },
+    )
+    preferences.edit().putString(SNOOZE_KEY, snoozes.toString()).apply()
+  }
+
+  fun clearStoredSnooze(context: Context, alarmId: String) {
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(SNOOZE_KEY, null) ?: return
+    val snoozes = runCatching { JSONObject(raw) }.getOrNull() ?: return
+    if (snoozes.has(alarmId)) {
+      snoozes.remove(alarmId)
+      preferences.edit().putString(SNOOZE_KEY, snoozes.toString()).apply()
+    }
+  }
+
+  private fun rescheduleStoredSnoozes(context: Context) {
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val raw = preferences.getString(SNOOZE_KEY, null) ?: return
+    val snoozes = runCatching { JSONObject(raw) }.getOrNull() ?: return
+    val now = System.currentTimeMillis()
+    val keys = snoozes.keys()
+    val toRemove = mutableListOf<String>()
+    while (keys.hasNext()) {
+      val alarmId = keys.next()
+      val entry = snoozes.optJSONObject(alarmId)
+      val atMillis = entry?.optLong("atMillis", 0L) ?: 0L
+      if (entry == null || atMillis <= now) {
+        toRemove.add(alarmId)
+        continue
+      }
+      scheduleSnooze(
+        context = context,
+        alarmId = alarmId,
+        atMillis = atMillis,
+        title = entry.optString("title", "Study Sakha Alarm"),
+        soundId = entry.optString("soundId", "default"),
+        volume = entry.optInt("volume", 100),
+        gradualVolume = entry.optBoolean("gradualVolume", false),
+        vibration = entry.optBoolean("vibration", true),
+        vibrationPattern = entry.optString("vibrationPattern", "Pulse"),
+        heavySleeper = entry.optBoolean("heavySleeper", false),
+        missionBeforeSnooze = entry.optBoolean("missionBeforeSnooze", false),
+      )
+    }
+    if (toRemove.isNotEmpty()) {
+      toRemove.forEach { snoozes.remove(it) }
+      preferences.edit().putString(SNOOZE_KEY, snoozes.toString()).apply()
+    }
   }
 
   fun isHeavySleeperAlarm(context: Context, alarmId: String): Boolean {
@@ -218,14 +319,24 @@ object AlarmEngineScheduler {
         putExtra(EXTRA_HEAVY_SLEEPER, alarm.optBoolean("heavySleeper", false))
         putExtra(EXTRA_MISSION_BEFORE_SNOOZE, alarm.optBoolean("missionBeforeSnooze", false))
       }
-      setAlarm(context.getSystemService(AlarmManager::class.java) ?: continue, triggerAt, intent)
+      setAlarm(context, context.getSystemService(AlarmManager::class.java) ?: continue, triggerAt, intent)
     }
   }
 
-  private fun setAlarm(manager: AlarmManager, triggerAt: Long, intent: PendingIntent) {
+  private fun setAlarm(context: Context, manager: AlarmManager, triggerAt: Long, intent: PendingIntent) {
     runCatching {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && manager.canScheduleExactAlarms()) {
-        manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
+      if (canScheduleExactAlarms(context)) {
+        val showIntent = (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent(Intent.ACTION_VIEW)).apply {
+          data = Uri.parse("studysakha://alarm")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val showPending = PendingIntent.getActivity(
+          context,
+          0x33333333,
+          showIntent,
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPending), intent)
       } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
       } else {

@@ -6,7 +6,51 @@ export type InstalledFocusApp = {
   iconBase64?: string;
 };
 
-export type FocusAppUsage = { packageId: string; dailyMins: number; launches: number };
+export type ReminderSuspendDuration = 'rest_of_day' | 'till_tomorrow' | '7_days';
+
+export type FocusAppUsage = {
+  packageId: string;
+  dailyMins: number;
+  usedMs?: number;
+  limitMins?: number;
+  suspendedUntilMs?: number;
+  suspensionDuration?: string;
+  launches: number;
+};
+
+export type ReminderSuspensionInfo = {
+  packageId: string;
+  duration: ReminderSuspendDuration | string;
+  createdAtMs: number;
+  suspendedUntilMs: number;
+};
+
+export type EmergencyAccessPass = {
+  id: string;
+  packageId: string;
+  appName: string;
+  grantedAtMs: number;
+  expiresAtMs: number;
+  durationMs: number;
+  source?: string;
+};
+
+export type EmergencyAccessState = {
+  dateKey: string;
+  usedToday: number;
+  maxDailyUses: number;
+  activePass?: EmergencyAccessPass | null;
+  history?: EmergencyAccessPass[];
+};
+
+export type EmergencyGrantResult = {
+  granted: boolean;
+  reusedExisting?: boolean;
+  reason?: string;
+  remainingUses: number;
+  activePass?: EmergencyAccessPass;
+  state?: EmergencyAccessState;
+};
 
 export type NativeBlockingSession = {
   id: string;
@@ -14,6 +58,7 @@ export type NativeBlockingSession = {
   startedAt: number;
   endsAt: number;
   packageIds: string[];
+  allowedPackageIds?: string[];
   strategy?: 'block' | 'allow';
   status: 'active' | 'paused' | 'completed' | 'stopped';
   pausedRemainingMs?: number;
@@ -50,6 +95,7 @@ export type FocusLockEventName =
   | 'onBlockingStopped'
   | 'onBlockedAppDetected'
   | 'onSessionExpired'
+  | 'onEmergencyAccessExpired'
   | 'onPermissionChanged'
   | 'onBlockingError';
 
@@ -67,7 +113,15 @@ type FocusLockModule = {
   setDndEnabled?(enabled: boolean): Promise<boolean>;
   setRestartRecoveryEnabled?(enabled: boolean): Promise<void>;
   isAccessibilityEnabled(): Promise<boolean>;
-  startBlockingSession(config: { sessionId: string; userId: string; startedAt: number; endsAt: number; packageIds: string[]; strategy?: 'block' | 'allow' }): Promise<NativeBlockingSession>;
+  startBlockingSession(config: {
+    sessionId: string;
+    userId: string;
+    startedAt: number;
+    endsAt: number;
+    packageIds: string[];
+    allowedPackageIds?: string[];
+    strategy?: 'block' | 'allow';
+  }): Promise<NativeBlockingSession>;
   pauseBlockingSession?(sessionId: string): Promise<NativeBlockingSession>;
   resumeBlockingSession?(sessionId: string): Promise<NativeBlockingSession>;
   stopBlockingSession(sessionId: string, emergencyExit?: boolean): Promise<NativeBlockingSession | null>;
@@ -79,6 +133,19 @@ type FocusLockModule = {
   consumePendingCompletions?(): Promise<PendingFocusCompletion[]>;
   addBlockedPackage(packageId: string): Promise<string[]>;
   removeBlockedPackage(packageId: string): Promise<string[]>;
+  setAppUsageLimits?(limits: Record<string, number>): Promise<void>;
+  getAppUsageLimits?(): Promise<Record<string, number>>;
+  suspendAppReminder?(packageId: string, duration: ReminderSuspendDuration): Promise<ReminderSuspensionInfo>;
+  clearAppReminderSuspension?(packageId: string): Promise<void>;
+  getReminderSuspensions?(): Promise<Record<string, ReminderSuspensionInfo>>;
+  setStrictModePolicy?(policy: {
+    strictLevel: number;
+    pinProtection: boolean;
+    hasConfiguredPin: boolean;
+    limitEmergencyExits: boolean;
+  }): Promise<void>;
+  requestEmergencyAccess?(packageId: string, source?: string): Promise<EmergencyGrantResult>;
+  getEmergencyAccessState?(): Promise<EmergencyAccessState>;
 };
 
 const nativeModule = Platform.OS === 'android'

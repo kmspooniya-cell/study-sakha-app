@@ -29,6 +29,7 @@ import { focusLockNative } from '../lib/focusLockNative';
 import { readFocusLockSnapshot } from '../lib/focusLockSnapshot';
 import { requestNotificationPermission } from '../lib/notifications';
 import { PreferredSubjectsManager } from '../components/PreferredSubjectsManager';
+import { HelpFeedbackModal } from '../components/HelpFeedbackModal';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import appConfig from '../app.json';
 
@@ -4563,48 +4564,13 @@ export function SettingsScreen() {
       </Modal>
 
       {/* Feedback / Bug Report Modal */}
-      <Modal visible={feedbackModal.visible} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={() => setFeedbackModal((p) => ({ ...p, visible: false }))}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={{ fontSize: fs(15.5), fontWeight: '700', color: colors.text, marginBottom: 10 }}>
-              {feedbackModal.kind === 'bug' ? t('Report a Bug', 'बग रिपोर्ट करें') : t('Submit Feedback', 'फ़ीडबैक भेजें')}
-            </Text>
-            <TextInput
-              value={feedbackModal.text}
-              onChangeText={(txt) => setFeedbackModal((p) => ({ ...p, text: txt }))}
-              multiline
-              numberOfLines={4}
-              placeholder={
-                feedbackModal.kind === 'bug'
-                  ? t('Describe steps to reproduce the issue...', 'समस्या का विवरण लिखें...')
-                  : t('Share your suggestion for Study Sakha...', 'अपना सुझाव लिखें...')
-              }
-              placeholderTextColor={colors.textMuted}
-              style={[styles.formInput, { height: 96, textAlignVertical: 'top', color: colors.text, backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
-            />
-            <Text style={{ fontSize: fs(10.5), color: colors.textMuted, marginTop: 8, marginBottom: 14 }}>
-              {t(`App Version: ${APP_VERSION} • Exam Profile:`, `संस्करण: ${APP_VERSION} • परीक्षा:`)} {settings.learning.targetExam}
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
-              <TouchableOpacity
-                onPress={() => setFeedbackModal((p) => ({ ...p, visible: false }))}
-                style={[styles.smallActionBtn, { backgroundColor: colors.surfaceAlt }]}
-              >
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>{t('Cancel', 'रद्द करें')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setFeedbackModal((p) => ({ ...p, visible: false }));
-                  showToast(t('Support submission is unavailable in this build; your text was not sent.', 'इस बिल्ड में सहायता सबमिशन उपलब्ध नहीं है; आपका संदेश नहीं भेजा गया।'), 'info');
-                }}
-                style={[styles.smallActionBtn, { backgroundColor: activeAccent[600] }]}
-              >
-                <Text style={{ fontSize: fs(12), fontWeight: '700', color: '#ffffff' }}>{t('Submit', 'भेजें')}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <HelpFeedbackModal
+        visible={feedbackModal.visible}
+        onClose={() => setFeedbackModal((p) => ({ ...p, visible: false }))}
+        routeName="Settings"
+        initialCategory={feedbackModal.kind === 'bug' ? 'report_issue' : 'share_idea'}
+        initialStep={1}
+      />
 
       {/* Generic Confirmation / Premium / Legal Modal */}
       <Modal visible={modalConfig.visible} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={() => setModalConfig((p) => ({ ...p, visible: false }))}>

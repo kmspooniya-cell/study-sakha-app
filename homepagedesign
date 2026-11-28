@@ -1,0 +1,1402 @@
+```react
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
+
+/* ============================================================================
+ * 1. TYPES & INTEGRATION CONTRACTS
+ * Connect these props to your existing StoreProvider (useStore), ThemeProvider
+ * (useTheme), and React Navigation (useNavigation) inside your screen wrapper
+ * or replace the prop destructuring directly with your app hooks.
+ * ============================================================================ */
+
+export type ThemeMode = 'light' | 'dark';
+
+export interface DashboardStoreData {
+  /** Authenticated learner display name from StoreProvider */
+  userName: string;
+  /** Total minutes studied today from StoreProvider */
+  studiedMinutesToday: number;
+  /** Daily goal target in minutes from StoreProvider */
+  dailyGoalMinutes: number;
+  /** Active consecutive study streak in days */
+  studyStreakDays: number;
+  /** Number of pending tasks in Study Planner */
+  pendingTaskCount: number;
+  /** Optional title of the next upcoming study task */
+  nextTaskTitle?: string | null;
+  /** Unread notifications count for top bar badge */
+  unreadNotificationCount: number;
+  /** Whether Focus Lock native protection is currently enabled */
+  isFocusLockEnabled: boolean;
+  /** Whether a focus session timer is actively running */
+  isFocusSessionActive: boolean;
+  /** Formatted timer value (e.g. "25:00") from Focus Center store */
+  focusTimerDisplay: string;
+  /** Whether the study alarm is currently scheduled/enabled */
+  isAlarmEnabled: boolean;
+  /** Formatted next alarm time (e.g. "06:00 AM") or null if unconfigured */
+  nextAlarmLabel?: string | null;
+  /** Whether cloud sync is currently running */
+  isSyncing?: boolean;
+}
+
+export interface DashboardNavigationAndServiceActions {
+  /** Study Sakha logo tap -> scroll to top / return to Dashboard root */
+  onPressLogo?: () => void;
+  /** Cloud sync button -> triggers existing sync service */
+  onTriggerSync?: () => Promise<void> | void;
+  /** Theme toggle button -> calls ThemeProvider toggleTheme */
+  onToggleTheme?: () => void;
+  /** Notifications bell -> navigates to Notifications screen */
+  onOpenNotifications: () => void;
+  /** Goal Progress Dial -> navigates to Focus Center or toggles active session */
+  onPressGoalDial: () => void;
+  /** Add Task card -> opens Study Planner task creation flow */
+  onAddTask: () => void;
+  /** Focus Lock card -> toggles existing native Focus Lock service */
+  onToggleFocusLock: (nextEnabled: boolean) => Promise<void> | void;
+  /** Optional long-press on Focus Lock card -> opens Focus Lock settings */
+  onOpenFocusLockSettings?: () => void;
+  /** Focus Timer card -> opens existing Focus Center timer/settings */
+  onOpenFocusTimer: () => void;
+  /** Alarm card -> toggles existing Alarm Engine scheduling */
+  onToggleAlarm: (nextEnabled: boolean) => Promise<void> | void;
+  /** Optional long-press on Alarm card -> opens Alarm settings screen */
+  onOpenAlarmSettings?: () => void;
+}
+
+export interface DashboardScreenProps {
+  /** Current theme mode from ThemeProvider ('light' | 'dark') */
+  themeMode?: ThemeMode;
+  /** Live reactive state from StoreProvider */
+  data: DashboardStoreData;
+  /** Real navigation & native service callbacks */
+  actions: DashboardNavigationAndServiceActions;
+}
+
+/* ============================================================================
+ * 2. DESIGN TOKENS (Exact Palette Matched to Redesigned Prototype)
+ * ============================================================================ */
+
+interface Palette {
+  canvas: string;
+  surface: string;
+  hairline: string;
+  inkPrimary: string;
+  inkSecondary: string;
+  inkMuted: string;
+  iconMuted: string;
+  pressHighlight: string;
+  sakha: string;
+  sakhaDeep: string;
+  emblemBg: string;
+  emblemLeftPage: string;
+  notifBadgeBg: string;
+  dialTick: string;
+  dialTrack: string;
+  studiedIconBg: string;
+  studiedIconColor: string;
+  streakIconBg: string;
+  streakIconColor: string;
+  sky: string;
+  skySoft: string;
+  skyPillText: string;
+  rose: string;
+  roseSoft: string;
+  roseActiveSurface: string;
+  roseActiveBorder: string;
+  roseStatusText: string;
+  violet: string;
+  violetSoft: string;
+  violetPillText: string;
+  amber: string;
+  amberSoft: string;
+  amberActiveSurface: string;
+  amberActiveBorder: string;
+  amberStatusText: string;
+  neutralPillBg: string;
+  toastBg: string;
+  toastText: string;
+}
+
+const LIGHT_PALETTE: Palette = {
+  canvas: '#F6F8FB',
+  surface: '#FFFFFF',
+  hairline: '#E6ECF2',
+  inkPrimary: '#1A2233',
+  inkSecondary: '#5E6A7D',
+  inkMuted: '#7D899C',
+  iconMuted: '#788496',
+  pressHighlight: '#F0F4F8',
+  sakha: '#19C5B5',
+  sakhaDeep: '#11A89A',
+  emblemBg: '#F6F8FB',
+  emblemLeftPage: '#1F2D3D',
+  notifBadgeBg: '#EF4444',
+  dialTick: '#CBD5E1',
+  dialTrack: '#E3E8F0',
+  studiedIconBg: '#EEF2FF',
+  studiedIconColor: '#5B6BE1',
+  streakIconBg: '#FFF6E5',
+  streakIconColor: '#F59E0B',
+  sky: '#29A8E8',
+  skySoft: '#EBF7FF',
+  skyPillText: '#0284C7',
+  rose: '#EE5A70',
+  roseSoft: '#FFF0F2',
+  roseActiveSurface: '#FFF5F6',
+  roseActiveBorder: 'rgba(238, 90, 112, 0.55)',
+  roseStatusText: '#D93D57',
+  violet: '#7C5CFA',
+  violetSoft: '#F3EEFF',
+  violetPillText: '#6D4AE8',
+  amber: '#F59E0B',
+  amberSoft: '#FFF6E5',
+  amberActiveSurface: '#FFFBF2',
+  amberActiveBorder: 'rgba(245, 158, 11, 0.55)',
+  amberStatusText: '#C27803',
+  neutralPillBg: '#F1F5F9',
+  toastBg: '#1F1A33',
+  toastText: '#FFFFFF',
+};
+
+const DARK_PALETTE: Palette = {
+  canvas: '#12101D',
+  surface: '#1C182D',
+  hairline: '#2E2845',
+  inkPrimary: '#F4F6FA',
+  inkSecondary: '#9D97B8',
+  inkMuted: '#928CAE',
+  iconMuted: '#9D97B8',
+  pressHighlight: 'rgba(255, 255, 255, 0.06)',
+  sakha: '#19C5B5',
+  sakhaDeep: '#19C5B5',
+  emblemBg: '#25203B',
+  emblemLeftPage: '#F4F6FA',
+  notifBadgeBg: '#EF4444',
+  dialTick: '#3A3257',
+  dialTrack: '#2A2342',
+  studiedIconBg: 'rgba(99, 102, 241, 0.20)',
+  studiedIconColor: '#93A3FF',
+  streakIconBg: 'rgba(245, 158, 11, 0.20)',
+  streakIconColor: '#F59E0B',
+  sky: '#29A8E8',
+  skySoft: 'rgba(41, 168, 232, 0.15)',
+  skyPillText: '#7DD3FC',
+  rose: '#FB7185',
+  roseSoft: 'rgba(238, 90, 112, 0.15)',
+  roseActiveSurface: 'rgba(238, 90, 112, 0.12)',
+  roseActiveBorder: 'rgba(238, 90, 112, 0.55)',
+  roseStatusText: '#FDA4AF',
+  violet: '#A78BFA',
+  violetSoft: 'rgba(124, 92, 250, 0.18)',
+  violetPillText: '#C4B5FD',
+  amber: '#FBBF24',
+  amberSoft: 'rgba(245, 158, 11, 0.18)',
+  amberActiveSurface: 'rgba(245, 158, 11, 0.10)',
+  amberActiveBorder: 'rgba(245, 158, 11, 0.55)',
+  amberStatusText: '#FCD34D',
+  neutralPillBg: '#27213E',
+  toastBg: '#F4F6FA',
+  toastText: '#1A2233',
+};
+
+const MONO_FONT = Platform.select({
+  ios: 'Menlo',
+  android: 'monospace',
+  default: 'monospace',
+});
+
+/* ============================================================================
+ * 3. HELPER FORMATTERS
+ * ============================================================================ */
+
+function getTimeBasedGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning,';
+  if (hour < 17) return 'Good afternoon,';
+  return 'Good evening,';
+}
+
+function formatStudiedDuration(totalMinutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(totalMinutes));
+  if (safeMinutes < 60) {
+    return `${safeMinutes} min`;
+  }
+  const hours = Math.floor(safeMinutes / 60);
+  const remMinutes = safeMinutes % 60;
+  return remMinutes === 0 ? `${hours} hr` : `${hours}h ${remMinutes}m`;
+}
+
+function formatStreakLabel(days: number): string {
+  const safeDays = Math.max(0, Math.floor(days));
+  return `${safeDays} ${safeDays === 1 ? 'day' : 'days'}`;
+}
+
+/* ============================================================================
+ * 4. CRISP VECTOR ICONS (Zero Extra Icon Font Dependencies)
+ * ============================================================================ */
+
+const StudySakhaEmblem: React.FC<{ leftFill: string; rightFill: string }> = ({
+  leftFill,
+  rightFill,
+}) => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M4.5 6.5C4.5 5.4 5.4 4.5 6.5 4.5H11V18.5H6.5C5.4 18.5 4.5 17.6 4.5 16.5V6.5Z"
+      fill={leftFill}
+    />
+    <Path
+      d="M13 4.5H17.5C18.6 4.5 19.5 5.4 19.5 6.5V16.5C19.5 17.6 18.6 18.5 17.5 18.5H13V4.5Z"
+      fill={rightFill}
+    />
+    <Circle cx="16.25" cy="8.25" r="1.25" fill="#FFFFFF" />
+  </Svg>
+);
+
+const CloudCheckIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9" />
+    <Path d="m9 15 2 2 4-4" />
+  </Svg>
+);
+
+const ThemeIcon: React.FC<{ isDark: boolean; color: string }> = ({ isDark, color }) =>
+  isDark ? (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <Circle cx="12" cy="12" r="4" />
+      <Path d="M12 2v2" />
+      <Path d="M12 20v2" />
+      <Path d="m4.93 4.93 1.41 1.41" />
+      <Path d="m17.66 17.66 1.41 1.41" />
+      <Path d="M2 12h2" />
+      <Path d="M20 12h2" />
+      <Path d="m6.34 17.66-1.41 1.41" />
+      <Path d="m19.07 4.93-1.41 1.41" />
+    </Svg>
+  ) : (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </Svg>
+  );
+
+const BellIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <Path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </Svg>
+);
+
+const ClockIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="12" r="9" />
+    <Polyline points="12 7 12 12 15 14" />
+  </Svg>
+);
+
+const FlameIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill={color}>
+    <Path d="M12.5 2C12.5 2 18 6.5 18 12.5C18 16.5 15.3 20 11.5 20C7.7 20 5 17 5 13C5 10.2 6.8 7.5 8.5 6C8.3 8 9.2 9.5 10.2 9.8C9.8 7 11.5 4 12.5 2Z" />
+  </Svg>
+);
+
+const PlusIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round">
+    <Line x1="12" y1="5" x2="12" y2="19" />
+    <Line x1="5" y1="12" x2="19" y2="12" />
+  </Svg>
+);
+
+const LockIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="4" y="11" width="16" height="10" rx="2.5" />
+    <Path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </Svg>
+);
+
+const TimerIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="13" r="8" />
+    <Path d="M12 9v4l2.5 1.5" />
+    <Path d="M9 2h6" />
+  </Svg>
+);
+
+const AlarmIcon: React.FC<{ color: string }> = ({ color }) => (
+  <Svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="13" r="8" />
+    <Path d="M12 9v4l2 2" />
+    <Path d="M5 3 2 6" />
+    <Path d="m22 6-3-3" />
+  </Svg>
+);
+
+/* ============================================================================
+ * 5. PRECISION SWISS GOAL DIAL COMPONENT
+ * ============================================================================ */
+
+interface GoalDialProps {
+  percent: number;
+  isLive: boolean;
+  palette: Palette;
+  onPress: () => void;
+}
+
+const DIAL_RADIUS = 34;
+const DIAL_CIRCUMFERENCE = 2 * Math.PI * DIAL_RADIUS;
+
+const GoalDial: React.FC<GoalDialProps> = ({ percent, isLive, palette, onPress }) => {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const strokeDashoffset = DIAL_CIRCUMFERENCE - (clamped / 100) * DIAL_CIRCUMFERENCE;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Daily study goal ${clamped} percent${isLive ? ', session active' : ''}`}
+      style={({ pressed }) => [
+        styles.dialContainer,
+        pressed && styles.pressedScaleSm,
+      ]}
+    >
+      <Svg width={80} height={80} viewBox="0 0 92 92">
+        {/* Outer subtle architectural ticks */}
+        <Circle
+          cx={46}
+          cy={46}
+          r={42}
+          fill="none"
+          stroke={palette.dialTick}
+          strokeWidth={1}
+          strokeDasharray="1.5 6.75"
+        />
+        {/* Base Track */}
+        <Circle
+          cx={46}
+          cy={46}
+          r={DIAL_RADIUS}
+          fill="none"
+          stroke={palette.dialTrack}
+          strokeWidth={5}
+        />
+        {/* Active Progress Arc rotated -90deg so 0% starts at 12 o'clock */}
+        <Circle
+          cx={46}
+          cy={46}
+          r={DIAL_RADIUS}
+          fill="none"
+          stroke={palette.sakha}
+          strokeWidth={5}
+          strokeLinecap="round"
+          strokeDasharray={`${DIAL_CIRCUMFERENCE} ${DIAL_CIRCUMFERENCE}`}
+          strokeDashoffset={strokeDashoffset}
+          origin="46, 46"
+          rotation={-90}
+        />
+      </Svg>
+
+      <View style={styles.dialCenterOverlay} pointerEvents="none">
+        <Text style={[styles.dialPercentText, { color: palette.inkPrimary }]}>
+          {clamped}%
+        </Text>
+        <Text
+          style={[
+            styles.dialSubLabel,
+            { color: isLive ? palette.sakhaDeep : palette.inkMuted },
+          ]}
+        >
+          {isLive ? 'LIVE' : 'GOAL'}
+        </Text>
+      </View>
+    </Pressable>
+  );
+};
+
+/* ============================================================================
+ * 6. MAIN REDESIGNED DASHBOARD SCREEN
+ * Note: Bottom Navigation is intentionally omitted because React Navigation's
+ * Bottom Tab Navigator renders Home / Library / Groups / Sakha AI / Profile.
+ * ============================================================================ */
+
+export const DashboardScreen: React.FC<DashboardScreenProps> = ({
+  themeMode,
+  data,
+  actions,
+}) => {
+  const systemScheme = useColorScheme();
+  const resolvedTheme: ThemeMode = themeMode ?? (systemScheme === 'dark' ? 'dark' : 'light');
+  const isDark = resolvedTheme === 'dark';
+  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+
+  const { width } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+
+  // Guard rapid double-taps on native Focus Lock / Alarm toggles
+  const [lockPending, setLockPending] = useState(false);
+  const [alarmPending, setAlarmPending] = useState(false);
+
+  // Subtle non-blocking feedback pill (replaces Alert)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showStatusFeedback = useCallback(
+    (message: string) => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      setStatusMessage(message);
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+
+      toastTimerRef.current = setTimeout(() => {
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }).start(() => setStatusMessage(null));
+      }, 2000);
+    },
+    [toastOpacity]
+  );
+
+  // Compute responsive horizontal padding & card sizing for compact Android screens
+  const isCompactWidth = width < 360;
+  const horizontalPad = isCompactWidth ? 16 : 20;
+
+  // Derived study metrics from StoreProvider
+  const greeting = useMemo(() => getTimeBasedGreeting(), []);
+  const goalPercent = useMemo(() => {
+    if (!data.dailyGoalMinutes || data.dailyGoalMinutes <= 0) return 0;
+    return Math.min(100, Math.round((data.studiedMinutesToday / data.dailyGoalMinutes) * 100));
+  }, [data.studiedMinutesToday, data.dailyGoalMinutes]);
+
+  const studiedText = useMemo(
+    () => formatStudiedDuration(data.studiedMinutesToday),
+    [data.studiedMinutesToday]
+  );
+  const streakText = useMemo(
+    () => formatStreakLabel(data.studyStreakDays),
+    [data.studyStreakDays]
+  );
+
+  // Safe async handlers for existing native services
+  const handleLogoPress = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    actions.onPressLogo?.();
+  }, [actions]);
+
+  const handleSyncPress = useCallback(async () => {
+    if (!actions.onTriggerSync) return;
+    try {
+      await actions.onTriggerSync();
+      showStatusFeedback('Synced with cloud');
+    } catch {
+      showStatusFeedback('Sync failed. Try again');
+    }
+  }, [actions, showStatusFeedback]);
+
+  const handleToggleFocusLock = useCallback(async () => {
+    if (lockPending) return;
+    const nextState = !data.isFocusLockEnabled;
+    setLockPending(true);
+    try {
+      await actions.onToggleFocusLock(nextState);
+    } catch {
+      showStatusFeedback('Unable to update Focus Lock');
+    } finally {
+      setLockPending(false);
+    }
+  }, [actions, data.isFocusLockEnabled, lockPending, showStatusFeedback]);
+
+  const handleToggleAlarm = useCallback(async () => {
+    if (alarmPending) return;
+    const nextState = !data.isAlarmEnabled;
+    setAlarmPending(true);
+    try {
+      await actions.onToggleAlarm(nextState);
+    } catch {
+      showStatusFeedback('Unable to update Study Alarm');
+    } finally {
+      setAlarmPending(false);
+    }
+  }, [actions, data.isAlarmEnabled, alarmPending, showStatusFeedback]);
+
+  const badgeDisplayCount =
+    data.unreadNotificationCount > 99 ? '99+' : String(data.unreadNotificationCount);
+
+  return (
+    <SafeAreaView
+      edges={['top']}
+      style={[styles.safeArea, { backgroundColor: palette.surface }]}
+    >
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={palette.surface}
+      />
+
+      {/* Non-blocking status toast */}
+      {statusMessage ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.toastPill,
+            {
+              backgroundColor: palette.toastBg,
+              opacity: toastOpacity,
+            },
+          ]}
+        >
+          <Text style={[styles.toastText, { color: palette.toastText }]}>
+            {statusMessage}
+          </Text>
+        </Animated.View>
+      ) : null}
+
+      {/* ====================================================================
+          SECTION 1: CLEAN TOP APP BAR
+      ==================================================================== */}
+      <View
+        style={[
+          styles.header,
+          {
+            paddingHorizontal: horizontalPad,
+            backgroundColor: palette.surface,
+            borderBottomColor: palette.hairline,
+          },
+        ]}
+      >
+        {/* Study Sakha Brand Logo -> Home / Scroll to Top */}
+        <Pressable
+          onPress={handleLogoPress}
+          accessibilityRole="button"
+          accessibilityLabel="Study Sakha Home"
+          style={({ pressed }) => [styles.brandRow, pressed && styles.pressedOpacity]}
+        >
+          <View
+            style={[
+              styles.emblemBox,
+              {
+                backgroundColor: palette.emblemBg,
+                borderColor: palette.hairline,
+              },
+            ]}
+          >
+            <StudySakhaEmblem
+              leftFill={palette.emblemLeftPage}
+              rightFill={palette.sakha}
+            />
+          </View>
+          <Text style={styles.brandWordmark} numberOfLines={1}>
+            <Text style={{ color: palette.inkPrimary }}>Study</Text>
+            <Text style={{ color: palette.sakha }}> Sakha</Text>
+          </Text>
+        </Pressable>
+
+        {/* Compact Utility Controls */}
+        <View style={styles.headerActions}>
+          {actions.onTriggerSync ? (
+            <Pressable
+              onPress={handleSyncPress}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Cloud sync status"
+              style={({ pressed }) => [
+                styles.iconCircleBtn,
+                pressed && { backgroundColor: palette.pressHighlight },
+              ]}
+            >
+              <CloudCheckIcon
+                color={data.isSyncing ? palette.sakha : palette.iconMuted}
+              />
+            </Pressable>
+          ) : null}
+
+          {actions.onToggleTheme ? (
+            <Pressable
+              onPress={actions.onToggleTheme}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Toggle light or dark theme"
+              style={({ pressed }) => [
+                styles.iconCircleBtn,
+                pressed && { backgroundColor: palette.pressHighlight },
+              ]}
+            >
+              <ThemeIcon isDark={isDark} color={palette.iconMuted} />
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            onPress={actions.onOpenNotifications}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Notifications, ${data.unreadNotificationCount} unread`}
+            style={({ pressed }) => [
+              styles.iconCircleBtn,
+              pressed && { backgroundColor: palette.pressHighlight },
+            ]}
+          >
+            <BellIcon color={palette.iconMuted} />
+            {data.unreadNotificationCount > 0 ? (
+              <View
+                style={[
+                  styles.notifBadge,
+                  { backgroundColor: palette.notifBadgeBg },
+                ]}
+              >
+                <Text style={styles.notifBadgeText}>{badgeDisplayCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+      </View>
+
+      {/* ====================================================================
+          MAIN SCROLLABLE CANVAS
+      ==================================================================== */}
+      <ScrollView
+        ref={scrollRef}
+        style={[styles.scrollContainer, { backgroundColor: palette.canvas }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingHorizontal: horizontalPad },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ==================================================================
+            SECTION 2: CARDLESS EDITORIAL GREETING + GOAL DIAL + COMPACT STATS
+        ================================================================== */}
+        <View style={styles.focusOverviewSection}>
+          <View style={styles.greetingRow}>
+            <View style={styles.greetingTextWrap}>
+              <Text
+                style={[styles.greetingPrefix, { color: palette.inkSecondary }]}
+                numberOfLines={1}
+              >
+                {greeting}
+              </Text>
+              <Text
+                style={[styles.greetingName, { color: palette.inkPrimary }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {data.userName}
+              </Text>
+            </View>
+
+            <GoalDial
+              percent={goalPercent}
+              isLive={data.isFocusSessionActive}
+              palette={palette}
+              onPress={actions.onPressGoalDial}
+            />
+          </View>
+
+          {/* Compact Study Statistics Strip */}
+          <View
+            style={[
+              styles.statsStrip,
+              {
+                borderTopColor: palette.hairline,
+                borderBottomColor: palette.hairline,
+              },
+            ]}
+          >
+            {/* Studied Today */}
+            <View style={styles.statColumnLeft}>
+              <View
+                style={[
+                  styles.statIconCircle,
+                  { backgroundColor: palette.studiedIconBg },
+                ]}
+              >
+                <ClockIcon color={palette.studiedIconColor} />
+              </View>
+              <View style={styles.statTextGroup}>
+                <Text
+                  style={[styles.statValue, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  {studiedText}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: palette.inkMuted }]}
+                  numberOfLines={1}
+                >
+                  Studied today
+                </Text>
+              </View>
+            </View>
+
+            {/* Hairline Vertical Divider */}
+            <View
+              style={[styles.statDivider, { backgroundColor: palette.hairline }]}
+            />
+
+            {/* Study Streak */}
+            <View style={styles.statColumnRight}>
+              <View
+                style={[
+                  styles.statIconCircle,
+                  { backgroundColor: palette.streakIconBg },
+                ]}
+              >
+                <FlameIcon color={palette.streakIconColor} />
+              </View>
+              <View style={styles.statTextGroup}>
+                <Text
+                  style={[styles.statValue, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  {streakText}
+                </Text>
+                <Text
+                  style={[styles.statLabel, { color: palette.inkMuted }]}
+                  numberOfLines={1}
+                >
+                  Study streak
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* ==================================================================
+            SECTION 3: STUDY PLANNER (COMPACT 2x2 GRID, FULL-CARD TOGGLES)
+        ================================================================== */}
+        <View style={styles.plannerSection}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: palette.inkPrimary }]}>
+              Study Planner
+            </Text>
+            <Text style={[styles.sectionSubtitle, { color: palette.inkMuted }]}>
+              Quick controls
+            </Text>
+          </View>
+
+          {/* Row 1: Add Task + Focus Lock */}
+          <View style={styles.bentoRow}>
+            {/* Card 1: Add Task (Sky Blue Accent) */}
+            <Pressable
+              onPress={actions.onAddTask}
+              accessibilityRole="button"
+              accessibilityLabel={`Add Task, ${data.pendingTaskCount} pending`}
+              style={({ pressed }) => [
+                styles.plannerCard,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: pressed ? palette.sky : palette.hairline,
+                },
+                pressed && styles.pressedScaleCard,
+              ]}
+            >
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.cardIconBox,
+                    { backgroundColor: palette.skySoft },
+                  ]}
+                >
+                  <PlusIcon color={palette.sky} />
+                </View>
+                <View
+                  style={[
+                    styles.metricPill,
+                    { backgroundColor: palette.skySoft },
+                  ]}
+                >
+                  <Text style={[styles.metricPillText, { color: palette.skyPillText }]}>
+                    {data.pendingTaskCount}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardTextBlock}>
+                <Text
+                  style={[styles.cardTitle, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  Add Task
+                </Text>
+                <Text
+                  style={[styles.cardSubtitle, { color: palette.inkMuted }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {data.nextTaskTitle?.trim() || 'Plan your next topic'}
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Card 2: Focus Lock (Coral Rose Accent, Full-Card ON/OFF Toggle) */}
+            <Pressable
+              onPress={handleToggleFocusLock}
+              onLongPress={actions.onOpenFocusLockSettings}
+              disabled={lockPending}
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: data.isFocusLockEnabled,
+                busy: lockPending,
+              }}
+              accessibilityLabel="Focus Lock"
+              accessibilityHint="Tap to toggle Focus Lock on or off"
+              style={({ pressed }) => [
+                styles.plannerCard,
+                {
+                  backgroundColor: data.isFocusLockEnabled
+                    ? palette.roseActiveSurface
+                    : palette.surface,
+                  borderColor: data.isFocusLockEnabled
+                    ? palette.roseActiveBorder
+                    : pressed
+                    ? palette.rose
+                    : palette.hairline,
+                },
+                pressed && styles.pressedScaleCard,
+              ]}
+            >
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.cardIconBox,
+                    {
+                      backgroundColor: data.isFocusLockEnabled
+                        ? palette.rose
+                        : palette.roseSoft,
+                    },
+                  ]}
+                >
+                  <LockIcon
+                    color={data.isFocusLockEnabled ? '#FFFFFF' : palette.rose}
+                  />
+                </View>
+                <View
+                  style={[
+                    styles.stateBadge,
+                    {
+                      backgroundColor: data.isFocusLockEnabled
+                        ? palette.rose
+                        : palette.neutralPillBg,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.stateBadgeText,
+                      {
+                        color: data.isFocusLockEnabled
+                          ? '#FFFFFF'
+                          : palette.inkMuted,
+                      },
+                    ]}
+                  >
+                    {data.isFocusLockEnabled ? 'ON' : 'OFF'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardTextBlock}>
+                <Text
+                  style={[styles.cardTitle, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  Focus Lock
+                </Text>
+                <Text
+                  style={[
+                    styles.cardSubtitle,
+                    {
+                      color: data.isFocusLockEnabled
+                        ? palette.roseStatusText
+                        : palette.inkMuted,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {data.isFocusLockEnabled
+                    ? 'ON • Apps shielded'
+                    : 'OFF • Tap to shield'}
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+
+          {/* Row 2: Focus Timer + Alarm */}
+          <View style={styles.bentoRow}>
+            {/* Card 3: Focus Timer (Lavender Violet Accent) */}
+            <Pressable
+              onPress={actions.onOpenFocusTimer}
+              accessibilityRole="button"
+              accessibilityLabel={`Focus Timer, ${data.focusTimerDisplay}`}
+              style={({ pressed }) => [
+                styles.plannerCard,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: pressed ? palette.violet : palette.hairline,
+                },
+                pressed && styles.pressedScaleCard,
+              ]}
+            >
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.cardIconBox,
+                    { backgroundColor: palette.violetSoft },
+                  ]}
+                >
+                  <TimerIcon color={palette.violet} />
+                </View>
+                <View
+                  style={[
+                    styles.metricPill,
+                    { backgroundColor: palette.violetSoft },
+                  ]}
+                >
+                  <Text
+                    style={[styles.metricPillText, { color: palette.violetPillText }]}
+                    numberOfLines={1}
+                  >
+                    {data.focusTimerDisplay}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardTextBlock}>
+                <Text
+                  style={[styles.cardTitle, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  Focus Timer
+                </Text>
+                <Text
+                  style={[styles.cardSubtitle, { color: palette.inkMuted }]}
+                  numberOfLines={1}
+                >
+                  {data.isFocusSessionActive
+                    ? 'Running now'
+                    : 'Tap to open timer'}
+                </Text>
+              </View>
+            </Pressable>
+
+            {/* Card 4: Alarm (Warm Amber Accent, Full-Card ON/OFF Toggle) */}
+            <Pressable
+              onPress={handleToggleAlarm}
+              onLongPress={actions.onOpenAlarmSettings}
+              disabled={alarmPending}
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: data.isAlarmEnabled,
+                busy: alarmPending,
+              }}
+              accessibilityLabel="Study Alarm"
+              accessibilityHint="Tap to toggle Study Alarm on or off"
+              style={({ pressed }) => [
+                styles.plannerCard,
+                {
+                  backgroundColor: data.isAlarmEnabled
+                    ? palette.amberActiveSurface
+                    : palette.surface,
+                  borderColor: data.isAlarmEnabled
+                    ? palette.amberActiveBorder
+                    : pressed
+                    ? palette.amber
+                    : palette.hairline,
+                },
+                pressed && styles.pressedScaleCard,
+              ]}
+            >
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.cardIconBox,
+                    { backgroundColor: palette.amberSoft },
+                  ]}
+                >
+                  <AlarmIcon color={palette.amber} />
+                </View>
+                <View
+                  style={[
+                    styles.stateBadge,
+                    {
+                      backgroundColor: data.isAlarmEnabled
+                        ? palette.amber
+                        : palette.neutralPillBg,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.stateBadgeText,
+                      {
+                        color: data.isAlarmEnabled ? '#FFFFFF' : palette.inkMuted,
+                      },
+                    ]}
+                  >
+                    {data.isAlarmEnabled ? 'ON' : 'OFF'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardTextBlock}>
+                <Text
+                  style={[styles.cardTitle, { color: palette.inkPrimary }]}
+                  numberOfLines={1}
+                >
+                  Alarm
+                </Text>
+                <Text
+                  style={[
+                    styles.cardSubtitleMono,
+                    {
+                      color: data.isAlarmEnabled
+                        ? palette.amberStatusText
+                        : palette.inkMuted,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {data.nextAlarmLabel
+                    ? `${data.isAlarmEnabled ? 'ON' : 'OFF'} • ${data.nextAlarmLabel}`
+                    : data.isAlarmEnabled
+                    ? 'ON • Scheduled'
+                    : 'OFF • Not set'}
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+/* ============================================================================
+ * 7. STYLESHEET
+ * ============================================================================ */
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  toastPill: {
+    position: 'absolute',
+    top: 64,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    zIndex: 50,
+    elevation: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+  },
+  toastText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  /* Header */
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 1,
+  },
+  emblemBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandWordmark: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.35,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  iconCircleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 3,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    paddingHorizontal: 3.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
+    lineHeight: 11,
+  },
+
+  /* Main Scroll */
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 20,
+  },
+
+  /* Cardless Focus Overview */
+  focusOverviewSection: {
+    paddingTop: 2,
+  },
+  greetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    marginBottom: 16,
+  },
+  greetingTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  greetingPrefix: {
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '400',
+    letterSpacing: -0.6,
+  },
+  greetingName: {
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '700',
+    letterSpacing: -0.7,
+    marginTop: 1,
+  },
+
+  /* Precision Goal Dial */
+  dialContainer: {
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialCenterOverlay: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialPercentText: {
+    fontFamily: MONO_FONT,
+    fontVariant: ['tabular-nums'],
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+  },
+  dialSubLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    marginTop: 2,
+  },
+
+  /* Compact Study Statistics Strip */
+  statsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingVertical: 10,
+  },
+  statColumnLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingRight: 12,
+  },
+  statColumnRight: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 14,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+  },
+  statIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statTextGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statValue: {
+    fontFamily: MONO_FONT,
+    fontVariant: ['tabular-nums'],
+    fontSize: 15.5,
+    fontWeight: '600',
+    lineHeight: 19,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+
+  /* Study Planner Grid */
+  plannerSection: {
+    gap: 12,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    fontSize: 15.5,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  sectionSubtitle: {
+    fontSize: 11.5,
+    fontWeight: '500',
+  },
+  bentoRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  plannerCard: {
+    flex: 1,
+    minHeight: 106,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+    justifyContent: 'space-between',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#1A2233',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  metricPillText: {
+    fontFamily: MONO_FONT,
+    fontVariant: ['tabular-nums'],
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  stateBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  stateBadgeText: {
+    fontFamily: MONO_FONT,
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  cardTextBlock: {
+    marginTop: 10,
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  cardSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  cardSubtitleMono: {
+    fontFamily: MONO_FONT,
+    fontVariant: ['tabular-nums'],
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+
+  /* Micro-interaction feedback */
+  pressedOpacity: {
+    opacity: 0.72,
+  },
+  pressedScaleSm: {
+    transform: [{ scale: 0.96 }],
+  },
+  pressedScaleCard: {
+    transform: [{ scale: 0.98 }],
+  },
+});
+
+export default DashboardScreen;
+```

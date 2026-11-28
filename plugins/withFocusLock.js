@@ -15,6 +15,7 @@ const KOTLIN_FILES = [
   'FocusLockAlarm.kt',
   'FocusLockBootReceiver.kt',
   'FocusLockSessionTiming.kt',
+  'FocusLockUsageLimits.kt',
   'FocusLockPackage.kt',
 ];
 

@@ -11,6 +11,7 @@ useState,
 } from 'react';
 import {
 Animated,
+AppState,
 BackHandler,
 Easing,
 Modal,
@@ -26,19 +27,29 @@ View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ALARM_STORAGE_KEY, getSecondsUntilAlarm as getStoredSecondsUntilAlarm } from './alarmStorage';
+import {
+  ALARM_STORAGE_KEY,
+  formatAlarmOccurrenceLabel,
+  formatLocalDateLabel,
+  getSecondsUntilAlarm as getStoredSecondsUntilAlarm,
+} from './alarmStorage';
 import { NativeDatePicker, WebDatePicker } from '../../../components/NativeSchedulePickers';
 import {
   captureNativeBarcode,
   captureNativeReferencePhoto,
   clearPendingNativeAlarm,
   consumePendingNativeAction,
+  getAlarmPermissionStatus,
+  openExactAlarmSettings,
+  openFullScreenIntentSettings,
+  openNotificationSettings,
   peekPendingNativeAlarm,
   scheduleNativeSnooze,
   stopNativeAlarm,
   subscribeToNativeAlarm,
   subscribeToNativeAlarmAction,
   syncNativeAlarms,
+  type AlarmPermissionStatus,
 } from './alarmNative';
 import {
   type ActiveMissionSession,
@@ -1256,7 +1267,7 @@ pulseAnim.setValue(0);
 return undefined;
 }, [activeScreen, themeAnimated, pulseAnim]);
 useEffect(() => {
-if (activeScreen !== 'ringing') {
+if (activeScreen !== 'ringing' && Platform.OS !== 'android') {
 Vibration.cancel();
 }
 }, [activeScreen]);
@@ -1465,14 +1476,28 @@ setAlarms((prev) => prev.map((a) => ({ ...a, enabled: enable, skippedOnce: false
 showToast(enable ? 'All alarms enabled' : 'All alarms disabled');
 };
 // --- Ringing Operations ---
+const [permStatus, setPermStatus] = useState<AlarmPermissionStatus | null>(null);
+const refreshPermStatus = useCallback(() => {
+if (Platform.OS !== 'android') return;
+void getAlarmPermissionStatus().then(setPermStatus).catch(() => {});
+}, []);
+useEffect(() => {
+refreshPermStatus();
+if (Platform.OS !== 'android') return undefined;
+const sub = AppState.addEventListener('change', (nextState) => {
+  if (nextState === 'active') refreshPermStatus();
+});
+return () => sub.remove();
+}, [refreshPermStatus]);
+
 const dismissingAlarmIdRef = useRef<string | null>(null);
-const triggerAlarmRinging = useCallback((alarm: AlarmItem) => {
+const triggerAlarmRinging = useCallback((alarm: AlarmItem, fromNative = false) => {
 dismissingAlarmIdRef.current = null;
 setOpenMenuId(null);
 setRingingAlarm(alarm);
 setMissionRunnerMode(alarm.heavySleeper ? 'dismiss' : null);
 setActiveScreen('ringing');
-if (alarm.vibration) {
+if (alarm.vibration && !(fromNative && Platform.OS === 'android')) {
 Vibration.vibrate([400, 600, 400, 600], true);
 }
 }, []);
@@ -1635,11 +1660,16 @@ setActiveScreen('morning');
 useEffect(() => {
 if (!hydrated) return undefined;
 let mounted = true;
-const handleNativeAlarm = (payload: { alarmId: string; title?: string }) => {
+const handleNativeAlarm = (payload: { alarmId: string; title?: string; heavySleeper?: boolean; missionBeforeSnooze?: boolean }) => {
 if (!mounted || !payload?.alarmId) return;
 if (activeRingingIdRef.current === payload.alarmId) return;
-const alarm = alarms.find((item) => item.id === payload.alarmId) || buildFallbackAlarm(payload.alarmId, payload.title);
-triggerAlarmRinging(alarm);
+const matched = alarms.find((item) => item.id === payload.alarmId);
+const alarm = matched || {
+  ...buildFallbackAlarm(payload.alarmId, payload.title),
+  heavySleeper: payload.heavySleeper ?? false,
+  missionBeforeSnooze: payload.missionBeforeSnooze ?? false,
+};
+triggerAlarmRinging(alarm, true);
 };
 const handleNativeAction = (payload: { alarmId: string; action: 'dismissed' | 'snoozed'; snoozeMinutes: number }) => {
 if (!mounted || !payload?.alarmId) return;
@@ -1934,6 +1964,36 @@ Wake up. Show up. Stay consistent.
   </Pressable>
 </Modal>
 <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 90, gap: 16 }}>
+{Platform.OS === 'android' && permStatus && (!permStatus.canScheduleExactAlarms || !permStatus.canUseFullScreenIntent || !permStatus.notificationsEnabled) && (
+<View style={[styles.snoozeBanner, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+<View style={{ flex: 1, paddingRight: 10 }}>
+<Text style={{ fontSize: 12, fontWeight: '800', color: '#991B1B' }}>
+{!permStatus.canScheduleExactAlarms
+  ? 'Exact alarm permission needed'
+  : !permStatus.notificationsEnabled
+  ? 'Alarm notifications disabled'
+  : 'Full-screen alarm permission needed'}
+</Text>
+<Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 2 }}>
+{!permStatus.canScheduleExactAlarms
+  ? 'Enable Alarms & Reminders so alarms ring reliably when closed or locked.'
+  : !permStatus.notificationsEnabled
+  ? 'Allow notifications so alarms can alert you when the app is in background.'
+  : 'Allow Full-Screen Intent so alarms wake the lock screen.'}
+</Text>
+</View>
+<Pressable
+  onPress={() => {
+    if (!permStatus.canScheduleExactAlarms) void openExactAlarmSettings().catch(() => {});
+    else if (!permStatus.notificationsEnabled) void openNotificationSettings().catch(() => {});
+    else void openFullScreenIntentSettings().catch(() => {});
+  }}
+  style={[styles.snoozeDismissBtn, { backgroundColor: '#DC2626' }]}
+>
+<Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>Enable</Text>
+</Pressable>
+</View>
+)}
 {/* Active Snooze Banner */}
 {snoozedBanner && (
 <View style={styles.snoozeBanner}>
@@ -1976,7 +2036,7 @@ Ringing again in {Math.floor(snoozedBanner.secondsLeft / 60)}m {snoozedBanner.se
 {nextAlarm.title}
 </Text>
 <Text style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>
-Tomorrow · {formatRepeatLabel(nextAlarm.days, nextAlarm.specificDate)}
+{formatAlarmOccurrenceLabel(nextAlarm, now) ?? 'Scheduled'} · {formatRepeatLabel(nextAlarm.days, nextAlarm.specificDate)}
 </Text>
 <View style={[styles.rowGap8, { marginTop: 14 }]}>
 <Pressable onPress={() => openEditAlarm(nextAlarm)} style={[styles.heroActionBtn, { flex: 1, backgroundColor: '#F1F5F9' }]}>
@@ -2083,6 +2143,9 @@ const { timeStr, period } = formatAlarmTime(alarm.hour, alarm.minute, settings.u
 const cat = getCategoryMeta(alarm.category);
 const CatIcon = cat.icon;
 const isMenuOpen = openMenuId === alarm.id;
+const occurrenceLabel = alarm.enabled && !alarm.skippedOnce
+  ? formatAlarmOccurrenceLabel(alarm, now)
+  : null;
 return (
 <View
 key={alarm.id}
@@ -2138,7 +2201,7 @@ Smart {alarm.smartWindow}m
 {alarm.title}
 </Text>
 <Text style={{ fontSize: 11, color: P.textSecondary, marginTop: 2 }}>
-{formatRepeatLabel(alarm.days, alarm.specificDate)}
+{occurrenceLabel ? `${occurrenceLabel} · ${formatRepeatLabel(alarm.days, alarm.specificDate)}` : formatRepeatLabel(alarm.days, alarm.specificDate)}
 </Text>
 </Pressable>
 <View style={styles.rowCenter}>
@@ -3110,7 +3173,7 @@ styles.ringingPulseCircle,
 </Text>
 </View>
 <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14, marginTop: 14 }}>
-{now.toDateString()}
+Today · {formatLocalDateLabel(now)}
 </Text>
 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 10 }}>
 <Text style={styles.ringingClock}>{timeStr}</Text>

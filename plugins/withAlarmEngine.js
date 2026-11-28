@@ -11,6 +11,7 @@ const KOTLIN_FILES = [
   'AlarmEngineBootReceiver.kt',
   'AlarmPlaybackService.kt',
   'AlarmMissionEngine.kt',
+  'AlarmRingingActivity.kt',
 ];
 
 function addPermission(permissions, name) {
@@ -142,6 +143,20 @@ module.exports = function withAlarmEngine(config) {
     application.service = application.service ?? [];
     addComponent(application.service, '.AlarmPlaybackService', {
       $: { 'android:name': '.AlarmPlaybackService', 'android:enabled': 'true', 'android:exported': 'false', 'android:foregroundServiceType': 'mediaPlayback' },
+    });
+    application.activity = application.activity ?? [];
+    addComponent(application.activity, '.AlarmRingingActivity', {
+      $: {
+        'android:name': '.AlarmRingingActivity',
+        'android:exported': 'false',
+        'android:launchMode': 'singleInstance',
+        'android:taskAffinity': '',
+        'android:excludeFromRecents': 'true',
+        'android:showWhenLocked': 'true',
+        'android:turnScreenOn': 'true',
+        'android:screenOrientation': 'portrait',
+        'android:theme': '@style/Theme.AppCompat.NoActionBar',
+      },
     });
     return mod;
   });

@@ -53,6 +53,19 @@ export type NativeSensorStartResult = {
   reason?: string;
 };
 
+export type AlarmPermissionStatus = {
+  canScheduleExactAlarms: boolean;
+  canUseFullScreenIntent: boolean;
+  notificationsEnabled: boolean;
+};
+
+export type PendingNativeAlarm = {
+  alarmId: string;
+  title: string;
+  heavySleeper?: boolean;
+  missionBeforeSnooze?: boolean;
+};
+
 type NativeAlarmEngine = {
   syncAlarms(snapshot: string): Promise<void>;
   cancelAlarm(alarmId: string): Promise<void>;
@@ -69,10 +82,15 @@ type NativeAlarmEngine = {
     missionBeforeSnooze?: boolean;
   }): Promise<void>;
   stopAlarm(alarmId: string): Promise<void>;
-  peekPendingAlarm?(): Promise<{ alarmId: string; title: string } | null>;
+  peekPendingAlarm?(): Promise<PendingNativeAlarm | null>;
   clearPendingAlarm?(alarmId: string): Promise<void>;
-  consumePendingAlarm(): Promise<{ alarmId: string; title: string } | null>;
+  consumePendingAlarm(): Promise<PendingNativeAlarm | null>;
   consumePendingAction?(): Promise<{ alarmId: string; action: 'dismissed' | 'snoozed'; snoozeMinutes: number } | null>;
+  canScheduleExactAlarms?(): Promise<boolean>;
+  openExactAlarmSettings?(): Promise<void>;
+  getAlarmPermissionStatus?(): Promise<AlarmPermissionStatus>;
+  openFullScreenIntentSettings?(): Promise<void>;
+  openNotificationSettings?(): Promise<void>;
   getMissionCapabilities?(): Promise<MissionCapabilities>;
   startShakeMission?(sessionId: string, target: number, thresholdG: number): Promise<NativeSensorStartResult>;
   startStepMission?(sessionId: string, target: number): Promise<NativeSensorStartResult>;
@@ -142,10 +160,33 @@ export function consumePendingNativeAction() {
   return nativeEngine?.consumePendingAction?.() ?? Promise.resolve(null);
 }
 
-export function subscribeToNativeAlarm(callback: (payload: { alarmId: string; title: string }) => void) {
+export function subscribeToNativeAlarm(callback: (payload: PendingNativeAlarm) => void) {
   if (!nativeEngine) return () => {};
   const subscription = new NativeEventEmitter(nativeEngine as never).addListener('onStudySakhaAlarmTriggered', callback);
   return () => subscription.remove();
+}
+
+export function getAlarmPermissionStatus(): Promise<AlarmPermissionStatus> {
+  if (!nativeEngine?.getAlarmPermissionStatus) {
+    return Promise.resolve({
+      canScheduleExactAlarms: true,
+      canUseFullScreenIntent: true,
+      notificationsEnabled: true,
+    });
+  }
+  return nativeEngine.getAlarmPermissionStatus();
+}
+
+export function openExactAlarmSettings(): Promise<void> {
+  return nativeEngine?.openExactAlarmSettings?.() ?? Promise.resolve();
+}
+
+export function openFullScreenIntentSettings(): Promise<void> {
+  return nativeEngine?.openFullScreenIntentSettings?.() ?? Promise.resolve();
+}
+
+export function openNotificationSettings(): Promise<void> {
+  return nativeEngine?.openNotificationSettings?.() ?? Promise.resolve();
 }
 
 export function subscribeToNativeAlarmAction(

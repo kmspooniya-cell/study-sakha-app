@@ -13,6 +13,7 @@ import com.facebook.react.bridge.Arguments
 object FocusLockAlarm {
   private const val TAG = "StudySakhaFocusLock"
   private const val ACTION = "com.anonymous.agonpreview.FOCUS_LOCK_EXPIRED"
+  private const val ACTION_EMERGENCY_EXPIRED = "com.anonymous.agonpreview.FOCUS_LOCK_EMERGENCY_EXPIRED"
   private const val EXTRA_SESSION_ID = "sessionId"
 
   fun canScheduleExactAlarms(context: Context): Boolean =
@@ -57,6 +58,39 @@ object FocusLockAlarm {
     runCatching { manager.cancel(pending(context, null)) }
   }
 
+  fun scheduleEmergencyExpiry(context: Context, triggerElapsedMs: Long): Boolean {
+    val manager = context.getSystemService(AlarmManager::class.java) ?: return false
+    val intent = emergencyPending(context)
+    val safeTrigger = triggerElapsedMs.coerceAtLeast(SystemClock.elapsedRealtime() + 1000L)
+    return try {
+      if (canScheduleExactAlarms(context)) {
+        manager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, safeTrigger, intent)
+        true
+      } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        manager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, safeTrigger, intent)
+        false
+      } else {
+        manager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, safeTrigger, intent)
+        false
+      }
+    } catch (_: Exception) {
+      runCatching { manager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, safeTrigger, intent) }
+      false
+    }
+  }
+
+  fun cancelEmergencyExpiry(context: Context) {
+    val manager = context.getSystemService(AlarmManager::class.java) ?: return
+    runCatching { manager.cancel(emergencyPending(context)) }
+  }
+
+  private fun emergencyPending(context: Context) = PendingIntent.getBroadcast(
+    context,
+    92,
+    Intent(context, Receiver::class.java).setAction(ACTION_EMERGENCY_EXPIRED),
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+  )
+
   private fun pending(context: Context, sessionId: String?) = PendingIntent.getBroadcast(
     context,
     91,
@@ -68,6 +102,22 @@ object FocusLockAlarm {
 
   class Receiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+      if (intent?.action == ACTION_EMERGENCY_EXPIRED) {
+        synchronized(FocusLockModule.sessionLock) {
+          val state = FocusLockUsageLimits.getEmergencyState(context)
+          val pass = state.optJSONObject("activePass")
+          if (pass != null && FocusLockUsageLimits.isEmergencyPassExpired(context, pass)) {
+            state.remove("activePass")
+            context.getSharedPreferences(FocusLockModule.PREFS, Context.MODE_PRIVATE)
+              .edit()
+              .putString(FocusLockUsageLimits.EMERGENCY_STATE_KEY, state.toString())
+              .commit()
+          }
+        }
+        runCatching { FocusLockAccessibilityService.instance?.recheckForegroundOnEmergencyExpiry() }
+        runCatching { FocusLockModule.emitGlobal("onEmergencyAccessExpired", Arguments.createMap()) }
+        return
+      }
       if (intent?.action != ACTION) return
       val expectedSessionId = intent.getStringExtra(EXTRA_SESSION_ID) ?: ""
       val expiredSessionId = synchronized(FocusLockModule.sessionLock) {

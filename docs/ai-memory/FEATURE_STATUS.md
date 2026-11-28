@@ -1,5 +1,8 @@
 # Feature Status — Study Sakha
 
+## 2026-11-28 Help & Feedback System
+- **Help & Feedback (`components/HelpFeedbackModal.tsx`, `lib/feedback.ts`, `screens/AdminScreen.tsx`, `202611280001_feedback_submissions.sql`):** **Complete (Host) / Not Verified (Live Supabase Migration & Device)**. Three-dot menu `Help` and Settings feedback entries open `HelpFeedbackModal` supporting `Report an issue`, `Share an idea`, and `Appreciate the team`, explicit opt-in redacted logs and private screenshot upload, idempotent Supabase submission, Reference ID confirmation, and Admin Feedback management. Live Supabase migration deployment (`202611280001`) and device runtime remain pending.
+
 ## 2026-11-27 Notification Centre & Preferences
 - **Notification Centre (`NotificationsScreen`, `NotificationSettingsScreen`, `lib/notifications/*`):** **Complete (Host) / Not Verified (Live Supabase Migration & Physical Android Device)**. Immersive header/feed, 5 smart filters, `Today`/`Yesterday`/`This Week`/`Earlier` grouping, conditional `AnnouncementCard`, Reanimated swipe gestures, long-press selection, bulk actions, Undo snackbar, contextual action menu, centralized `NotificationRouter`, Quiet Hours across midnight, offline operation queue, Supabase Realtime subscription, and `202611270002_notification_centre_backend.sql` are implemented and host-tested. Live Supabase migration deployment and physical Android push/device testing remain pending.
 

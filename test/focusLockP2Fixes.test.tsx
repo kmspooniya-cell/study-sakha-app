@@ -185,13 +185,11 @@ describe('Focus Lock P2 Feature Completion', () => {
     fireEvent.press(view.getByText('Social Media Shield'));
     await waitFor(() => expect(view.getByText('1 blocked')).toBeTruthy());
 
-    fireEvent.press(view.getByText('+ Save Profile'));
-    fireEvent.changeText(view.getByPlaceholderText('e.g., UPSC Deep Study'), 'Mains Prep');
     await act(async () => {
-      fireEvent.press(view.getByText('Save'));
+      fireEvent.press(view.getByText('Save Profile'));
     });
 
-    await waitFor(() => expect(view.getByText('Mains Prep')).toBeTruthy());
+    await waitFor(() => expect(view.getByText('Quick Lock (1)')).toBeTruthy());
   });
 
   it('shows honest unsupported status for Custom Blocking and enables DND on Deep Focus', async () => {

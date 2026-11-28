@@ -1,5 +1,13 @@
 # Next Task — Study Sakha
 
+## Help & Feedback System follow-up — 2026-11-28
+- Host implementation, RLS migration (`supabase/migrations/202611280001_feedback_submissions.sql`), log redaction, screenshot upload/cleanup, Admin Feedback tab, and Jest/ESLint/TS checks are complete.
+- Exact next action: push `supabase/migrations/202611280001_feedback_submissions.sql` to the linked Supabase project and verify live end-to-end submission, private screenshot signed URLs, and Admin status updates on a running build.
+
+## Focus Lock Real Android Blocking follow-up — 2026-11-28
+- Host implementation, CNG prebuild, TypeScript, ESLint, and Focus Lock Jest suites (`5/5` suites, `19/19` tests) are complete, and `docs/FOCUS_LOCK_PRODUCTION_AUDIT.md` is updated.
+- Exact next action: build an Android APK via EAS (`eas build --platform android --profile preview`) and verify on a physical Android device: `UsageStatsManager.queryEvents` daily usage tracking, immediate intervention on limit exceedance, `FocusLockBlockingActivity` Back/Home/Recents handling, temporary reminder suspension across midnight/reboot, and 5-minute Emergency Pass auto-restore.
+
 ## Notification Centre follow-up — 2026-11-27
 - Host implementation, unit/component/navigation/mocked-Supabase tests, Expo lint, TypeScript, and web export are complete.
 - Exact next actions:

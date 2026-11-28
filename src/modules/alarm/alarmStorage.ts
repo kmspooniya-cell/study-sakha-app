@@ -27,33 +27,105 @@ export type AlarmSchedule = {
   specificDate?: string;
 };
 
-export function getSecondsUntilAlarm(alarm: AlarmSchedule, now = new Date()) {
-  const makeTarget = (date: Date) => {
-    const target = new Date(date);
-    target.setHours(alarm.hour, alarm.minute, 0, 0);
-    return target;
-  };
+export type NextAlarmOccurrence = {
+  targetDate: Date;
+  secondsUntil: number;
+  dayRelation: 'today' | 'tomorrow' | 'future';
+  dayLabel: string;
+};
+
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+export function formatLocalDateLabel(date: Date): string {
+  return `${WEEKDAY_NAMES[date.getDay()]}, ${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`;
+}
+
+export function getNextAlarmOccurrence(alarm: AlarmSchedule, now = new Date()): NextAlarmOccurrence | null {
+  if (
+    !Number.isInteger(alarm.hour) ||
+    !Number.isInteger(alarm.minute) ||
+    alarm.hour < 0 ||
+    alarm.hour > 23 ||
+    alarm.minute < 0 ||
+    alarm.minute > 59
+  ) {
+    return null;
+  }
+
+  let targetDate: Date | null = null;
 
   if (alarm.specificDate) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(alarm.specificDate);
-    if (!match) return Number.POSITIVE_INFINITY;
-    const target = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), alarm.hour, alarm.minute, 0, 0);
-    return target.getTime() > now.getTime()
-      ? Math.floor((target.getTime() - now.getTime()) / 1000)
-      : Number.POSITIVE_INFINITY;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(alarm.specificDate.trim());
+    if (!match) return null;
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const candidate = new Date(year, monthIndex, day, alarm.hour, alarm.minute, 0, 0);
+    if (
+      candidate.getFullYear() !== year ||
+      candidate.getMonth() !== monthIndex ||
+      candidate.getDate() !== day
+    ) {
+      return null;
+    }
+    if (candidate.getTime() > now.getTime()) {
+      targetDate = candidate;
+    }
+  } else {
+    const scheduledDays = (alarm.days ?? []).map((d) => d.slice(0, 3).toLowerCase());
+    const maxOffset = scheduledDays.length > 0 ? 7 : 0;
+    for (let offset = 0; offset <= maxOffset; offset += 1) {
+      const candidate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + offset,
+        alarm.hour,
+        alarm.minute,
+        0,
+        0,
+      );
+      const weekday = WEEKDAY_NAMES[candidate.getDay()].toLowerCase();
+      if (scheduledDays.length > 0 && !scheduledDays.includes(weekday)) continue;
+      if (candidate.getTime() > now.getTime()) {
+        targetDate = candidate;
+        break;
+      }
+    }
   }
 
-  const scheduledDays = alarm.days ?? [];
-  for (let offset = 0; offset <= (scheduledDays.length > 0 ? 7 : 0); offset += 1) {
-    const candidateDate = new Date(now);
-    candidateDate.setDate(candidateDate.getDate() + offset);
-    const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][candidateDate.getDay()];
-    if (scheduledDays.length > 0 && !scheduledDays.includes(weekday)) continue;
-    const target = makeTarget(candidateDate);
-    if (target.getTime() > now.getTime()) return Math.floor((target.getTime() - now.getTime()) / 1000);
+  if (!targetDate) return null;
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const targetStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+
+  let dayRelation: NextAlarmOccurrence['dayRelation'] = 'future';
+  let dayLabel: string;
+  if (targetStart === todayStart) {
+    dayRelation = 'today';
+    dayLabel = 'Today';
+  } else if (targetStart === tomorrowStart) {
+    dayRelation = 'tomorrow';
+    dayLabel = 'Tomorrow';
+  } else {
+    dayLabel = formatLocalDateLabel(targetDate);
   }
 
-  return Number.POSITIVE_INFINITY;
+  return {
+    targetDate,
+    secondsUntil: Math.floor((targetDate.getTime() - now.getTime()) / 1000),
+    dayRelation,
+    dayLabel,
+  };
+}
+
+export function formatAlarmOccurrenceLabel(alarm: AlarmSchedule, now = new Date()): string | null {
+  return getNextAlarmOccurrence(alarm, now)?.dayLabel ?? null;
+}
+
+export function getSecondsUntilAlarm(alarm: AlarmSchedule, now = new Date()) {
+  return getNextAlarmOccurrence(alarm, now)?.secondsUntil ?? Number.POSITIVE_INFINITY;
 }
 
 function isValidAlarm(value: unknown): value is Required<Pick<StoredAlarm, 'hour' | 'minute'>> & StoredAlarm {

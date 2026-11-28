@@ -1,10 +1,12 @@
 package com.anonymous.agonpreview
 
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -86,6 +88,8 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
       promise.resolve(Arguments.createMap().apply {
         putString("alarmId", json.optString("alarmId"))
         putString("title", json.optString("title"))
+        putBoolean("heavySleeper", json.optBoolean("heavySleeper", false))
+        putBoolean("missionBeforeSnooze", json.optBoolean("missionBeforeSnooze", false))
       })
     }.onFailure { promise.resolve(null) }
   }
@@ -110,6 +114,8 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
       promise.resolve(Arguments.createMap().apply {
         putString("alarmId", json.optString("alarmId"))
         putString("title", json.optString("title"))
+        putBoolean("heavySleeper", json.optBoolean("heavySleeper", false))
+        putBoolean("missionBeforeSnooze", json.optBoolean("missionBeforeSnooze", false))
       })
     }.onFailure { promise.resolve(null) }
   }
@@ -145,6 +151,50 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
       promise.resolve(null)
     } catch (error: Exception) {
       promise.reject("E_ALARM_SETTINGS", "Exact alarm settings could not be opened.", error)
+    }
+  }
+
+  @ReactMethod
+  fun getAlarmPermissionStatus(promise: Promise) {
+    val canExact = AlarmEngineScheduler.canScheduleExactAlarms(reactContext)
+    val canFullScreen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      reactContext.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+    } else {
+      true
+    }
+    val notificationsEnabled = NotificationManagerCompat.from(reactContext).areNotificationsEnabled()
+    promise.resolve(Arguments.createMap().apply {
+      putBoolean("canScheduleExactAlarms", canExact)
+      putBoolean("canUseFullScreenIntent", canFullScreen)
+      putBoolean("notificationsEnabled", notificationsEnabled)
+    })
+  }
+
+  @ReactMethod
+  fun openFullScreenIntentSettings(promise: Promise) {
+    try {
+      val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${reactContext.packageName}"))
+      } else {
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, reactContext.packageName)
+      }
+      reactContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("E_FSI_SETTINGS", "Full-screen intent settings could not be opened.", error)
+    }
+  }
+
+  @ReactMethod
+  fun openNotificationSettings(promise: Promise) {
+    try {
+      val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, reactContext.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      reactContext.startActivity(intent)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("E_NOTIF_SETTINGS", "Notification settings could not be opened.", error)
     }
   }
 
@@ -186,13 +236,20 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
   companion object {
     @Volatile private var instance: AlarmEngineModule? = null
 
-    fun emitTriggered(alarmId: String, title: String) {
+    fun emitTriggered(
+      alarmId: String,
+      title: String,
+      heavySleeper: Boolean = false,
+      missionBeforeSnooze: Boolean = false,
+    ) {
       val module = instance ?: return
       if (!module.reactApplicationContext.hasActiveCatalystInstance()) return
       module.reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         .emit("onStudySakhaAlarmTriggered", Arguments.createMap().apply {
           putString("alarmId", alarmId)
           putString("title", title)
+          putBoolean("heavySleeper", heavySleeper)
+          putBoolean("missionBeforeSnooze", missionBeforeSnooze)
         })
     }
 

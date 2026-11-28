@@ -4,17 +4,26 @@ import type { AppNavigation } from '../lib/navigation';
 import * as DocumentPicker from 'expo-document-picker';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import React, { useMemo, useState } from 'react';
-import { Modal, Platform, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Linking, Modal, Platform, Pressable, View } from 'react-native';
 import { BarChart, Donut, HBar, SvgLegend } from '../components/Charts';
 import { Shell, useLayout } from '../components/Shell';
 import { Avatar, Button, Card, Chip, EmptyState, Field, SectionHeader, Tag, Txt } from '../components/ui';
 import { EXAMS, getResources, getTests, PYQS } from '../lib/data';
+import {
+  createFeedbackScreenshotSignedUrl,
+  FEEDBACK_STATUS_OPTIONS,
+  FeedbackCategory,
+  FeedbackStatus,
+  FeedbackSubmissionRecord,
+  listAllFeedbackSubmissionsForAdmin,
+  updateFeedbackSubmissionAdmin,
+} from '../lib/feedback';
 import { dayKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
 import { ManagedContent, ManagedContentType, TestQuestion } from '../lib/types';
 
-type Tab = 'overview' | 'learners' | 'manage' | 'content' | 'announce';
+type Tab = 'overview' | 'learners' | 'manage' | 'content' | 'announce' | 'feedback';
 type ManagedTypeFilter = 'all' | ManagedContentType;
 
 type ContentDraft = {
@@ -130,7 +139,35 @@ export default function AdminScreen() {
   const [audience, setAudience] = useState('All learners');
   const [published, setPublished] = useState(false);
 
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackSubmissionRecord[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [feedbackCategoryFilter, setFeedbackCategoryFilter] = useState<'all' | FeedbackCategory>('all');
+  const [feedbackStatusDrafts, setFeedbackStatusDrafts] = useState<Record<string, FeedbackStatus>>({});
+  const [feedbackResponseDrafts, setFeedbackResponseDrafts] = useState<Record<string, string>>({});
+  const [feedbackSavingId, setFeedbackSavingId] = useState<string | null>(null);
+
   const isAdmin = state.user?.role === 'admin';
+
+  const loadFeedback = useCallback(async () => {
+    if (!isAdmin) return;
+    setFeedbackLoading(true);
+    setFeedbackError('');
+    try {
+      const items = await listAllFeedbackSubmissionsForAdmin();
+      setFeedbackItems(items);
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : 'Unable to load feedback submissions.');
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && tab === 'feedback') {
+      void loadFeedback();
+    }
+  }, [isAdmin, loadFeedback, tab]);
 
   const learners = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -410,6 +447,7 @@ export default function AdminScreen() {
     { key: 'manage', label: 'Manage Content', icon: 'create-outline' },
     { key: 'content', label: 'Approvals', icon: 'checkmark-done-outline' },
     { key: 'announce', label: 'Announcements', icon: 'megaphone-outline' },
+    { key: 'feedback', label: 'Feedback', icon: 'chatbox-ellipses-outline' },
   ];
 
   return (
@@ -827,6 +865,157 @@ export default function AdminScreen() {
               ))}
             </View>
           </Card>
+        </View>
+      ) : null}
+
+      {tab === 'feedback' ? (
+        <View style={{ gap: 14 }}>
+          <Card style={{ gap: 12 }}>
+            <SectionHeader
+              title="User Feedback & Issues"
+              icon="chatbox-ellipses-outline"
+              action={feedbackLoading ? 'Loading...' : 'Refresh'}
+              onAction={() => { void loadFeedback(); }}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {([
+                { id: 'all', label: 'All' },
+                { id: 'report_issue', label: 'Issues' },
+                { id: 'share_idea', label: 'Ideas' },
+                { id: 'appreciate_team', label: 'Appreciation' },
+              ] as const).map((cat) => (
+                <Chip
+                  key={cat.id}
+                  label={cat.label}
+                  active={feedbackCategoryFilter === cat.id}
+                  onPress={() => setFeedbackCategoryFilter(cat.id)}
+                />
+              ))}
+            </View>
+            {feedbackError ? (
+              <Txt size={12.5} color={colors.danger}>{feedbackError}</Txt>
+            ) : null}
+          </Card>
+
+          {feedbackItems
+            .filter((item) => feedbackCategoryFilter === 'all' || item.category === feedbackCategoryFilter)
+            .map((item) => {
+              const draftStatus = feedbackStatusDrafts[item.id] ?? item.status;
+              const draftResponse = feedbackResponseDrafts[item.id] ?? (item.admin_response ?? '');
+              const categoryLabel =
+                item.category === 'report_issue'
+                  ? 'Issue'
+                  : item.category === 'share_idea'
+                    ? 'Idea'
+                    : 'Appreciation';
+              const screenshotPath = item.attachment_metadata?.screenshotPath;
+              const logsPreview = item.attachment_metadata?.logsPreview;
+
+              return (
+                <Card key={item.id} style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Tag label={categoryLabel} color={item.category === 'report_issue' ? colors.danger : item.category === 'share_idea' ? colors.blue : colors.success} />
+                      {item.sub_category ? <Tag label={item.sub_category} color={colors.violet} /> : null}
+                      <Tag label={item.status} color={colors.teal} />
+                    </View>
+                    <Txt size={11.5} color={colors.textFaint}>
+                      {new Date(item.created_at).toLocaleString('en-IN')}
+                    </Txt>
+                  </View>
+
+                  <Txt size={14} weight="700" color={colors.text}>{item.message}</Txt>
+                  {item.reproduction_steps ? (
+                    <Txt size={12.5} color={colors.textMuted}>
+                      Steps: {item.reproduction_steps}
+                    </Txt>
+                  ) : null}
+
+                  <Txt size={11.5} color={colors.textFaint}>
+                    Sender: {item.user_id} • v{item.app_version || '1.0.0'} • {item.platform || 'unknown'}
+                  </Txt>
+
+                  {(item.logs_shared || item.screenshot_included) ? (
+                    <View style={{ gap: 6, padding: 10, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt }}>
+                      <Txt size={11.5} weight="700" color={colors.textMuted}>
+                        Attachments: {item.logs_shared ? 'Logs (redacted)' : 'No logs'} • {item.screenshot_included ? 'Screenshot' : 'No screenshot'}
+                      </Txt>
+                      {logsPreview ? (
+                        <Txt size={11} color={colors.textFaint} numberOfLines={4}>
+                          {logsPreview}
+                        </Txt>
+                      ) : null}
+                      {screenshotPath ? (
+                        <Pressable
+                          onPress={async () => {
+                            try {
+                              const url = await createFeedbackScreenshotSignedUrl(screenshotPath);
+                              await Linking.openURL(url);
+                            } catch (err) {
+                              setFeedbackError(err instanceof Error ? err.message : 'Unable to open screenshot.');
+                            }
+                          }}
+                          style={{ alignSelf: 'flex-start', paddingVertical: 4 }}
+                        >
+                          <Txt size={12} weight="700" color={colors.blue}>Open signed screenshot</Txt>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {FEEDBACK_STATUS_OPTIONS.map((st) => (
+                      <Chip
+                        key={st}
+                        label={st}
+                        active={draftStatus === st}
+                        onPress={() => setFeedbackStatusDrafts((prev) => ({ ...prev, [item.id]: st }))}
+                      />
+                    ))}
+                  </View>
+
+                  <Field
+                    label="Internal / Admin Response"
+                    value={draftResponse}
+                    onChangeText={(txt) => setFeedbackResponseDrafts((prev) => ({ ...prev, [item.id]: txt }))}
+                    placeholder="Add resolution notes or response..."
+                    multiline
+                  />
+
+                  <Button
+                    label={feedbackSavingId === item.id ? 'Saving...' : 'Save update'}
+                    size="sm"
+                    disabled={feedbackSavingId === item.id}
+                    onPress={async () => {
+                      setFeedbackSavingId(item.id);
+                      setFeedbackError('');
+                      try {
+                        const updated = await updateFeedbackSubmissionAdmin(item.id, {
+                          status: draftStatus,
+                          adminResponse: draftResponse,
+                          respondedBy: state.user?.id,
+                        });
+                        setFeedbackItems((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+                      } catch (err) {
+                        setFeedbackError(err instanceof Error ? err.message : 'Unable to save feedback update.');
+                      } finally {
+                        setFeedbackSavingId(null);
+                      }
+                    }}
+                  />
+                </Card>
+              );
+            })}
+
+          {!feedbackLoading && feedbackItems.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon="chatbox-ellipses-outline"
+                title="No feedback submissions yet"
+                body="Submitted issues, ideas, and appreciations will appear here once learners submit them."
+              />
+            </Card>
+          ) : null}
         </View>
       ) : null}
 

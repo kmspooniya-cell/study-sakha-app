@@ -167,9 +167,20 @@ class AlarmPlaybackService : Service() {
     alarmId: String,
     meta: ActiveAlarmMeta,
   ): Notification {
-    val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent(Intent.ACTION_VIEW)).apply {
-      data = Uri.parse("studysakha://alarm")
-      putExtra("study_sakha_alarm_id", alarmId)
+    val launchIntent = Intent(this, AlarmRingingActivity::class.java).apply {
+      data = Uri.parse("studysakha-alarm://ringing/$alarmId")
+      putExtra(AlarmEngineScheduler.EXTRA_ALARM_ID, alarmId)
+      putExtra(AlarmEngineScheduler.EXTRA_TITLE, meta.title)
+      putExtra(AlarmEngineScheduler.EXTRA_SOUND_ID, meta.soundId)
+      putExtra(AlarmEngineScheduler.EXTRA_VOLUME, meta.volume)
+      putExtra(AlarmEngineScheduler.EXTRA_GRADUAL_VOLUME, meta.gradualVolume)
+      putExtra(AlarmEngineScheduler.EXTRA_VIBRATION, meta.vibration)
+      putExtra(AlarmEngineScheduler.EXTRA_VIBRATION_PATTERN, meta.vibrationPattern)
+      putExtra(AlarmEngineScheduler.EXTRA_SNOOZE_ENABLED, meta.snoozeEnabled)
+      putExtra(AlarmEngineScheduler.EXTRA_SNOOZE_DURATION, meta.snoozeDuration)
+      putExtra(AlarmEngineScheduler.EXTRA_ANTI_SNOOZE, !meta.snoozeEnabled)
+      putExtra(AlarmEngineScheduler.EXTRA_HEAVY_SLEEPER, meta.heavySleeper)
+      putExtra(AlarmEngineScheduler.EXTRA_MISSION_BEFORE_SNOOZE, meta.missionBeforeSnooze)
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     }
     val contentPending = PendingIntent.getActivity(
@@ -266,6 +277,7 @@ class AlarmPlaybackService : Service() {
   }
 
   fun stopAlarm(alarmId: String) {
+    AlarmRingingActivity.finishActive(alarmId)
     volumeRamps.remove(alarmId)?.let(handler::removeCallbacks)
     players.remove(alarmId)?.let { player ->
       player.runCatching { stop() }
@@ -329,6 +341,12 @@ class AlarmPlaybackService : Service() {
     private var activeService: AlarmPlaybackService? = null
 
     private fun notificationId(alarmId: String) = 7301 + (alarmId.hashCode() and 0x0fff)
+
+    fun isAlarmRinging(alarmId: String): Boolean {
+      val running = activeService ?: return false
+      return running.activeMeta.containsKey(alarmId) &&
+        (running.players.containsKey(alarmId) || running.vibrators.containsKey(alarmId))
+    }
 
     fun start(context: Context, intent: Intent) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)

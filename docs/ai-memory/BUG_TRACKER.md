@@ -1,5 +1,11 @@
 # Bug Tracker — Study Sakha
 
+## 2026-11-28 — Alarm Engine Outside-App & "Tomorrow" Display Fixes
+| ID | Summary | Severity | Root Cause | Fix | Verification Status |
+|---|---|---|---|---|---|
+| **BUG-034** | Alarms only rang reliably when app was open; no dedicated lock-screen activity or full-screen intent permission handling | **Critical** | `AlarmPlaybackService` pointed `fullScreenIntent` at `MainActivity` (without `showWhenLocked`/`turnScreenOn`), `AlarmEngineScheduler` used `setExactAndAllowWhileIdle` without `setAlarmClock` or persisted snooze recovery, and JS `Vibration.cancel()` interfered on Android. | Added `AlarmRingingActivity.kt` (`singleInstance`, `showWhenLocked`, `turnScreenOn`), `setAlarmClock`, persisted snoozes, duplicate-ringing guards, `getAlarmPermissionStatus` + settings intents, and Android JS vibration guard. | **Host verified** (`expo prebuild`, `expo lint`, Jest); Android Kotlin compile & device lock-screen/Doze runtime **Not Verified**. |
+| **BUG-035** | Alarm cards hardcoded `"Tomorrow"` even when next occurrence was today | **High** | `StudySakhaAlarmModule.tsx` hardcoded `"Tomorrow · ..."` on the Next Scheduled Alarm card and omitted occurrence day on individual cards. | Added shared `getNextAlarmOccurrence` / `formatAlarmOccurrenceLabel` in `alarmStorage.ts` using local calendar day boundaries (midnight/DST/timezone-safe) across all alarm cards and Ringing screen. | **Host verified** (`test/alarmEngineReliability.test.tsx`, `test/alarmStorage.test.tsx`). |
+
 ## 2026-11-27 — Final Pre-APK Audit Fixes
 | ID | Summary | Severity | Root Cause | Fix | Verification Status |
 |---|---|---|---|---|---|

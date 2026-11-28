@@ -1,5 +1,30 @@
 # Testing Status — Study Sakha
 
+## Homepage UI Replacement — 2026-11-28
+- **Focused Jest Suites (`test/dashboardHomepageRedesign.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`):** **PASS** — **4 suites, 21 tests passed**.
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** (0 errors, 5 pre-existing warnings in `StudySakhaAlarmModule.tsx`).
+- **TypeScript (`pnpm exec tsc --noEmit --pretty false`):** **0 errors** in `screens/DashboardScreen.tsx` and `test/dashboardHomepageRedesign.test.tsx`.
+- **Web Export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`):** **PASS** (`Exported: dist`).
+- **Physical Android Device Visual/Runtime:** **NOT VERIFIED** (no connected Android device/emulator in Codespace).
+
+## Help & Feedback System Audit & Implementation — 2026-11-28
+- **Focused Jest Suites (`test/helpFeedbackSystem.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`):** **PASS** — **4 suites, 27 tests passed** (mocked Supabase/ImagePicker/FileSystem).
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** (0 errors, 5 pre-existing warnings in `StudySakhaAlarmModule.tsx`).
+- **TypeScript (`pnpm exec tsc --noEmit --pretty false`):** **0 errors** in `lib/feedback.ts`, `components/HelpFeedbackModal.tsx`, `components/Shell.tsx`, `screens/AdminScreen.tsx`, `screens/SettingsScreen.tsx`, and `test/helpFeedbackSystem.test.tsx`.
+- **Live Supabase Migration `202611280001_feedback_submissions.sql` & Physical Device Runtime:** **NOT VERIFIED** (no live Supabase push credentials or connected Android device in Codespace).
+
+## Alarm Engine Outside-App Reliability & Next-Occurrence Fix — 2026-11-28
+- **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — generated `AlarmRingingActivity.kt` and manifest entry (`singleInstance`, `showWhenLocked`, `turnScreenOn`).
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** (0 errors, 5 pre-existing unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- **Alarm Jest Suites (`test/alarmStorage.test.tsx`, `test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`, `test/heavySleeperMissions.test.tsx`, `test/alarmEngineReliability.test.tsx`):** **PASS** — **5 suites, 43 tests passed**.
+- **Android Kotlin Compilation & Physical Lock-Screen/Background Device Runtime:** **BLOCKED / NOT VERIFIED** (no Android SDK / `ANDROID_HOME` or `adb` device in Codespace).
+
+## Focus Lock Real App Blocking & Usage Limits — 2026-11-28
+- **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — copied `FocusLockUsageLimits.kt` and all updated Focus Lock Kotlin/XML sources cleanly.
+- **Focus Lock Jest Suites (`test/focusLockRealBlocking.test.tsx`, `test/focusLockP1Fixes.test.tsx`, `test/focusLockP2Fixes.test.tsx`, `test/focusLockP3Hardening.test.tsx`, `test/focusLockCleanup.test.tsx`):** **PASS** — **5 suites, 19 tests passed**.
+- **Expo ESLint (`lib/focusLockNative.ts`, `lib/focusLockUsageLimits.ts`, `test/focusLockRealBlocking.test.tsx`):** **PASS** (0 errors).
+- **Android Kotlin Compilation & Physical Device Runtime:** **BLOCKED / NOT VERIFIED** (no Android SDK / `ANDROID_HOME` or `adb` device in Codespace).
+
 ## Final Pre-APK Release Audit — 2026-11-27
 - **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — `AndroidManifest.xml` verified with `<uses-permission android:name="android.permission.CAMERA"/>` (no `tools:node="remove"`) and `<action android:name="android.media.action.IMAGE_CAPTURE"/>`.
 - **Release Config Validator (`EXPO_PUBLIC_API_BASE_URL=https://study-sakha-app.onrender.com pnpm run validate:release -- preview`):** **PASS** (fails as expected when `EXPO_PUBLIC_API_BASE_URL` is omitted from `.env`).

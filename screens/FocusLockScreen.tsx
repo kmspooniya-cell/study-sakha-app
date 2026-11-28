@@ -81,7 +81,20 @@ import * as Notifications from 'expo-notifications';
 import { Shell } from '../components/Shell';
 import { appendFocusHistory, type FocusHistoryRecord } from '../lib/focusHistory';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
-import { focusLockNative, subscribeFocusLockEvent } from '../lib/focusLockNative';
+import {
+  focusLockNative,
+  subscribeFocusLockEvent,
+  type EmergencyAccessState,
+  type ReminderSuspendDuration,
+  type ReminderSuspensionInfo,
+} from '../lib/focusLockNative';
+import {
+  APP_DAILY_LIMIT_PRESETS_MINS,
+  formatSuspensionLabel,
+  formatUsageDuration,
+  getRemainingLimitMs,
+  isAppLimitExceeded,
+} from '../lib/focusLockUsageLimits';
 import { computeDurationSession, computeEndOfDaySession, computeUntilTimeSession } from '../lib/focusLockDuration';
 import {
   buildPredefinedProfiles,
@@ -130,6 +143,10 @@ export interface InstalledApp {
   pkg: string;
   category: string;
   dailyMins: number;
+  usedMs?: number;
+  limitMins?: number;
+  suspendedUntilMs?: number;
+  suspensionDuration?: string;
   launches: number;
   recent: boolean;
   distracting: boolean;
@@ -827,14 +844,25 @@ export function AppSelectionList({
   selectedAppIds,
   strategy,
   onToggleApp,
+  appLimits,
+  reminderSuspensions,
+  onCycleAppLimit,
+  onOpenSuspendReminder,
+  onResumeReminder,
   theme,
 }: {
   apps: InstalledApp[];
   selectedAppIds: string[];
   strategy: AppStrategy;
   onToggleApp: (id: string) => void;
+  appLimits?: Record<string, number>;
+  reminderSuspensions?: Record<string, ReminderSuspensionInfo>;
+  onCycleAppLimit?: (app: InstalledApp) => void;
+  onOpenSuspendReminder?: (app: InstalledApp) => void;
+  onResumeReminder?: (app: InstalledApp) => void;
   theme: ThemePalette;
 }) {
+  const [nowMs] = useState(() => Date.now());
   if (apps.length === 0) {
     return (
       <View style={[styles.emptyBox, { backgroundColor: theme.surfaceBg, borderColor: theme.border }]}>
@@ -848,53 +876,117 @@ export function AppSelectionList({
         const isSelected = selectedAppIds.includes(app.id);
         const statusText = strategy === 'block' ? (isSelected ? 'Blocked' : 'Allowed') : isSelected ? 'Allowed' : 'Blocked';
         const isBlockedEffectively = strategy === 'block' ? isSelected : !isSelected;
+        const limitMins = appLimits?.[app.pkg] ?? app.limitMins ?? 0;
+        const usedMs = app.usedMs ?? Math.round(app.dailyMins * 60_000);
+        const suspension = reminderSuspensions?.[app.pkg];
+        const isSuspended = Boolean(
+          (suspension && suspension.suspendedUntilMs > nowMs) ||
+          (app.suspendedUntilMs && app.suspendedUntilMs > nowMs),
+        );
+        const exceeded = isAppLimitExceeded(usedMs, limitMins, suspension?.suspendedUntilMs ?? app.suspendedUntilMs, nowMs);
+        const remainingMs = getRemainingLimitMs(usedMs, limitMins);
 
         return (
-          <TouchableOpacity
+          <View
             key={app.id}
-            activeOpacity={0.8}
-            onPress={() => onToggleApp(app.id)}
-            style={[styles.appRow, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+            style={[styles.appRow, { backgroundColor: theme.cardBg, borderColor: theme.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}
           >
-            <LinearGradient colors={app.gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBadge}>
-              <Text style={styles.appBadgeText}>{app.short}</Text>
-            </LinearGradient>
-            <View style={styles.flex1}>
-              <View style={styles.rowGap6}>
-                <Text numberOfLines={1} style={[styles.textXsBold, { color: theme.textPrimary }]}>
-                  {app.name}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => onToggleApp(app.id)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+            >
+              <LinearGradient colors={app.gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBadge}>
+                <Text style={styles.appBadgeText}>{app.short}</Text>
+              </LinearGradient>
+              <View style={styles.flex1}>
+                <View style={styles.rowGap6}>
+                  <Text numberOfLines={1} style={[styles.textXsBold, { color: theme.textPrimary }]}>
+                    {app.name}
+                  </Text>
+                  {app.distracting && (
+                    <View style={[styles.highRiskTag, { backgroundColor: theme.roseSoft }]}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: theme.rose }}>High Risk</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.text10Muted, { color: theme.textMuted, marginTop: 2 }]}>
+                  {app.category} • {formatUsageDuration(usedMs)} today
+                  {limitMins > 0 ? ` • Limit ${limitMins}m (${exceeded ? '0m left' : `${formatUsageDuration(remainingMs)} left`})` : ''}
                 </Text>
-                {app.distracting && (
-                  <View style={[styles.highRiskTag, { backgroundColor: theme.roseSoft }]}>
-                    <Text style={{ fontSize: 9, fontWeight: '700', color: theme.rose }}>High Risk</Text>
-                  </View>
+              </View>
+              <View style={styles.rowGap10}>
+                <View style={[styles.statusTag, { backgroundColor: isBlockedEffectively ? theme.roseSoft : theme.emeraldSoft }]}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: isBlockedEffectively ? theme.rose : theme.emerald }}>
+                    {statusText}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.checkbox,
+                    isSelected
+                      ? {
+                          backgroundColor: strategy === 'block' ? '#4F46E5' : '#059669',
+                          borderColor: strategy === 'block' ? '#4F46E5' : '#059669',
+                        }
+                      : { borderColor: theme.isDark ? 'rgba(255,255,255,0.22)' : '#CBD5E1' },
+                  ]}
+                >
+                  {isSelected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            {(onCycleAppLimit || onOpenSuspendReminder) && (
+              <View style={[styles.rowBetween, { paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }]}>
+                <View style={styles.rowGap6}>
+                  {onCycleAppLimit && (
+                    <TouchableOpacity
+                      onPress={() => onCycleAppLimit(app)}
+                      style={[
+                        styles.quickFilterChip,
+                        { backgroundColor: limitMins > 0 ? theme.indigoSoft : theme.surfaceElevated },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: limitMins > 0 ? theme.indigoLight : theme.textSecondary }}>
+                        {limitMins > 0 ? `Daily Limit: ${limitMins}m` : 'Set Daily Limit'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {exceeded && (
+                    <View style={[styles.highRiskTag, { backgroundColor: theme.roseSoft }]}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: theme.rose }}>Limit Exceeded</Text>
+                    </View>
+                  )}
+                  {isSuspended && (
+                    <View style={[styles.highRiskTag, { backgroundColor: theme.amberSoft }]}>
+                      <Text style={{ fontSize: 9, fontWeight: '700', color: theme.amber }}>
+                        {formatSuspensionLabel(suspension?.duration ?? app.suspensionDuration ?? '')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {limitMins > 0 && (
+                  isSuspended && onResumeReminder ? (
+                    <TouchableOpacity
+                      onPress={() => onResumeReminder(app)}
+                      style={[styles.quickFilterChip, { backgroundColor: theme.emeraldSoft }]}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.emerald }}>Resume Reminder</Text>
+                    </TouchableOpacity>
+                  ) : onOpenSuspendReminder ? (
+                    <TouchableOpacity
+                      onPress={() => onOpenSuspendReminder(app)}
+                      style={[styles.quickFilterChip, { backgroundColor: theme.surfaceElevated }]}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.textSecondary }}>Turn Off Reminder</Text>
+                    </TouchableOpacity>
+                  ) : null
                 )}
               </View>
-              <Text style={[styles.text10Muted, { color: theme.textMuted, marginTop: 2 }]}>
-                {app.category} • {app.dailyMins}m/day • {app.launches} opens
-              </Text>
-            </View>
-            <View style={styles.rowGap10}>
-              <View style={[styles.statusTag, { backgroundColor: isBlockedEffectively ? theme.roseSoft : theme.emeraldSoft }]}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: isBlockedEffectively ? theme.rose : theme.emerald }}>
-                  {statusText}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.checkbox,
-                  isSelected
-                    ? {
-                        backgroundColor: strategy === 'block' ? '#4F46E5' : '#059669',
-                        borderColor: strategy === 'block' ? '#4F46E5' : '#059669',
-                      }
-                    : { borderColor: theme.isDark ? 'rgba(255,255,255,0.22)' : '#CBD5E1' },
-                ]}
-              >
-                {isSelected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
-              </View>
-            </View>
-          </TouchableOpacity>
+            )}
+          </View>
         );
       })}
     </View>
@@ -1265,6 +1357,7 @@ export function EmergencyAccessModal({
   strictConfig,
   hasConfiguredPin,
   partnerName,
+  emergencyState,
   onClose,
   onVerifyPin,
   onForgotPinReset,
@@ -1276,6 +1369,7 @@ export function EmergencyAccessModal({
   strictConfig: StrictConfig;
   hasConfiguredPin: boolean;
   partnerName: string;
+  emergencyState?: EmergencyAccessState | null;
   onClose: () => void;
   onVerifyPin: (pin: string) => Promise<boolean>;
   onForgotPinReset: () => Promise<void>;
@@ -1289,6 +1383,7 @@ export function EmergencyAccessModal({
   const [lockoutSecs, setLockoutSecs] = useState(0);
   const [recoveryWaitSecs, setRecoveryWaitSecs] = useState<number | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [modalNowMs] = useState(() => Date.now());
 
   const pinRequired = strictLevel >= 2 && strictConfig.pinProtection && hasConfiguredPin;
 
@@ -1442,7 +1537,10 @@ export function EmergencyAccessModal({
                 </View>
               )}
               <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
-                Cooldown configured: <Text style={{ fontWeight: '700', color: theme.textPrimary }}>{strictConfig.cooldownMins} min</Text>. Emergency passes are logged in your analytics.
+                Remaining today: <Text style={{ fontWeight: '700', color: theme.textPrimary }}>{Math.max(0, (emergencyState?.maxDailyUses ?? 3) - (emergencyState?.usedToday ?? 0))} of {emergencyState?.maxDailyUses ?? 3}</Text>.
+                {emergencyState?.activePass && emergencyState.activePass.expiresAtMs > modalNowMs
+                  ? ` Active 5m pass expires in ${Math.max(1, Math.ceil((emergencyState.activePass.expiresAtMs - modalNowMs) / 60000))}m (timer cannot be reset).`
+                  : ' Grants a 5-minute pass; blocking restores automatically.'}
               </Text>
               <TouchableOpacity
                 disabled={verifying || lockoutSecs > 0}
@@ -1562,9 +1660,10 @@ export default function FocusLockScreen() {
     [allApps, customProfiles],
   );
   const [activeProfileId, setActiveProfileId] = useState<string>('');
-  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
-  const [profileDraftName, setProfileDraftName] = useState<string>('');
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [appLimits, setAppLimits] = useState<Record<string, number>>({});
+  const [reminderSuspensions, setReminderSuspensions] = useState<Record<string, ReminderSuspensionInfo>>({});
+  const [emergencyState, setEmergencyState] = useState<EmergencyAccessState | null>(null);
+  const [suspendTargetApp, setSuspendTargetApp] = useState<InstalledApp | null>(null);
   const [appStrategy, setAppStrategy] = useState<AppStrategy>('block');
   const nextScheduleText = useMemo(
     () => getNextFocusScheduleLabel(state.plannerScheduleItems ?? []),
@@ -1663,6 +1762,7 @@ export default function FocusLockScreen() {
         const saved = JSON.parse(raw) as Partial<{
           selectedAppIds: string[]; appStrategy: AppStrategy; selectedModeId: string;
           activeProfileId: string; customProfiles: FocusLockProfile[];
+          appLimits: Record<string, number>;
           strictLevel: number; strictConfig: Partial<StrictConfig>;
           dailyIntention: string; focusPoints: number;
           breakConfig: BreakConfig;
@@ -1675,6 +1775,13 @@ export default function FocusLockScreen() {
         if (typeof saved.activeProfileId === 'string') setActiveProfileId(saved.activeProfileId);
         if (Array.isArray(saved.customProfiles)) {
           setCustomProfiles(saved.customProfiles.filter((p): p is FocusLockProfile => Boolean(p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.appIds))));
+        }
+        if (saved.appLimits && typeof saved.appLimits === 'object') {
+          const cleanLimits: Record<string, number> = {};
+          Object.entries(saved.appLimits).forEach(([k, v]) => {
+            if (typeof v === 'number' && Number.isFinite(v) && v > 0) cleanLimits[k] = v;
+          });
+          setAppLimits(cleanLimits);
         }
         if (typeof saved.strictLevel === 'number' && Number.isInteger(saved.strictLevel) && saved.strictLevel >= 1 && saved.strictLevel <= 3) setStrictLevel(saved.strictLevel);
         if (saved.strictConfig && typeof saved.strictConfig === 'object') {
@@ -1711,11 +1818,11 @@ export default function FocusLockScreen() {
     if (!hydrated) return;
     FocusLockStorage.setItem(
       storageKey,
-      JSON.stringify({ selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
+      JSON.stringify({ selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, appLimits, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
         breakConfig, contentRules, notifSettings, sessionState, totalSessionSecs,
         sessionStartTime: sessionStartTime?.toISOString() ?? null })
     ).catch(() => {});
-  }, [hydrated, storageKey, selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
+  }, [hydrated, storageKey, selectedAppIds, appStrategy, selectedModeId, activeProfileId, customProfiles, appLimits, strictLevel, strictConfig, dailyIntention, focusPoints, blockedAttemptsToday,
     breakConfig, contentRules, notifSettings, sessionState, totalSessionSecs, sessionStartTime]);
 
   useEffect(() => {
@@ -1742,26 +1849,45 @@ export default function FocusLockScreen() {
   const refreshNativeState = useCallback(async () => {
     if (Platform.OS !== 'android' || !focusLockNative) return;
     try {
-      const [apps, status, usage] = await Promise.all([
+      const [apps, status, usage, nativeLimits, nativeSuspensions, nativeEmergency] = await Promise.all([
         focusLockNative.getInstalledApps(),
         focusLockNative.getBlockingStatus(),
         focusLockNative.getUsageStats().catch(() => []),
+        focusLockNative.getAppUsageLimits?.().catch(() => null) ?? Promise.resolve(null),
+        focusLockNative.getReminderSuspensions?.().catch(() => null) ?? Promise.resolve(null),
+        focusLockNative.getEmergencyAccessState?.().catch(() => null) ?? Promise.resolve(null),
       ]);
       if (!mountedRef.current) return;
       const usageByPackage = new Map(usage.map((item) => [item.packageId, item]));
-      const discoveredApps = apps.map((app) => ({
-        id: app.packageId,
-        name: app.name,
-        pkg: app.packageId,
-        category: 'Installed Apps',
-        dailyMins: usageByPackage.get(app.packageId)?.dailyMins ?? 0,
-        launches: usageByPackage.get(app.packageId)?.launches ?? 0,
-        recent: Boolean(usageByPackage.get(app.packageId)?.dailyMins),
-        distracting: (usageByPackage.get(app.packageId)?.dailyMins ?? 0) >= 30,
-        gradientColors: ['#4F46E5', '#0EA5E9'] as [string, string],
-        short: app.name.slice(0, 2).toUpperCase(),
-      }));
+      const discoveredApps = apps.map((app) => {
+        const u = usageByPackage.get(app.packageId);
+        return {
+          id: app.packageId,
+          name: app.name,
+          pkg: app.packageId,
+          category: 'Installed Apps',
+          dailyMins: u?.dailyMins ?? 0,
+          usedMs: u?.usedMs ?? Math.round((u?.dailyMins ?? 0) * 60_000),
+          limitMins: u?.limitMins ?? 0,
+          suspendedUntilMs: u?.suspendedUntilMs ?? 0,
+          suspensionDuration: u?.suspensionDuration,
+          launches: u?.launches ?? 0,
+          recent: Boolean(u?.dailyMins),
+          distracting: (u?.dailyMins ?? 0) >= 30,
+          gradientColors: ['#4F46E5', '#0EA5E9'] as [string, string],
+          short: app.name.slice(0, 2).toUpperCase(),
+        };
+      });
       setNativeApps(discoveredApps);
+      if (nativeLimits && typeof nativeLimits === 'object') {
+        setAppLimits((prev) => ({ ...prev, ...nativeLimits }));
+      }
+      if (nativeSuspensions && typeof nativeSuspensions === 'object') {
+        setReminderSuspensions(nativeSuspensions);
+      }
+      if (nativeEmergency) {
+        setEmergencyState(nativeEmergency);
+      }
       setSelectedAppIds((current) => current.filter((id) => discoveredApps.some((app) => app.id === id)));
       setNativeStatus({
         accessibilityEnabled: status.accessibilityEnabled,
@@ -1832,6 +1958,22 @@ export default function FocusLockScreen() {
     const subscription = AppState.addEventListener('change', (next) => { if (next === 'active') void refreshNativeState(); });
     return () => subscription.remove();
   }, [refreshNativeState]);
+
+  useEffect(() => {
+    if (!hydrated || Platform.OS !== 'android' || !focusLockNative?.setAppUsageLimits) return;
+    void focusLockNative.setAppUsageLimits(appLimits).catch(() => undefined);
+  }, [hydrated, appLimits]);
+
+  useEffect(() => {
+    if (!hydrated || Platform.OS !== 'android' || !focusLockNative?.setStrictModePolicy) return;
+    void focusLockNative.setStrictModePolicy({
+      strictLevel,
+      pinProtection: strictConfig.pinProtection,
+      hasConfiguredPin,
+      limitEmergencyExits: strictConfig.limitEmergencyExits,
+    }).catch(() => undefined);
+  }, [hydrated, strictLevel, strictConfig.pinProtection, strictConfig.limitEmergencyExits, hasConfiguredPin]);
+
   // Toast helper
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -1839,6 +1981,14 @@ export default function FocusLockScreen() {
     if (toastRef.current) clearTimeout(toastRef.current);
     toastRef.current = setTimeout(() => setToastMsg(''), 2600);
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeFocusLockEvent('onEmergencyAccessExpired', () => {
+      void refreshNativeState();
+      showToast('Emergency Pass expired — blocking restored');
+    });
+    return unsub;
+  }, [refreshNativeState, showToast]);
 
   useEffect(() => {
     return () => {
@@ -2014,6 +2164,7 @@ export default function FocusLockScreen() {
         startedAt,
         endsAt,
         packageIds,
+        allowedPackageIds: appStrategy === 'allow' ? selectedAppIds : undefined,
         strategy: appStrategy,
       })
         .then(() => {
@@ -2057,52 +2208,79 @@ export default function FocusLockScreen() {
     showToast(`Profile "${profile.name}" activated`);
   };
 
-  const handleSaveCustomProfile = () => {
-    const trimmed = profileDraftName.trim();
-    if (!trimmed) {
-      showToast('Enter a profile name');
-      return;
-    }
+  const handleSaveDirectProfile = () => {
     if (selectedAppIds.length === 0) {
       showToast('Select at least one app before saving a profile');
       return;
     }
-    if (editingProfileId) {
-      setCustomProfiles((prev) => prev.map((p) => (
-        p.id === editingProfileId
-          ? { ...p, name: trimmed, appIds: [...selectedAppIds], strategy: appStrategy, modeId: selectedModeId }
-          : p
-      )));
-      showToast(`Profile "${trimmed}" updated`);
-    } else {
-      const id = `custom-${Date.now()}`;
-      const created: FocusLockProfile = {
-        id,
-        name: trimmed,
-        desc: `${appStrategy === 'allow' ? 'Allowlist' : 'Blocklist'} • ${activeMode.name}`,
-        appIds: [...selectedAppIds],
-        strategy: appStrategy,
-        modeId: selectedModeId,
-      };
-      setCustomProfiles((prev) => [created, ...prev]);
-      setActiveProfileId(id);
-      showToast(`Profile "${trimmed}" saved`);
+    const effective = resolveEffectiveBlockedPackages(allApps, selectedAppIds, appStrategy, contentRules.websiteBlocking);
+    if (Platform.OS === 'android' && allApps.length > 0 && effective.length === 0) {
+      showToast(appStrategy === 'allow' ? 'Keep at least one non-allowed app to block' : 'Select at least one installed app to block');
+      return;
     }
-    setShowProfileModal(false);
-    setProfileDraftName('');
-    setEditingProfileId(null);
+    const id = `custom-${Date.now()}`;
+    const name = `${activeMode.name} (${selectedAppIds.length})`;
+    const created: FocusLockProfile = {
+      id,
+      name,
+      desc: `${appStrategy === 'allow' ? 'Allowlist' : 'Blocklist'} • ${activeMode.name}`,
+      appIds: [...selectedAppIds],
+      strategy: appStrategy,
+      modeId: selectedModeId,
+    };
+    setCustomProfiles((prev) => [created, ...prev]);
+    setActiveProfileId(id);
+    showToast(`Profile "${name}" saved & applied`);
   };
 
-  const handleDuplicateProfile = (profile: FocusLockProfile) => {
-    const id = `custom-${Date.now()}`;
-    const copy: FocusLockProfile = {
-      ...profile,
-      id,
-      name: `${profile.name} (Copy)`,
-      isPredefined: false,
-    };
-    setCustomProfiles((prev) => [copy, ...prev]);
-    showToast(`Duplicated "${profile.name}"`);
+  const handleCycleAppLimit = (app: InstalledApp) => {
+    const current = appLimits[app.pkg] ?? 0;
+    const idx = APP_DAILY_LIMIT_PRESETS_MINS.indexOf(current as (typeof APP_DAILY_LIMIT_PRESETS_MINS)[number]);
+    const next = APP_DAILY_LIMIT_PRESETS_MINS[(idx + 1) % APP_DAILY_LIMIT_PRESETS_MINS.length];
+    setAppLimits((prev) => {
+      const updated = { ...prev };
+      if (next <= 0) {
+        delete updated[app.pkg];
+      } else {
+        updated[app.pkg] = next;
+      }
+      return updated;
+    });
+    showToast(next > 0 ? `${app.name} daily limit set to ${next}m` : `${app.name} daily limit removed`);
+  };
+
+  const handleSuspendReminder = async (pkg: string, duration: ReminderSuspendDuration) => {
+    if (Platform.OS === 'android' && focusLockNative?.suspendAppReminder) {
+      try {
+        const info = await focusLockNative.suspendAppReminder(pkg, duration);
+        setReminderSuspensions((prev) => ({ ...prev, [pkg]: info }));
+      } catch {
+        showToast('Could not suspend reminder');
+        return;
+      }
+    } else {
+      const target = new Date();
+      target.setHours(0, 0, 0, 0);
+      target.setDate(target.getDate() + (duration === 'rest_of_day' ? 1 : duration === 'till_tomorrow' ? 2 : 7));
+      setReminderSuspensions((prev) => ({
+        ...prev,
+        [pkg]: { packageId: pkg, duration, createdAtMs: Date.now(), suspendedUntilMs: target.getTime() },
+      }));
+    }
+    setSuspendTargetApp(null);
+    showToast(formatSuspensionLabel(duration));
+  };
+
+  const handleResumeReminder = async (app: InstalledApp) => {
+    if (Platform.OS === 'android' && focusLockNative?.clearAppReminderSuspension) {
+      await focusLockNative.clearAppReminderSuspension(app.pkg).catch(() => undefined);
+    }
+    setReminderSuspensions((prev) => {
+      const next = { ...prev };
+      delete next[app.pkg];
+      return next;
+    });
+    showToast(`Reminder resumed for ${app.name}`);
   };
 
   const handleDeleteProfile = (profileId: string) => {
@@ -2321,20 +2499,16 @@ export default function FocusLockScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity
-                    onPress={() => {
-                      setEditingProfileId(null);
-                      setProfileDraftName('');
-                      setShowProfileModal(true);
-                    }}
+                    onPress={handleSaveDirectProfile}
                     style={[styles.smallPillBtn, { backgroundColor: theme.indigoSoft, borderColor: theme.indigoBorder }]}
                   >
-                    <Text style={[styles.text10Bold, { color: theme.indigoLight }]}>+ Save Profile</Text>
+                    <Text style={[styles.text10Bold, { color: theme.indigoLight }]}>Save Profile</Text>
                   </TouchableOpacity>
                 </View>
                 {presetLists.length === 0 ? (
                   <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
                     <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
-                      Select apps in App Selection and tap "+ Save Profile" to create your first Focus Lock profile.
+                      Select apps in App Selection and tap &ldquo;Save Profile&rdquo; to save and apply your Focus Lock profile.
                     </Text>
                   </View>
                 ) : (
@@ -2362,33 +2536,15 @@ export default function FocusLockScreen() {
                               {pl.appIds.length} apps • {pl.strategy === 'allow' ? 'Allowlist' : 'Blocklist'}
                             </Text>
                           </TouchableOpacity>
-                          <View style={[styles.rowGap6, { marginTop: 8 }]}>
-                            <TouchableOpacity onPress={() => handleDuplicateProfile(pl)}>
-                              <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#E0E7FF' : theme.indigoLight }}>
-                                Duplicate
-                              </Text>
-                            </TouchableOpacity>
-                            {!pl.isPredefined && (
-                              <>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    setEditingProfileId(pl.id);
-                                    setProfileDraftName(pl.name);
-                                    setShowProfileModal(true);
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FFFFFF' : theme.textSecondary }}>
-                                    Rename
-                                  </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => handleDeleteProfile(pl.id)}>
-                                  <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FECDD3' : theme.rose }}>
-                                    Delete
-                                  </Text>
-                                </TouchableOpacity>
-                              </>
-                            )}
-                          </View>
+                          {!pl.isPredefined && (
+                            <View style={[styles.rowGap6, { marginTop: 8 }]}>
+                              <TouchableOpacity onPress={() => handleDeleteProfile(pl.id)}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#FECDD3' : theme.rose }}>
+                                  Delete
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
                         </View>
                       );
                     })}
@@ -2803,6 +2959,11 @@ export default function FocusLockScreen() {
                 selectedAppIds={selectedAppIds}
                 strategy={appStrategy}
                 onToggleApp={handleToggleApp}
+                appLimits={appLimits}
+                reminderSuspensions={reminderSuspensions}
+                onCycleAppLimit={handleCycleAppLimit}
+                onOpenSuspendReminder={(app) => setSuspendTargetApp(app)}
+                onResumeReminder={(app) => void handleResumeReminder(app)}
                 theme={theme}
               />
             </ScrollView>
@@ -3225,38 +3386,37 @@ export default function FocusLockScreen() {
 
       <View style={styles.flex1}>{renderScreenContent()}</View>
 
-      {/* Custom Profile Save/Rename Modal */}
-      <Modal visible={showProfileModal} transparent animationType="fade">
+      {/* Temporary Reminder Suspension Modal */}
+      <Modal visible={suspendTargetApp !== null} transparent animationType="fade">
         <View style={styles.modalBackdropCenter}>
-          <View style={[styles.centerModalCard, { backgroundColor: theme.isDark ? '#141824' : '#FFFFFF', borderColor: theme.border }]}>
+          <View style={[styles.centerModalCard, { backgroundColor: theme.isDark ? '#141824' : '#FFFFFF', borderColor: theme.border, gap: 10 }]}>
             <Text style={[styles.textBaseExtraBold, { color: theme.textPrimary }]}>
-              {editingProfileId ? 'Rename Profile' : 'Save Focus Profile'}
+              Turn Off Reminder
             </Text>
             <Text style={[styles.textXsMutedCenter, { color: theme.textMuted }]}>
-              Saves your current {selectedAppIds.length} selected apps ({appStrategy === 'allow' ? 'Allowlist' : 'Blocklist'}) and {activeMode.name}.
+              Temporarily pause daily limit enforcement for {suspendTargetApp?.name ?? 'this app'}. Your configured limit is preserved.
             </Text>
-            <TextInput
-              value={profileDraftName}
-              onChangeText={setProfileDraftName}
-              placeholder="e.g., UPSC Deep Study"
-              placeholderTextColor={theme.textMuted}
-              style={[styles.textInputField, { width: '100%', backgroundColor: theme.surfaceElevated, borderColor: theme.border, color: theme.textPrimary }]}
-            />
-            <View style={[styles.grid2, { width: '100%' }]}>
+            {([
+              { id: 'rest_of_day', label: 'Rest of the day' },
+              { id: 'till_tomorrow', label: 'Till tomorrow' },
+              { id: '7_days', label: '7 days' },
+            ] as const).map((opt) => (
               <TouchableOpacity
+                key={opt.id}
                 onPress={() => {
-                  setShowProfileModal(false);
-                  setProfileDraftName('');
-                  setEditingProfileId(null);
+                  if (suspendTargetApp) void handleSuspendReminder(suspendTargetApp.pkg, opt.id);
                 }}
-                style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center', paddingVertical: 11, flex: 1 }]}
+                style={[styles.indigoFullBtn, { width: '100%', paddingVertical: 11 }]}
               >
-                <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Cancel</Text>
+                <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>{opt.label}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleSaveCustomProfile} style={[styles.indigoFullBtn, { flex: 1, paddingVertical: 11 }]}>
-                <Text style={[styles.textXsBold, { color: '#FFFFFF' }]}>Save</Text>
-              </TouchableOpacity>
-            </View>
+            ))}
+            <TouchableOpacity
+              onPress={() => setSuspendTargetApp(null)}
+              style={[styles.cancelSmallBtn, { backgroundColor: theme.surfaceElevated, alignItems: 'center', paddingVertical: 11, width: '100%' }]}
+            >
+              <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -3439,6 +3599,7 @@ export default function FocusLockScreen() {
         strictConfig={strictConfig}
         hasConfiguredPin={hasConfiguredPin}
         partnerName={partnerName}
+        emergencyState={emergencyState}
         onClose={() => setShowEmergencyModal(false)}
         onVerifyPin={(pin) => verifyExitPin(pin, state.user?.id)}
         onForgotPinReset={async () => {
@@ -3448,11 +3609,19 @@ export default function FocusLockScreen() {
         }}
         onGrantEmergency={() => {
           setShowEmergencyModal(false);
-          if (focusLockNative && sessionId) void focusLockNative.stopBlockingSession(sessionId, true).catch(() => undefined);
-          completeSession(Date.now(), 'interrupted');
-          setSessionState('interrupted');
-          setScreen('home');
-          showToast('5-min Emergency Pass granted & logged');
+          if (Platform.OS === 'android' && focusLockNative?.requestEmergencyAccess) {
+            void focusLockNative.requestEmergencyAccess('*', 'session_modal').then((res) => {
+              if (res.state) setEmergencyState(res.state);
+              if (res.granted) {
+                showToast(res.reusedExisting ? 'Emergency Pass already active (timer preserved)' : '5-min Emergency Pass granted — blocking will auto-resume');
+              } else {
+                showToast('Daily emergency access limit reached');
+              }
+            }).catch(() => showToast('Emergency access could not be granted'));
+          } else {
+            showToast('5-min Emergency Pass granted — blocking will auto-resume');
+          }
+          setSessionState(strictLevel >= 2 ? 'active_strict' : 'active_focus');
         }}
         theme={theme}
       />

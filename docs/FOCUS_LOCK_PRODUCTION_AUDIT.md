@@ -473,3 +473,48 @@ All justified **P3 production-hardening improvements** have been implemented on 
 - **Jest:** `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockP1Fixes.test.tsx test/focusLockP2Fixes.test.tsx test/focusLockP3Hardening.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand` — **6 suites passed, 33 tests passed**.
 - **TypeScript:** `pnpm exec tsc --noEmit` reported **0 errors** across Focus Lock, `Shell.tsx`, and `SettingsScreen.tsx`.
 - **Remaining Physical-Device Risks:** On-device testing on Android 10–16 (especially MIUI/HyperOS, ColorOS, and OneUI background-popup / battery restrictions, `OnBackInvokedCallback` on Android 13+, and Doze alarm delivery) remains **UNVERIFIED** without a physical Android device or EAS build.
+
+---
+
+## 16. Real Android App Blocking, Usage Limits & Profiles Cleanup (Updated 2026-11-28)
+
+### 16.1 Root Cause of Existing Blocking Failures
+1. **No Per-App Daily Usage Limit Engine:** `FocusLockAccessibilityService` only evaluated active `SESSION_KEY` sessions; `FocusLockModule.getUsageStats()` used `queryAndAggregateUsageStats` (bucketed intervals that miss ongoing foreground time and lack live enforcement).
+2. **Allowlist Coverage Gap:** `FocusLockAccessibilityService` only checked `packageIds` (computed from a snapshot of installed apps), so newly installed apps or launchers/IMEs were not handled cleanly.
+3. **Rapid Switching & SystemUI/IME Handling:** `BURST_DEBOUNCE_MS = 350L` and `lastBlockedPackage` clearing only on `TYPE_WINDOW_STATE_CHANGED` for non-blocked packages allowed brief bypasses on Recents/Home switching, while IME windows could interfere with foreground tracking.
+4. **Generic Blocking Screen & Destructive Emergency Exit:** `FocusLockBlockingActivity` only showed a static owl/title/timer with no app icon, usage metrics, or temporary reminder suspension, and `EmergencyAccessModal` permanently stopped the entire study session (`stopBlockingSession(sessionId, true)`) instead of granting a time-bounded 5-minute pass.
+5. **Blocking Profiles UI:** Included `Duplicate` buttons and a `Save Focus Profile` modal instead of direct one-tap save & apply.
+
+### 16.2 Implemented Enforcement Architecture
+- **Per-App Daily Usage Limits (`FocusLockUsageLimits.kt`, `lib/focusLockUsageLimits.ts`):**
+  - Uses `UsageStatsManager.queryEvents(midnightMs, nowMs)` from local calendar midnight (`00:00:00.000`) to `now` (plus live `elapsedRealtime` delta in `FocusLockAccessibilityService` for the currently foregrounded app) and persists daily totals per `yyyy-MM-dd` local date key.
+  - Evaluates configured `app_usage_limits` independently of Focus Lock study sessions and schedules an in-app `Handler` recheck so crossing a limit (e.g., Chrome 5m) triggers `FocusLockBlockingActivity` immediately without requiring an app switch.
+- **Native Intervention Screen (`FocusLockBlockingActivity.kt`):**
+  - Displays real app icon and label, status badge (`DAILY LIMIT EXCEEDED` or `FOCUS SESSION ACTIVE`), configured limit, actual time spent today, remaining time (`0m` when exceeded), `Close App`, `Return to Study Sakha`, conditional `Open App` (rendered only when access is authorized), `Emergency Access • 5m`, and `Turn Off Reminder Temporarily` (`Rest of the day`, `Till tomorrow`, `7 days`).
+  - Handles Android Back (`OnBackInvokedCallback` on API 33+ and `onBackPressed`), `onNewIntent`, `onResume`, and `excludeFromRecents="true"`.
+- **Temporary Reminder Suspension (`FocusLockUsageLimits.kt`, `FocusLockModule.kt`, `screens/FocusLockScreen.tsx`):**
+  - Suspends enforcement for `rest_of_day` (next local midnight), `till_tomorrow` (+2 midnights), or `7_days` (+7 midnights) without deleting the underlying limit, persisting expiry across restarts and automatically restoring enforcement when expired.
+- **Controlled Emergency Access Lifecycle (`FocusLockUsageLimits.kt`, `FocusLockAlarm.kt`, `FocusLockBootReceiver.kt`):**
+  - Persists daily emergency use counts (`usedToday` / `maxDailyUses`), grants a 5-minute pass (`300_000ms`), refuses to reset/extend an already-active pass timer, schedules `FOCUS_LOCK_EMERGENCY_EXPIRED` via `AlarmManager` (`requestCode = 92`), rebases on boot/clock/timezone changes, maintains an auditable 50-entry history, and delegates to Study Sakha Exit PIN verification when Strict Mode Level 2/3 + PIN is enabled (`requiresPinForEmergency`).
+- **Study Session Blocking & Allowlist Support (`FocusLockAccessibilityService.kt`, `FocusLockModule.kt`):**
+  - Passes `allowedPackageIds` in Allowlist mode so any non-critical, non-launcher, non-IME app outside the allowlist is blocked; keeps daily usage limits and study sessions as separate, compatible policies.
+- **Blocking Profiles UI Cleanup (`screens/FocusLockScreen.tsx`):**
+  - Removed `Duplicate` and the `Save Focus Profile` modal; replaced with a direct `Save Profile` button that validates non-empty selection and immediately saves & applies the configuration.
+
+### 16.3 Modified & Added Files
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockUsageLimits.kt` (new)
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockAccessibilityService.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockBlockingActivity.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockModule.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockAlarm.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockBootReceiver.kt`
+- `plugins/withFocusLock.js`
+- `lib/focusLockNative.ts`
+- `lib/focusLockUsageLimits.ts` (new)
+- `screens/FocusLockScreen.tsx`
+- `test/focusLockRealBlocking.test.tsx` (new)
+- `test/focusLockP1Fixes.test.tsx`, `test/focusLockP2Fixes.test.tsx`
+
+### 16.4 Remaining Android Limitations & Real-Device Testing Status
+- **OS Boundaries:** Without Device Owner / MDM, Android allows users to revoke Accessibility permission in Settings, Force Stop the app, or uninstall it. OEMs (Xiaomi MIUI/HyperOS, Oppo ColorOS, Vivo FuntouchOS, Samsung OneUI) may still require user-granted "Display pop-up windows while running in background" and Battery Optimization exemption for reliable background `startActivity`.
+- **Real-Device Testing:** **NOT VERIFIED** in this Codespace (no Android SDK / `ANDROID_HOME` or `adb` device). Physical device verification via an EAS APK build is required before claiming production device readiness.

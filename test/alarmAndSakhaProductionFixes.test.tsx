@@ -104,11 +104,11 @@ describe('Production APK Critical UX & Functional Fixes', () => {
       expect(moduleKt).toContain('fun clearPendingAlarm');
       expect(moduleKt).toContain('fun consumePendingAction');
 
-      // Service must provide Stop & Snooze notification actions and deep link
+      // Service must provide Stop & Snooze notification actions and launch AlarmRingingActivity
       expect(serviceKt).toContain('ACTION_DISMISS_NOTIFICATION');
       expect(serviceKt).toContain('ACTION_SNOOZE_NOTIFICATION');
       expect(serviceKt).toContain('"Stop"');
-      expect(serviceKt).toContain('studysakha://alarm');
+      expect(serviceKt).toContain('AlarmRingingActivity::class.java');
       expect(serviceKt).toContain('STOP_FOREGROUND_REMOVE');
 
       // Receiver must handle notification actions & one-time alarm completion

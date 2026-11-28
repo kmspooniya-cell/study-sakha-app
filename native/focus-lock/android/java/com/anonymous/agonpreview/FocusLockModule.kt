@@ -64,19 +64,30 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   fun getUsageStats(promise: Promise) {
     try {
       require(isUsageAccessEnabled()) { "Usage Access is disabled" }
-      val calendar = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-      }
-      val manager = reactContext.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-      val stats = manager.queryAndAggregateUsageStats(calendar.timeInMillis, System.currentTimeMillis())
+      val nowMs = System.currentTimeMillis()
+      val usageMap = FocusLockUsageLimits.queryTodayUsageMs(reactContext, nowMs)
+      val limits = FocusLockUsageLimits.getAppLimits(reactContext)
+      val suspensions = FocusLockUsageLimits.getSuspensions(reactContext, nowMs)
+      val allPackages = (usageMap.keys + limits.keys).distinct()
       val result = Arguments.createArray()
-      stats.values.filter { it.totalTimeInForeground > 0L }.forEach { usage ->
-        result.pushMap(Arguments.createMap().apply {
-          putString("packageId", usage.packageName)
-          putDouble("dailyMins", usage.totalTimeInForeground / 60000.0)
-          // UsageStats does not expose a reliable foreground-launch count for this aggregation.
-          putInt("launches", 0)
-        })
+      allPackages.forEach { pkg ->
+        val usedMs = usageMap[pkg] ?: 0L
+        val limitMins = limits[pkg] ?: 0
+        val susp = suspensions.optJSONObject(pkg)
+        val suspendedUntilMs = susp?.optLong("suspendedUntilMs", 0L) ?: 0L
+        if (usedMs > 0L || limitMins > 0 || suspendedUntilMs > nowMs) {
+          result.pushMap(Arguments.createMap().apply {
+            putString("packageId", pkg)
+            putDouble("dailyMins", usedMs / 60000.0)
+            putDouble("usedMs", usedMs.toDouble())
+            putInt("limitMins", limitMins)
+            putDouble("suspendedUntilMs", suspendedUntilMs.toDouble())
+            if (susp != null && suspendedUntilMs > nowMs) {
+              putString("suspensionDuration", susp.optString("duration", ""))
+            }
+            putInt("launches", 0)
+          })
+        }
       }
       promise.resolve(result)
     } catch (error: Exception) {
@@ -194,8 +205,11 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
       val packages = config.getArray("packageIds")?.toArrayList()?.map { it as? String ?: "" }?.distinct()
         ?.filter { it.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) && it != reactContext.packageName && !isCriticalPackage(it) }
         ?: emptyList()
+      val allowedPackages = config.getArray("allowedPackageIds")?.toArrayList()?.map { it as? String ?: "" }?.distinct()
+        ?.filter { it.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) && it != reactContext.packageName && !isCriticalPackage(it) }
+        ?: emptyList()
       val strategy = if (config.hasKey("strategy") && config.getString("strategy") == "allow") "allow" else "block"
-      require(packages.isNotEmpty()) { "Select at least one supported application" }
+      require(packages.isNotEmpty() || (strategy == "allow" && allowedPackages.isNotEmpty())) { "Select at least one supported application" }
       require(endsAt > startedAt && endsAt - startedAt <= MAX_SESSION_MS) { "Invalid session duration" }
       require(isAccessibilityEnabled()) { "Accessibility service is disabled" }
       val session = synchronized(sessionLock) {
@@ -219,6 +233,9 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
           put("status", "active")
           put("strategy", strategy)
           put("packageIds", org.json.JSONArray().also { array -> packages.forEach(array::put) })
+          if (allowedPackages.isNotEmpty()) {
+            put("allowedPackageIds", org.json.JSONArray().also { array -> allowedPackages.forEach(array::put) })
+          }
         }
         FocusLockSessionTiming.attachTimingMetadata(reactContext, sessionJson, startedAt, endsAt)
         prefs.edit().putString(SESSION_KEY, sessionJson.toString()).commit()
@@ -448,6 +465,115 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   }
   @ReactMethod fun addBlockedPackage(packageId: String, promise: Promise) = updatePackages(packageId, true, promise)
   @ReactMethod fun removeBlockedPackage(packageId: String, promise: Promise) = updatePackages(packageId, false, promise)
+
+  @ReactMethod
+  fun setAppUsageLimits(limits: ReadableMap, promise: Promise) {
+    try {
+      val map = mutableMapOf<String, Int>()
+      val iterator = limits.keySetIterator()
+      while (iterator.hasNextKey()) {
+        val pkg = iterator.nextKey()
+        if (pkg.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) && !isCriticalPackage(pkg)) {
+          val mins = limits.getInt(pkg)
+          if (mins > 0) map[pkg] = mins
+        }
+      }
+      FocusLockUsageLimits.setAppLimits(reactContext, map)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("E_LIMITS_SAVE", error.message ?: "App limits could not be saved.", error)
+    }
+  }
+
+  @ReactMethod
+  fun getAppUsageLimits(promise: Promise) {
+    try {
+      val limits = FocusLockUsageLimits.getAppLimits(reactContext)
+      val result = Arguments.createMap()
+      limits.forEach { (pkg, mins) -> result.putInt(pkg, mins) }
+      promise.resolve(result)
+    } catch (error: Exception) {
+      promise.reject("E_LIMITS_READ", "App limits could not be read.", error)
+    }
+  }
+
+  @ReactMethod
+  fun suspendAppReminder(packageId: String, duration: String, promise: Promise) {
+    try {
+      require(packageId.isNotBlank()) { "Invalid package ID" }
+      val entry = FocusLockUsageLimits.suspendAppReminder(reactContext, packageId, duration)
+      promise.resolve(jsonToWritableMap(entry))
+    } catch (error: Exception) {
+      promise.reject("E_SUSPEND_FAILED", error.message ?: "Reminder could not be suspended.", error)
+    }
+  }
+
+  @ReactMethod
+  fun clearAppReminderSuspension(packageId: String, promise: Promise) {
+    try {
+      FocusLockUsageLimits.clearSuspension(reactContext, packageId)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("E_SUSPEND_CLEAR", "Suspension could not be cleared.", error)
+    }
+  }
+
+  @ReactMethod
+  fun getReminderSuspensions(promise: Promise) {
+    try {
+      val obj = FocusLockUsageLimits.getSuspensions(reactContext)
+      val result = Arguments.createMap()
+      obj.keys().forEach { pkg ->
+        obj.optJSONObject(pkg)?.let { result.putMap(pkg, jsonToWritableMap(it)) }
+      }
+      promise.resolve(result)
+    } catch (error: Exception) {
+      promise.reject("E_SUSPEND_READ", "Suspensions could not be read.", error)
+    }
+  }
+
+  @ReactMethod
+  fun setStrictModePolicy(policy: ReadableMap, promise: Promise) {
+    try {
+      val strictLevel = if (policy.hasKey("strictLevel")) policy.getInt("strictLevel") else 1
+      val pinProtection = policy.hasKey("pinProtection") && policy.getBoolean("pinProtection")
+      val hasConfiguredPin = policy.hasKey("hasConfiguredPin") && policy.getBoolean("hasConfiguredPin")
+      val limitEmergencyExits = policy.hasKey("limitEmergencyExits") && policy.getBoolean("limitEmergencyExits")
+      FocusLockUsageLimits.setStrictPolicy(reactContext, strictLevel, pinProtection, hasConfiguredPin, limitEmergencyExits)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("E_STRICT_POLICY", "Strict policy could not be updated.", error)
+    }
+  }
+
+  @ReactMethod
+  fun requestEmergencyAccess(packageId: String, source: String?, promise: Promise) {
+    try {
+      val target = packageId.ifBlank { "*" }
+      val appName = if (target == "*") {
+        "All Blocked Apps"
+      } else {
+        runCatching {
+          val info = packageManager.getApplicationInfo(target, 0)
+          packageManager.getApplicationLabel(info).toString()
+        }.getOrDefault(target)
+      }
+      val res = FocusLockUsageLimits.grantEmergencyPass(reactContext, target, appName, source ?: "app")
+      promise.resolve(jsonToWritableMap(res))
+    } catch (error: Exception) {
+      promise.reject("E_EMERGENCY_FAILED", error.message ?: "Emergency access failed.", error)
+    }
+  }
+
+  @ReactMethod
+  fun getEmergencyAccessState(promise: Promise) {
+    try {
+      val state = FocusLockUsageLimits.getEmergencyState(reactContext)
+      promise.resolve(jsonToWritableMap(state))
+    } catch (error: Exception) {
+      promise.reject("E_EMERGENCY_READ", "Emergency access state could not be read.", error)
+    }
+  }
   @ReactMethod fun addListener(@Suppress("UNUSED_PARAMETER") eventName: String) { }
   @ReactMethod fun removeListeners(@Suppress("UNUSED_PARAMETER") count: Int) { }
 
@@ -522,7 +648,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
     return true
   }
 
-  private fun isCriticalPackage(packageId: String) = packageId == "com.android.systemui" || packageId == "com.android.settings" || packageId == "com.android.phone" || packageId == "com.google.android.dialer" || packageId.startsWith("com.android.launcher") || packageId.startsWith("com.google.android.apps.nexuslauncher")
+  private fun isCriticalPackage(packageId: String) = isCriticalPackageStatic(packageId)
 
   private fun iconAsBase64(info: ApplicationInfo): String? {
     var bitmap: Bitmap? = null
@@ -550,6 +676,20 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
     }
   }
 
+  private fun jsonArrayToWritableArray(arrayJson: org.json.JSONArray): com.facebook.react.bridge.WritableArray {
+    val result = Arguments.createArray()
+    for (i in 0 until arrayJson.length()) {
+      when (val item = arrayJson.get(i)) {
+        is String -> if (item.isNotEmpty()) result.pushString(item)
+        is Number -> result.pushDouble(item.toDouble())
+        is Boolean -> result.pushBoolean(item)
+        is org.json.JSONObject -> result.pushMap(jsonToWritableMap(item))
+        is org.json.JSONArray -> result.pushArray(jsonArrayToWritableArray(item))
+      }
+    }
+    return result
+  }
+
   private fun jsonToWritableMap(objectJson: org.json.JSONObject): WritableMap {
     val result = Arguments.createMap()
     objectJson.keys().forEach { key ->
@@ -557,12 +697,8 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         is String -> result.putString(key, value)
         is Number -> result.putDouble(key, value.toDouble())
         is Boolean -> result.putBoolean(key, value)
-        is org.json.JSONArray -> result.putArray(key, Arguments.createArray().also { array ->
-          for (i in 0 until value.length()) {
-            val item = value.optString(i, "")
-            if (item.isNotEmpty()) array.pushString(item)
-          }
-        })
+        is org.json.JSONObject -> result.putMap(key, jsonToWritableMap(value))
+        is org.json.JSONArray -> result.putArray(key, jsonArrayToWritableArray(value))
       }
     }
     return result
@@ -620,5 +756,12 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
     const val MAX_SESSION_MS = 30L * 24 * 60 * 60 * 1000
     fun emitGlobal(name: String, payload: WritableMap) { instance?.emit(name, payload) }
     fun recordBlockedAttemptGlobal(packageId: String) { instance?.recordBlockedAttemptInternal(packageId) }
+    fun isCriticalPackageStatic(packageId: String): Boolean =
+      packageId == "com.android.systemui" ||
+        packageId == "com.android.settings" ||
+        packageId == "com.android.phone" ||
+        packageId == "com.google.android.dialer" ||
+        packageId.startsWith("com.android.launcher") ||
+        packageId.startsWith("com.google.android.apps.nexuslauncher")
   }
 }

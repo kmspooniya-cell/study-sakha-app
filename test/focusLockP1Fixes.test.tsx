@@ -274,7 +274,7 @@ describe('Focus Lock P1 High-Priority Fixes', () => {
     expect(pluginSrc).toContain('android.permission.SCHEDULE_EXACT_ALARM');
     expect(alarmKt).toContain('canScheduleExactAlarms(context)');
     expect(alarmKt).toContain('catch (err: SecurityException)');
-    expect(serviceKt).toContain('BURST_DEBOUNCE_MS = 350L');
+    expect(serviceKt).toContain('BURST_DEBOUNCE_MS = 150L');
     expect(serviceKt).toContain('SystemClock.elapsedRealtime()');
     expect(serviceKt).toContain('AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED');
     expect(serviceKt).toContain('lastBlockedPackage = null');
