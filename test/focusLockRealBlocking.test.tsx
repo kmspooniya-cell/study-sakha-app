@@ -276,4 +276,45 @@ describe('Focus Lock Real Blocking, Usage Limits & Profiles Cleanup', () => {
     });
     expect(mockSuspendAppReminder).toHaveBeenCalledWith('com.android.chrome', 'rest_of_day');
   });
+
+  it('imports org.json.JSONObject and org.json.JSONArray in FocusLockBlockingActivity.kt and handles null/empty/multiple packages safely', () => {
+    const blockingKt = fs.readFileSync(
+      path.join(process.cwd(), 'native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockBlockingActivity.kt'),
+      'utf8',
+    );
+    expect(blockingKt).toContain('import org.json.JSONArray');
+    expect(blockingKt).toContain('import org.json.JSONObject');
+    expect(blockingKt).toContain('private fun isPackageBlockedBySession(session: JSONObject?): Boolean');
+    expect(blockingKt).toContain('private fun containsPackage(array: JSONArray?, packageId: String): Boolean');
+    expect(blockingKt).toContain('if (array.isNull(i)) continue');
+    expect(blockingKt).toContain('array.optString(i, "").trim()');
+  });
+
+  it('handles multiple selected applications and null/malformed usage limit inputs without disabling enforcement', async () => {
+    expect(isAppLimitExceeded(0, 5)).toBe(false);
+    expect(isAppLimitExceeded(300_000, 5)).toBe(true);
+    expect(getRemainingLimitMs(-1000, 5)).toBe(300_000);
+    expect(getRemainingLimitMs(120_000, 0)).toBe(0);
+
+    mockGetInstalledApps.mockResolvedValue([
+      { packageId: 'com.android.chrome', name: 'Chrome' },
+      { packageId: 'com.instagram.android', name: 'Instagram' },
+    ]);
+
+    const view = renderWithSSDS(<FocusLockScreen />);
+    await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
+
+    fireEvent.press(view.getByText('App Selection'));
+    fireEvent.press(view.getByText('Chrome'));
+    fireEvent.press(view.getByText('Instagram'));
+
+    const backButtons = view.UNSAFE_getAllByType(require('react-native').TouchableOpacity);
+    await act(async () => {
+      fireEvent.press(backButtons[0]);
+    });
+
+    await waitFor(() => expect(view.getByText('Save Profile')).toBeTruthy());
+    fireEvent.press(view.getByText('Save Profile'));
+    expect(view.getByText('Quick Lock (2)')).toBeTruthy();
+  });
 });

@@ -18,6 +18,8 @@ import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 
@@ -85,6 +87,16 @@ class FocusLockBlockingActivity : Activity() {
     }
   }
 
+  private fun containsPackage(array: JSONArray?, packageId: String): Boolean {
+    if (array == null || packageId.isBlank()) return false
+    for (i in 0 until array.length()) {
+      if (array.isNull(i)) continue
+      val entry = array.optString(i, "").trim()
+      if (entry.isNotEmpty() && entry == packageId) return true
+    }
+    return false
+  }
+
   private fun isPackageBlockedBySession(session: JSONObject?): Boolean {
     if (session == null || targetPackageId.isBlank()) return false
     if (session.optString("status") != "active" || FocusLockSessionTiming.isExpired(this, session)) return false
@@ -92,30 +104,12 @@ class FocusLockBlockingActivity : Activity() {
     return if (strategy == "allow") {
       val allowedArray = session.optJSONArray("allowedPackageIds")
       if (allowedArray != null && allowedArray.length() > 0) {
-        var found = false
-        for (i in 0 until allowedArray.length()) {
-          if (allowedArray.optString(i) == targetPackageId) { found = true; break }
-        }
-        !found
+        !containsPackage(allowedArray, targetPackageId)
       } else {
-        val pkgArray = session.optJSONArray("packageIds")
-        var found = false
-        if (pkgArray != null) {
-          for (i in 0 until pkgArray.length()) {
-            if (pkgArray.optString(i) == targetPackageId) { found = true; break }
-          }
-        }
-        found
+        containsPackage(session.optJSONArray("packageIds"), targetPackageId)
       }
     } else {
-      val pkgArray = session.optJSONArray("packageIds")
-      var found = false
-      if (pkgArray != null) {
-        for (i in 0 until pkgArray.length()) {
-          if (pkgArray.optString(i) == targetPackageId) { found = true; break }
-        }
-      }
-      found
+      containsPackage(session.optJSONArray("packageIds"), targetPackageId)
     }
   }
 
