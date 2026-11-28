@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {

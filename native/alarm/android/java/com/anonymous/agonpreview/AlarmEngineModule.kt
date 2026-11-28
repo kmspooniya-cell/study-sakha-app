@@ -222,6 +222,14 @@ class AlarmEngineModule(private val reactContext: ReactApplicationContext) : Rea
     missionEngine.captureReferencePhoto(alarmId, promise)
 
   @ReactMethod
+  fun deleteReferencePhoto(alarmId: String, promise: Promise) =
+    missionEngine.deleteReferencePhoto(alarmId, promise)
+
+  @ReactMethod
+  fun hasReferencePhoto(alarmId: String, promise: Promise) =
+    missionEngine.hasReferencePhoto(alarmId, promise)
+
+  @ReactMethod
   fun verifyPhotoAgainstReference(alarmId: String, thresholdPercent: Int, promise: Promise) =
     missionEngine.verifyPhotoAgainstReference(alarmId, thresholdPercent, promise)
 

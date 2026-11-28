@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Keyboard, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
+
 const mockNavigate = jest.fn();
 const mockPopTo = jest.fn();
 const mockDispatch = jest.fn();

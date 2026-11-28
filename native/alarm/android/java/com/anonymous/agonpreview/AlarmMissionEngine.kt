@@ -14,6 +14,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -30,6 +31,7 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,13 +44,17 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
   private val sensorManager: SensorManager?
     get() = reactContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
 
+  private val sensorPrefs by lazy {
+    reactContext.getSharedPreferences(SENSOR_PREFS, Context.MODE_PRIVATE)
+  }
+
   private var activeSessionId: String? = null
   private var activeSensorType: String? = null
   private var sensorListener: SensorEventListener? = null
   private var shakeCount = 0
   private var shakeTarget = 40
   private var shakeThresholdG = 2.15f
-  private var lastShakeTimestampMs = 0L
+  private var lastShakeElapsedMs = 0L
 
   private var stepTarget = 25
   private var stepBaseline: Float? = null
@@ -143,7 +149,6 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
   }
 
   fun startShakeMission(sessionId: String, target: Int, thresholdG: Double, promise: Promise) {
-    stopSensorsInternal()
     val sm = sensorManager
     val accel = sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     if (sm == null || accel == null) {
@@ -153,25 +158,46 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
       })
       return
     }
+    val clampedTarget = target.coerceIn(1, 200)
+    val clampedThreshold = thresholdG.toFloat().coerceIn(1.3f, 4.0f)
+
+    // Keep existing listener and progress if the same session is already active.
+    if (activeSessionId == sessionId && activeSensorType == "shake" && sensorListener != null) {
+      shakeTarget = clampedTarget
+      shakeThresholdG = clampedThreshold
+      emitSensorEvent(sessionId, "shake", shakeCount, shakeTarget)
+      promise.resolve(Arguments.createMap().apply {
+        putBoolean("ok", true)
+        putInt("count", shakeCount)
+      })
+      return
+    }
+
+    stopSensorsInternal(clearPersisted = false)
+    val restoredCount = restorePersistedCount(sessionId, "shake", clampedTarget)
     activeSessionId = sessionId
     activeSensorType = "shake"
-    shakeCount = 0
-    shakeTarget = target.coerceIn(1, 200)
-    shakeThresholdG = thresholdG.toFloat().coerceIn(1.3f, 4.0f)
-    lastShakeTimestampMs = 0L
+    shakeCount = restoredCount
+    shakeTarget = clampedTarget
+    shakeThresholdG = clampedThreshold
+    lastShakeElapsedMs = 0L
+    persistSensorState(sessionId, "shake", shakeCount, null)
 
     val listener = object : SensorEventListener {
       override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
         if (activeSessionId != sessionId || activeSensorType != "shake") return
+        if (shakeCount >= shakeTarget) return
         val x = event.values[0]
         val y = event.values[1]
         val z = event.values[2]
         val gForce = sqrt((x * x + y * y + z * z).toDouble()).toFloat() / SensorManager.GRAVITY_EARTH
         if (gForce >= shakeThresholdG) {
-          val now = System.currentTimeMillis()
-          if (now - lastShakeTimestampMs >= 180L) {
-            lastShakeTimestampMs = now
+          val now = SystemClock.elapsedRealtime()
+          if (lastShakeElapsedMs == 0L || now - lastShakeElapsedMs >= 220L) {
+            lastShakeElapsedMs = now
             shakeCount = (shakeCount + 1).coerceAtMost(shakeTarget)
+            persistSensorState(sessionId, "shake", shakeCount, null)
             emitSensorEvent(sessionId, "shake", shakeCount, shakeTarget)
           }
         }
@@ -181,14 +207,31 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
     }
     sensorListener = listener
     val registered = sm.registerListener(listener, accel, SensorManager.SENSOR_DELAY_GAME)
+    if (!registered) {
+      stopSensorsInternal(clearPersisted = false)
+    } else if (shakeCount > 0) {
+      emitSensorEvent(sessionId, "shake", shakeCount, shakeTarget)
+    }
     promise.resolve(Arguments.createMap().apply {
       putBoolean("ok", registered)
+      putInt("count", shakeCount)
       if (!registered) putString("reason", "sensor_register_failed")
     })
   }
 
   fun startStepMission(sessionId: String, target: Int, promise: Promise) {
-    stopSensorsInternal()
+    val clampedTarget = target.coerceIn(1, 500)
+    if (activeSessionId == sessionId && activeSensorType == "steps" && sensorListener != null) {
+      stepTarget = clampedTarget
+      emitSensorEvent(sessionId, "steps", stepCount, stepTarget)
+      promise.resolve(Arguments.createMap().apply {
+        putBoolean("ok", true)
+        putInt("count", stepCount)
+      })
+      return
+    }
+
+    stopSensorsInternal(clearPersisted = false)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       val granted = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED
       if (!granted) {
@@ -199,13 +242,13 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
               putString("reason", "permission_denied")
             })
           } else {
-            registerStepListener(sessionId, target, promise)
+            registerStepListener(sessionId, clampedTarget, promise)
           }
         }
         return
       }
     }
-    registerStepListener(sessionId, target, promise)
+    registerStepListener(sessionId, clampedTarget, promise)
   }
 
   private fun registerStepListener(sessionId: String, target: Int, promise: Promise) {
@@ -220,31 +263,48 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
       })
       return
     }
+    val restored = restorePersistedStepState(sessionId, target)
     activeSessionId = sessionId
     activeSensorType = "steps"
-    stepTarget = target.coerceIn(1, 500)
-    stepBaseline = null
-    stepCount = 0
+    stepTarget = target
+    stepBaseline = restored.second
+    stepCount = restored.first
+    persistSensorState(sessionId, "steps", stepCount, stepBaseline)
 
     val isCounter = chosenSensor.type == Sensor.TYPE_STEP_COUNTER
     val listener = object : SensorEventListener {
       override fun onSensorChanged(event: SensorEvent) {
         if (activeSessionId != sessionId || activeSensorType != "steps") return
+        if (stepCount >= stepTarget) return
         if (isCounter) {
-          val totalSinceBoot = event.values[0]
-          val base = stepBaseline
+          if (event.sensor?.type != Sensor.TYPE_STEP_COUNTER) return
+          val totalSinceBoot = event.values.firstOrNull() ?: return
+          var base = stepBaseline
           if (base == null) {
-            stepBaseline = totalSinceBoot
+            // Establish baseline once per mission session; if restoring after reboot, offset by saved steps.
+            base = (totalSinceBoot - stepCount).coerceAtLeast(0f)
+            stepBaseline = base
+            persistSensorState(sessionId, "steps", stepCount, base)
+            return
+          }
+          if (totalSinceBoot < base) {
+            // Device rebooted mid-session: rebase cumulative counter while preserving session progress.
+            base = (totalSinceBoot - stepCount).coerceAtLeast(0f)
+            stepBaseline = base
+            persistSensorState(sessionId, "steps", stepCount, base)
             return
           }
           val delta = (totalSinceBoot - base).toInt().coerceAtLeast(0)
           if (delta > stepCount) {
             stepCount = delta.coerceAtMost(stepTarget)
+            persistSensorState(sessionId, "steps", stepCount, base)
             emitSensorEvent(sessionId, "steps", stepCount, stepTarget)
           }
         } else {
-          if (event.values[0] > 0f) {
+          if (event.sensor?.type != Sensor.TYPE_STEP_DETECTOR) return
+          if (event.values.isNotEmpty() && event.values[0] >= 1.0f) {
             stepCount = (stepCount + 1).coerceAtMost(stepTarget)
+            persistSensorState(sessionId, "steps", stepCount, null)
             emitSensorEvent(sessionId, "steps", stepCount, stepTarget)
           }
         }
@@ -253,21 +313,29 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
       override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
     sensorListener = listener
-    val registered = sm.registerListener(listener, chosenSensor, SensorManager.SENSOR_DELAY_NORMAL)
+    val registered = sm.registerListener(listener, chosenSensor, SensorManager.SENSOR_DELAY_UI, 0)
+    if (!registered) {
+      stopSensorsInternal(clearPersisted = false)
+    } else if (stepCount > 0) {
+      emitSensorEvent(sessionId, "steps", stepCount, stepTarget)
+    }
     promise.resolve(Arguments.createMap().apply {
       putBoolean("ok", registered)
+      putInt("count", stepCount)
       if (!registered) putString("reason", "sensor_register_failed")
     })
   }
 
   fun stopSensorMission(sessionId: String?, promise: Promise) {
     if (sessionId.isNullOrBlank() || sessionId == activeSessionId) {
-      stopSensorsInternal()
+      stopSensorsInternal(clearPersisted = true)
+    } else if (sensorPrefs.getString(KEY_SESSION_ID, null) == sessionId) {
+      clearPersistedSensorState()
     }
     promise.resolve(null)
   }
 
-  private fun stopSensorsInternal() {
+  private fun stopSensorsInternal(clearPersisted: Boolean = false) {
     val listener = sensorListener
     if (listener != null) {
       sensorManager?.unregisterListener(listener)
@@ -275,6 +343,51 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
     sensorListener = null
     activeSessionId = null
     activeSensorType = null
+    if (clearPersisted) {
+      clearPersistedSensorState()
+    }
+  }
+
+  private fun restorePersistedCount(sessionId: String, type: String, target: Int): Int {
+    if (sensorPrefs.getString(KEY_SESSION_ID, null) != sessionId ||
+      sensorPrefs.getString(KEY_SENSOR_TYPE, null) != type) {
+      clearPersistedSensorState()
+      return 0
+    }
+    return sensorPrefs.getInt(KEY_COUNT, 0).coerceIn(0, target)
+  }
+
+  private fun restorePersistedStepState(sessionId: String, target: Int): Pair<Int, Float?> {
+    if (sensorPrefs.getString(KEY_SESSION_ID, null) != sessionId ||
+      sensorPrefs.getString(KEY_SENSOR_TYPE, null) != "steps") {
+      clearPersistedSensorState()
+      return 0 to null
+    }
+    val count = sensorPrefs.getInt(KEY_COUNT, 0).coerceIn(0, target)
+    val base = if (sensorPrefs.contains(KEY_STEP_BASELINE)) {
+      sensorPrefs.getFloat(KEY_STEP_BASELINE, 0f)
+    } else {
+      null
+    }
+    return count to base
+  }
+
+  private fun persistSensorState(sessionId: String, type: String, count: Int, baseline: Float?) {
+    sensorPrefs.edit().apply {
+      putString(KEY_SESSION_ID, sessionId)
+      putString(KEY_SENSOR_TYPE, type)
+      putInt(KEY_COUNT, count)
+      if (baseline != null) {
+        putFloat(KEY_STEP_BASELINE, baseline)
+      } else {
+        remove(KEY_STEP_BASELINE)
+      }
+      apply()
+    }
+  }
+
+  private fun clearPersistedSensorState() {
+    sensorPrefs.edit().clear().apply()
   }
 
   fun captureBarcode(promise: Promise) {
@@ -285,9 +398,23 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
     launchCamera(MODE_PHOTO_REF, alarmId, 80, promise)
   }
 
+  fun deleteReferencePhoto(alarmId: String, promise: Promise) {
+    runCatching {
+      referenceImageFile(alarmId).delete()
+      referenceSignatureFile(alarmId).delete()
+    }
+    promise.resolve(null)
+  }
+
+  fun hasReferencePhoto(alarmId: String, promise: Promise) {
+    val exists = referenceSignatureFile(alarmId).exists() && referenceImageFile(alarmId).exists()
+    promise.resolve(exists)
+  }
+
   fun verifyPhotoAgainstReference(alarmId: String, thresholdPercent: Int, promise: Promise) {
     val refFile = referenceSignatureFile(alarmId)
-    if (!refFile.exists()) {
+    val refImg = referenceImageFile(alarmId)
+    if (!refFile.exists() || !refImg.exists()) {
       promise.resolve(Arguments.createMap().apply {
         putBoolean("ok", false)
         putString("reason", "no_reference_photo")
@@ -436,10 +563,15 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
       val pixels = IntArray(w * h)
       bmp.getPixels(pixels, 0, w, 0, 0, w, h)
       val rgbSource = RGBLuminanceSource(w, h, pixels)
-      val binary = BinaryBitmap(HybridBinarizer(rgbSource))
-      val result = runCatching { reader.decodeWithState(binary) }.getOrNull()
-      if (angle != 0f) bmp.recycle()
+      val hybrid = BinaryBitmap(HybridBinarizer(rgbSource))
+      var result = runCatching { reader.decodeWithState(hybrid) }.getOrNull()
       reader.reset()
+      if (result == null) {
+        val global = BinaryBitmap(GlobalHistogramBinarizer(rgbSource))
+        result = runCatching { reader.decodeWithState(global) }.getOrNull()
+        reader.reset()
+      }
+      if (angle != 0f) bmp.recycle()
       if (result != null && result.text.isNotBlank()) {
         return result.text.trim() to result.barcodeFormat.name
       }
@@ -615,6 +747,11 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
     return (combined * 100.0).toInt().coerceIn(0, 100)
   }
 
+  private fun referenceImageFile(alarmId: String): File {
+    val refsDir = File(reactContext.filesDir, "alarm_mission_refs").apply { mkdirs() }
+    return File(refsDir, "${sanitizeId(alarmId)}_ref.jpg")
+  }
+
   private fun referenceSignatureFile(alarmId: String): File {
     val refsDir = File(reactContext.filesDir, "alarm_mission_refs").apply { mkdirs() }
     return File(refsDir, "${sanitizeId(alarmId)}_sig.json")
@@ -653,6 +790,11 @@ class AlarmMissionEngine(private val reactContext: ReactApplicationContext) {
   }
 
   companion object {
+    private const val SENSOR_PREFS = "study_sakha_alarm_mission_sensor_prefs"
+    private const val KEY_SESSION_ID = "session_id"
+    private const val KEY_SENSOR_TYPE = "sensor_type"
+    private const val KEY_COUNT = "count"
+    private const val KEY_STEP_BASELINE = "step_baseline"
     private const val REQUEST_CAMERA_CAPTURE = 49101
     private const val REQUEST_CAMERA_PERMISSION = 49102
     private const val REQUEST_ACTIVITY_PERMISSION = 49103

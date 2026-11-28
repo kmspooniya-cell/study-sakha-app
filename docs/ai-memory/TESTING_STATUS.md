@@ -1,5 +1,56 @@
 # Testing Status — Study Sakha
 
+## 2026-11-28 — SettingsScreen SSDS Icon Migration
+- **Focused Jest Suites (`test/settingsScreen.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/preferredSubjects.test.tsx`, `test/ssdsThemeBridge.test.tsx`):** **PASS** — **4 suites, 22 tests passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/SettingsScreen.tsx`):** **PASS** — 0 errors, 0 warnings.
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to `SettingsScreen.tsx`):** **PASS** — 0 errors.
+- **Physical Android Device Runtime (SettingsScreen SSDS icons in Light/Dark mode):** **NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Profile Screen Tab Switching Flicker Fix
+- **Focused Jest Suites (`test/ssdsBatch4Screens.test.tsx`, `test/profileLayout.test.tsx`, `test/focusUiSurface.test.tsx`):** **PASS** — **3 suites, 9 tests passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/ProfileScreen.tsx test/ssdsBatch4Screens.test.tsx`):** **PASS** — 0 errors.
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to `ProfileScreen` / `ssdsBatch4Screens`):** **PASS** — 0 errors.
+- **Physical Android Device Runtime (Overview / Statistics / Account tab switching):** **NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Statistics Screen Header, Filters & Demo Task Removal
+- **Focused Jest Suites (`test/statistics.test.tsx`, `test/ssdsBatch4Screens.test.tsx`, `test/unifiedStudyDataFlow.test.tsx`):** **PASS** — **3 suites, 14 tests passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache lib/statistics.ts screens/StatisticsScreen.tsx test/statistics.test.tsx`):** **PASS** — 0 errors.
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to modified files):** **PASS** — 0 errors.
+- **Physical Android Device Runtime (Single-row `Study Activity Analytics` header, `Daily`/`Weekly`/`Monthly` filters, `All Scheduled Tasks`):** **NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Focus & Visual Settings Theme Optimization & Consistent Height
+- **Focused Jest Suites (`test/focusSettingsSheet.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/focusUiSurface.test.tsx`, `test/unifiedStudyDataFlow.test.tsx`):** **PASS** — **4 suites passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache graphics/canvas2d.ts hooks/useProceduralPicture.ts components/GeminiFocusTimer.tsx components/FocusSettingsSheet.tsx test/focusSettingsSheet.test.tsx`):** **PASS** — 0 errors.
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to modified files):** **PASS** — 0 errors.
+- **Web Export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`):** **PASS** (`Exported: dist`).
+- **Physical Android Device Runtime (Enchanted Garden & all 7 themes, rapid switching, low-memory stability, popup height):** **NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Group Study Room Cards Cleanup
+- **Groups Jest Suites (`test/groupChatFullscreenRedesign.test.tsx`, `test/groupChatAndFocusDecoupling.test.tsx`, `test/groupInvitesAndSync.test.tsx`, `test/groupRooms.join.test.tsx`, `test/groupRealtimeSubscription.test.tsx`):** **PASS** — **5 suites, 33 tests passed**.
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** — 0 errors (5 pre-existing warnings in `StudySakhaAlarmModule.tsx`).
+- **Scoped TypeScript (`screens/GroupsScreen.tsx`):** **PASS** — 0 errors.
+
+## 2026-11-28 — Home Quick Control Cards & Android Floating Focus Indicator
+- **Focused Jest Suites (`test/dashboardHomepageRedesign.test.tsx`, `test/focusFloatingBubble.test.tsx`, `test/globalFocusBar.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/groupChatAndFocusDecoupling.test.tsx`):** **PASS** — **6 suites passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache components/ActiveSessionBar.tsx test/focusFloatingBubble.test.tsx`):** **PASS** — 0 errors. (`screens/DashboardScreen.tsx` has 1 pre-existing `react-hooks/set-state-in-effect` error on `setFocusSetup` line 288.)
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false`):** **0 errors** in `screens/DashboardScreen.tsx` and `test/dashboardHomepageRedesign.test.tsx`; pre-existing `StyleSheet.absoluteFillObject` (RN 0.86.3) in `components/ActiveSessionBar.tsx` and `mockPanCallbacks` typing in `test/focusFloatingBubble.test.tsx`.
+- **Web Export (`EXPO_NO_TELEMETRY=1 pnpm run build:web`):** **PASS** (`Exported: dist`).
+- **Physical Android Device Runtime (Floating Focus Indicator on leaving Focus Centre & across screens):** **NOT VERIFIED** (no Android SDK/`ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Focus Lock Usage-Limit-to-Blocking Enforcement Audit & Fix
+- **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — generated `android/` with `singleInstance` + `taskAffinity=""` for `FocusLockBlockingActivity` and copied updated Focus Lock Kotlin sources.
+- **Focus Lock Jest Suites (`test/focusLockRealBlocking.test.tsx`, `test/focusLockP0Fixes.test.tsx`, `test/focusLockP1Fixes.test.tsx`, `test/focusLockP2Fixes.test.tsx`, `test/focusLockP3Hardening.test.tsx`, `test/focusLockCleanup.test.tsx`):** **PASS** — **6 suites, 26 tests passed**.
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** — 0 errors (5 pre-existing warnings in `StudySakhaAlarmModule.tsx`).
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to `FocusLockScreen`, `focusLockRealBlocking`, `focusLockNative`, `focusLockUsageLimits`):** **PASS** — 0 errors.
+- **Physical Android Device Runtime (Chrome 5m limit, Home/Recents, rapid switch, suspension, 5m Emergency Pass, reboot):** **NOT TESTED / BLOCKED** (no Android SDK / `ANDROID_HOME` or `adb` device in Codespace).
+
+## 2026-11-28 — Heavy Sleeper Mode Audit & Fixes (QR, Photo, Shake, Steps)
+- **Expo Android CNG Prebuild (`EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --no-install --platform android`):** **PASS** — copied updated `AlarmMissionEngine.kt` and `AlarmEngineModule.kt` cleanly.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache src/modules/alarm/alarmMissions.ts src/modules/alarm/alarmNative.ts src/modules/alarm/HeavySleeperMissionView.tsx src/modules/alarm/StudySakhaAlarmModule.tsx test/heavySleeperMissions.test.tsx`):** **PASS** — 0 errors (5 pre-existing unused-var warnings in `StudySakhaAlarmModule.tsx`).
+- **Scoped TypeScript (`pnpm exec tsc --noEmit --pretty false` filtered to `src/modules/alarm/` and `test/heavySleeperMissions.test.tsx`):** **PASS** — 0 errors.
+- **Alarm Jest Suites (`test/heavySleeperMissions.test.tsx`, `test/alarmEngineReliability.test.tsx`, `test/alarmStorage.test.tsx`, `test/alarmUiUpdate.test.tsx`, `test/alarmAndSakhaProductionFixes.test.tsx`):** **PASS** — **5 suites, 46 tests passed**.
+- **Android Kotlin Compilation & Physical Device Sensor/Camera Runtime:** **BLOCKED / NOT VERIFIED** (no Android SDK / `ANDROID_HOME` or `adb` device in Codespace).
+
 ## 2026-11-28 — Null persisted collection web crash
 - `node_modules/.bin/jest --runInBand test/store.reducer.test.tsx --forceExit`: **PASS** — 1 suite, 8 tests.
 - `EXPO_NO_TELEMETRY=1 node_modules/.bin/expo export --platform web`: **PASS** — `dist` exported successfully.
@@ -496,3 +547,39 @@ Previous full Jest run with forced teardown: 46/50 suites passed, 223/232 tests 
 - `pnpm exec jest test/focusLockP0Fixes.test.tsx test/focusLockP1Fixes.test.tsx test/focusLockP2Fixes.test.tsx test/focusLockP3Hardening.test.tsx test/focusLockCleanup.test.tsx test/stabilityFailureScenarios.test.tsx --runInBand`: 6 suites passed, 33 tests passed.
 - `pnpm exec tsc --noEmit`: 0 TypeScript errors across Focus Lock, `Shell.tsx`, and `SettingsScreen.tsx`.
 - Physical Android device / EAS release-build verification remains **Not Verified**.
+
+
+## SSDS Phase 6 Batch 4 — 2026-11-28
+- SSDS package check `pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`: **PASS**.
+- Workspace `pnpm run lint`: **FAIL** due to existing repository-wide errors in unrelated screen, SSDS bridge/component, and Jest test typings. A follow-up full diagnostic scan found **no errors in `LibraryScreen.tsx`, `StatisticsScreen.tsx`, `ProfileScreen.tsx`, or `AdminScreen.tsx`**; the only Batch 4 test diagnostic is the existing `TS2556` spread error at line 79.
+- Target ESLint `EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/LibraryScreen.tsx screens/StatisticsScreen.tsx screens/ProfileScreen.tsx screens/AdminScreen.tsx`: **PASS**, 0 errors / warnings in the four screen files; the test file retains 11 existing `require()` style warnings.
+- Batch 1–4 + Statistics/Profile/Store/Navigation + SSDS Phase 1–5 Jest command: **PASS**, 16 suites / 52 tests. Existing `act(...)` and sync retry warnings were logged.
+- Android device/emulator verification: **NOT VERIFIED**.
+- Profile edit/save callback: covered by the added `ssdsBatch4Screens.test.tsx` case. Photo picker interaction remains untested.
+
+## SSDS Phase 6 Batch 4 cleanup + Batch 5A — 2026-11-28
+- `pnpm exec tsc --noEmit --pretty false -p study-sakha-design-system-native/tsconfig.json`: **PASS**.
+- `pnpm run lint`: **FAIL**, existing workspace diagnostics outside the three migrated screens and changed tests. A focused diagnostic scan found no diagnostics in `NotificationsScreen.tsx`, `NotificationSettingsScreen.tsx`, `SettingsScreen.tsx`, or the touched regression tests; Batch 4 TS2556 is resolved.
+- `pnpm exec eslint screens/NotificationsScreen.tsx screens/NotificationSettingsScreen.tsx screens/SettingsScreen.tsx`: **FAIL** on existing SettingsScreen hook/ref errors/warnings and the existing Notifications unused helper warning.
+- Batch 1–4, Batch 5A notification/settings/theme, and SSDS Phase 1–5 Jest command: **PASS**, 15 suites / 62 tests.
+- `git diff --check`: **PASS**. Android device/emulator verification: **NOT VERIFIED**.
+- Batch 6B: SSDS package TypeScript **PASS**; focused Groups/alarm/room regressions pass except the documented pre-existing focus setup assertions; full Jest remains **69 suites / 356 tests passed, 7 suites / 8 tests failed**, unchanged from baseline. Per-screen lint diagnostics match baselines. Android remains **NOT VERIFIED**.
+- Stabilization rerun: FocusCenter ESLint baseline warning removed; Dashboard, FocusCenter, FocusCompletion, and FocusLock ESLint pass. StudyPlanner remains at its unchanged 24-error / 14-warning HEAD baseline. Full Jest still reports 7 failing suites / 8 tests, all classified as pre-existing or unrelated to Batch 6A in `docs/SSDS_PHASE_6_BATCH_6A_REPORT.md`.
+
+
+## SSDS Phase 6 Batch 5A cleanup + Batch 5B — 2026-11-28
+- `pnpm exec tsc --noEmit --pretty false -p study-sakha-design-system-native/tsconfig.json`: **PASS**.
+- `pnpm run lint`: **FAIL** on existing repository diagnostics. The targeted scan found no diagnostics in the five screens or touched test/helper files.
+- `EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/SettingsScreen.tsx screens/NotificationsScreen.tsx screens/NotificationSettingsScreen.tsx`: **PASS**, 0 errors / warnings.
+- Five-screen ESLint command: **FAIL** on existing FocusLockScreen hook/effect/purity findings (7 errors / 2 warnings); Settings, Notifications, Notification Settings and SakhaAI are lint-clean.
+- Focused Settings/Gemini/Focus Lock regression command: **PASS**, 9 suites / 40 tests.
+- Combined Batch 1–5A, SSDS Phase 1–5, AI and Focus Lock regression command: **PASS**, 23 suites / 101 tests.
+- `git diff --check`: **PASS**. Android device/emulator verification: **NOT VERIFIED**.
+
+## SSDS Phase 6 Batch 6A + FocusLock lint cleanup — 2026-11-28
+- `pnpm exec tsc --noEmit --pretty false -p study-sakha-design-system-native/tsconfig.json`: **PASS**.
+- `pnpm run lint`: **FAIL** on existing workspace diagnostics; targeted output shows no TS issues in the four Batch 6A screen files or FocusLockScreen, while existing touched-test Jest typings remain.
+- FocusLockScreen ESLint: **PASS**, 0 errors / warnings. Five-screen ESLint: **FAIL** due to StudyPlannerScreen baseline (24 errors / 14 warnings) plus FocusCenterScreen baseline (1 warning); Dashboard and Focus Completion are clean.
+- Focus Lock focused regressions: **PASS**, 6 suites / 26 tests. Focus/session/completion/planner focused regressions: **PASS**, 6 suites / 30 tests.
+- `pnpm exec jest --runInBand --forceExit --silent`: **FAIL**, 7 suites / 8 tests failed; 69 suites / 356 tests passed. Several failures arise in existing session/group/planner/SSDS test paths and one Admin ESM parse path.
+- `git diff --check`: **PASS**. Android device/emulator verification: **NOT VERIFIED**.

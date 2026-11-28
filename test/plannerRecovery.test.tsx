@@ -46,6 +46,7 @@ const mockSupabase = {
   rpc: jest.fn(async () => ({ data: false, error: null })),
 };
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {

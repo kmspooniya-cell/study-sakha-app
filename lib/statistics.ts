@@ -404,6 +404,7 @@ export function deriveStatistics(
   const scheduledInstances = new Map<string, ScheduledTaskInstance>();
   dates.forEach((date) => {
     getPlannerTasksForDate(state, date).forEach((task) => {
+      if (task.isDefault) return;
       const key = taskInstanceKey(task.id, date);
       if (!scheduledInstances.has(key)) scheduledInstances.set(key, { date, task });
     });

@@ -38,6 +38,7 @@ const mockAppendFocusHistory = jest.fn(async (_key: string, record: unknown) => 
 let mockStoreState: Partial<State> = {};
 const mockDispatch = jest.fn();
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {

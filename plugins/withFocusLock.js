@@ -124,7 +124,13 @@ module.exports = function withFocusLock(config) {
         'meta-data': [{ $: { 'android:name': 'android.accessibilityservice', 'android:resource': '@xml/focus_lock_service' } }],
       }, '.FocusLockAccessibilityService');
     addUnique(application.activity ??= [], {
-      $: { 'android:name': '.FocusLockBlockingActivity', 'android:exported': 'false', 'android:excludeFromRecents': 'true', 'android:launchMode': 'singleTop' },
+      $: {
+        'android:name': '.FocusLockBlockingActivity',
+        'android:exported': 'false',
+        'android:excludeFromRecents': 'true',
+        'android:launchMode': 'singleInstance',
+        'android:taskAffinity': '',
+      },
     }, '.FocusLockBlockingActivity');
     addUnique(application.receiver ??= [], {
       $: { 'android:name': '.FocusLockAlarm$Receiver', 'android:exported': 'false' },

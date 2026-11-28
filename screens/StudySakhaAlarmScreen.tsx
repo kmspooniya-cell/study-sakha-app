@@ -6,6 +6,7 @@ import { AppBottomNav } from '../components/Shell';
 import type { AppNavigation } from '../lib/navigation';
 import { useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
+import { SSDSSurface, useSSDSTheme } from '../lib/ssds';
 
 /** Host adapter for the isolated alarm module. */
 export default function StudySakhaAlarmScreen() {
@@ -18,6 +19,7 @@ export default function StudySakhaAlarmScreen() {
   const navigation = useNavigation<AppNavigation>();
   const { dispatch } = useStore();
   const { scheme } = useTheme();
+  const { tokens } = useSSDSTheme();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -45,12 +47,14 @@ export default function StudySakhaAlarmScreen() {
   }, [navigation]);
 
   return (
-    <StudySakhaAlarmModule
+    <SSDSSurface variant="flat" style={{ flex: 1, backgroundColor: tokens.colors.background }}>
+      <StudySakhaAlarmModule
       isDarkMode={scheme === 'dark'}
       onExitToHome={handleExitToHome}
       onToggleDarkMode={handleToggleDarkMode}
       onOpenStudyPlanner={handleOpenStudyPlanner}
       globalBottomNav={!keyboardVisible ? <AppBottomNav active="Dashboard" /> : null}
-    />
+      />
+    </SSDSSurface>
   );
 }

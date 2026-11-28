@@ -1,3 +1,9 @@
+## 2026-11-28 SSDS Phase 6 Batch 4
+- **Screen migration:** **Complete (Host UI) / Not Verified (Android Runtime)** for Library, Statistics, Profile, and Admin. Library/Admin already used SSDS components; Statistics analytics shells and Profile avatar now adopt SSDS components. Automated 16-suite / 51-test regression set passed. Workspace TypeScript remains blocked by unrelated baseline diagnostics; see `docs/SSDS_PHASE_6_BATCH_4_REPORT.md`. Profile edit/save callback coverage was added; photo picker interaction is not directly exercised.
+
+## 2026-11-28 SSDS Phase 6 Batch 5A
+- **Screen migration:** **Complete (Host UI) / Not Verified (Android Runtime)** for Notifications, Notification Settings, and Settings. Existing preference persistence, notification state, permission requests, route behavior, and appearance settings remain wired to existing state sources. Batch 4 regression TS2556 is resolved. Automated 15-suite / 62-test regression set passed; workspace TypeScript and focused ESLint retain unrelated repository diagnostics. See `docs/SSDS_PHASE_6_BATCH_5A_REPORT.md`.
+
 # Feature Status — Study Sakha
 
 ## 2026-11-28 Help & Feedback System
@@ -50,3 +56,13 @@ Status legend:
 | **Profile, Settings, App Guide, Admin** | **Complete** (Host) / **Not Verified** (Device) | Exam catalog includes `ras` and `rpsc_rssb`. Uncommitted fixes in `SettingsScreen.tsx`, `SearchScreen.tsx`, `NotificationsScreen.tsx`, `CurrentAffairsScreen.tsx`. |
 | **Android Release Build & Security** | **Blocked / Pending** | `app.config.js`, `eas.json`, `validate:release` ready. Blocked locally (no Android SDK) and awaiting EAS cloud build + physical device + MobSF + Maestro + Flashlight validation. |
 | **Alarm Engine (Android native)** | **Partially Implemented / Not Verified (Android)** | CNG plugin, AlarmManager scheduling, receivers, foreground playback service, boot/time-change recovery, and JS bridge are present. Prebuild is idempotent and host-focused tests pass; EAS preview submission was blocked by exhausted build quota before compilation, and no Android device/emulator is available. |
+
+
+## 2026-11-28 SSDS Phase 6 Batch 5B
+- **Screen migration:** **Complete (Host UI) / Not Verified (Android Runtime)** for SakhaAI and Focus Lock. Existing Gemini and native Focus Lock JS flows remain connected. SSDS package TypeScript and Batch 5A screen ESLint pass; workspace TypeScript is blocked by repository diagnostics, and FocusLockScreen retains existing control-flow/purity lint findings. Combined automated regressions passed 23 suites / 101 tests. See `docs/SSDS_PHASE_6_BATCH_5B_REPORT.md`.
+
+## 2026-11-28 — SSDS Phase 6 Batch 6A
+- **Presentation migration implemented:** Dashboard, Focus Center, Focus Completion, and Study Planner now adopt SSDS text/surface/theme tokens. FocusLockScreen lint cleanup is verified.
+- **Host verification is partial:** FocusLock tests pass (6 suites / 26 tests), focused focus/completion/planner set passes (6 suites / 30 tests), but full Jest is not green (7 suites / 8 tests fail), workspace TypeScript has existing errors, and planner lint has 24 baseline errors / 14 warnings. Android runtime is not verified.
+- **Dashboard caveat:** pre-existing worktree changes already removed several dashboard status indicators required by the migration prompt; this task did not overwrite those edits.
+- **Batch 6B presentation migration:** Groups, SmartStudyRoom, StudySakhaAlarm host, and TestPlayer now consume SSDS surfaces/text/theme tokens. Native/backend behavior remains unchanged; verification is partial because the documented Jest baseline remains red.

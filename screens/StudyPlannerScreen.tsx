@@ -30,6 +30,7 @@ import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { getPlannerScheduleOccurrence } from '../lib/planner';
 import { calculateScheduleFocusDuration } from '../lib/focusSetup';
 import { useOptionalFocusSession } from '../lib/focusSession';
+import { SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
 import {
   isPlannerDate,
   migratePlannerScheduleItem,
@@ -1351,9 +1352,20 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
   /* CORE STATE (EXACT 1:1 PARITY WITH HTML state OBJECT)                    */
   /* ----------------------------------------------------------------------- */
   const { scheme: appScheme } = useAppTheme();
+  const { tokens } = useSSDSTheme();
   const activeFocus = useOptionalFocusSession();
   const isDark = appScheme === 'dark';
-  const theme = isDark ? DARK_THEME : LIGHT_THEME;
+  const theme = {
+    ...(isDark ? DARK_THEME : LIGHT_THEME),
+    bgBody: tokens.colors.background,
+    bgSurface: tokens.colors.surface,
+    textPrimary: tokens.colors.textPrimary,
+    textSecondary: tokens.colors.textSecondary,
+    borderDefault: tokens.colors.border,
+    blue600: tokens.colors.primary,
+    teal600: tokens.colors.secondary,
+    amber600: tokens.colors.accent,
+  };
 
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list'
   const [currentYear, setCurrentYear] = useState(todayObj.getFullYear());
@@ -3618,7 +3630,8 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
     <Shell active="StudyPlanner" title="" scroll={false} contentPadding={0}>
       <View style={[styles.root, { backgroundColor: theme.bgBody }]}>
       {plannerRecoveredCount > 0 && plannerRecoveryCount === 0 && (
-        <View
+        <SSDSSurface
+          variant="outlined"
           accessibilityRole="alert"
           style={{
             marginHorizontal: 12,
@@ -3630,10 +3643,10 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
             backgroundColor: theme.blueSoftBg,
           }}
         >
-          <Text style={{ color: theme.textPrimary, fontWeight: '700' }}>Planner entries recovered</Text>
-          <Text style={{ color: theme.textBody, marginTop: 4 }}>
+          <SSDSText variant="CardTitle" style={{ color: theme.textPrimary, fontWeight: '700' }}>Planner entries recovered</SSDSText>
+          <SSDSText variant="BodySecondary" style={{ color: theme.textBody, marginTop: 4 }}>
             {plannerRecoveredCount} saved {plannerRecoveredCount === 1 ? 'entry was' : 'entries were'} automatically restored to your schedule. 0 entries need manual review.
-          </Text>
+          </SSDSText>
           {dismissPlannerRecoveredNotice ? (
             <TouchableOpacity
               accessibilityRole="button"
@@ -3643,7 +3656,7 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
               <Text style={{ color: theme.blue600, fontWeight: '700' }}>Dismiss</Text>
             </TouchableOpacity>
           ) : null}
-        </View>
+        </SSDSSurface>
       )}
       {plannerRecoveryCount > 0 && (
         <View

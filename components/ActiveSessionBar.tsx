@@ -53,6 +53,25 @@ export function ActiveSessionBar({
   const autoCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedPosRef = useRef<BubblePosition | null>(null);
 
+  const session = focus?.session && !focus.session.pendingRecord ? focus.session : null;
+  const route = currentRouteName ?? focus?.currentRouteName;
+  const shouldHide =
+    !visible ||
+    !focus ||
+    context === 'hall' ||
+    route === 'FocusCompletion' ||
+    route === 'FocusCenter' ||
+    !session;
+  const isExpanded = expanded && !shouldHide;
+  const wasHiddenRef = useRef(shouldHide);
+  const [prevShouldHide, setPrevShouldHide] = useState(shouldHide);
+  if (prevShouldHide !== shouldHide) {
+    setPrevShouldHide(shouldHide);
+    if (shouldHide && expanded) {
+      setExpanded(false);
+    }
+  }
+
   const isMobile = width < 768;
   const expandedWidth = getExpandedBubbleWidth(width, insets);
   const defaultPos = useMemo(
@@ -109,26 +128,39 @@ export function ActiveSessionBar({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-clamp position when viewport dimensions, orientation, or safe-area insets change.
+  // Keep shared position synchronized with viewport/insets, immediate on reveal, and animated on expand/collapse.
   useEffect(() => {
-    const base = savedPosRef.current ?? defaultPos;
-    const clampedCollapsed = clampBubblePosition(base, collapsedBounds);
+    const baseCollapsed = clampBubblePosition(savedPosRef.current ?? defaultPos, collapsedBounds);
     if (savedPosRef.current) {
-      savedPosRef.current = clampedCollapsed;
+      savedPosRef.current = baseCollapsed;
     }
-    if (expanded) {
-      const anchored = getAnchoredExpandedPosition(clampedCollapsed, expandedWidth, width, height, insets);
-      posX.value = anchored.x;
-      posY.value = anchored.y;
-    } else {
-      posX.value = clampedCollapsed.x;
-      posY.value = clampedCollapsed.y;
-    }
-  }, [collapsedBounds, defaultPos, expanded, expandedWidth, height, insets, posX, posY, width]);
 
-  // Animate expansion/collapse without tying animation updates to the auto-collapse timer lifecycle.
-  useEffect(() => {
+    if (shouldHide) {
+      wasHiddenRef.current = true;
+      isExpandedSv.value = false;
+      expandProgress.value = 0;
+      posX.value = baseCollapsed.x;
+      posY.value = baseCollapsed.y;
+      return;
+    }
+
+    const justRevealed = wasHiddenRef.current;
+    wasHiddenRef.current = false;
     isExpandedSv.value = expanded;
+
+    if (justRevealed) {
+      expandProgress.value = expanded ? 1 : 0;
+      if (expanded) {
+        const anchored = getAnchoredExpandedPosition(baseCollapsed, expandedWidth, width, height, insets);
+        posX.value = anchored.x;
+        posY.value = anchored.y;
+      } else {
+        posX.value = baseCollapsed.x;
+        posY.value = baseCollapsed.y;
+      }
+      return;
+    }
+
     const animate = (toValue: number) =>
       reduceMotion
         ? withTiming(toValue, { duration: 120 })
@@ -136,7 +168,6 @@ export function ActiveSessionBar({
 
     expandProgress.value = animate(expanded ? 1 : 0);
 
-    const baseCollapsed = clampBubblePosition(savedPosRef.current ?? defaultPos, collapsedBounds);
     if (expanded) {
       const anchored = getAnchoredExpandedPosition(baseCollapsed, expandedWidth, width, height, insets);
       posX.value = animate(anchored.x);
@@ -157,6 +188,7 @@ export function ActiveSessionBar({
     posX,
     posY,
     reduceMotion,
+    shouldHide,
     width,
   ]);
 
@@ -241,17 +273,6 @@ export function ActiveSessionBar({
     height: BUBBLE_SIZE,
   }));
 
-  const session = focus?.session && !focus.session.pendingRecord ? focus.session : null;
-  const route = currentRouteName ?? focus?.currentRouteName;
-  const shouldHide =
-    !visible ||
-    !focus ||
-    context === 'hall' ||
-    route === 'FocusCompletion' ||
-    route === 'FocusCenter' ||
-    !session;
-  const isExpanded = expanded && !shouldHide;
-
   if (shouldHide || !focus || !session) {
     return null;
   }
@@ -273,18 +294,19 @@ export function ActiveSessionBar({
   const surfaceBg = scheme === 'dark' ? 'rgba(20, 28, 46, 0.96)' : 'rgba(255, 255, 255, 0.97)';
 
   return (
-    <View pointerEvents="box-none" style={styles.overlayRoot}>
+    <View pointerEvents="box-none" collapsable={false} style={styles.overlayRoot}>
       <GestureDetector gesture={panGesture}>
         <Animated.View
           testID="active-session-bar"
+          collapsable={false}
           style={[
-            styles.bubbleShell,
-            animatedContainerStyle,
             {
               backgroundColor: surfaceBg,
               borderColor: isOnBreak ? colors.warning : colors.teal,
               ...shadow(colors, 2),
             },
+            styles.bubbleShell,
+            animatedContainerStyle,
           ]}
         >
           {isExpanded ? (

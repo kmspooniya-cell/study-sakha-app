@@ -242,6 +242,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         FocusLockAlarm.schedule(reactContext, sessionId, sessionJson.optLong("endsElapsedMs"))
         jsonToWritableMap(sessionJson)
       }
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       emit("onBlockingStarted", copyMap(session))
       promise.resolve(session)
     } catch (error: Exception) {
@@ -266,6 +267,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         }
       }
       if (session == null) { promise.resolve(null); return }
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       emit("onBlockingStopped", copyMap(session))
       promise.resolve(session)
     } catch (error: Exception) { promise.reject("E_STOP_FAILED", "Blocking session could not stop.", error) }
@@ -296,6 +298,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         runCatching { applyDndState(false) }
         jsonToWritableMap(current)
       }
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       emit("onBlockingPaused", copyMap(paused))
       promise.resolve(paused)
     } catch (error: Exception) {
@@ -328,6 +331,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         FocusLockAlarm.schedule(reactContext, sessionId, elapsedNow + remaining)
         jsonToWritableMap(current)
       }
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       emit("onBlockingStarted", copyMap(resumed))
       promise.resolve(resumed)
     } catch (error: Exception) {
@@ -479,6 +483,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         }
       }
       FocusLockUsageLimits.setAppLimits(reactContext, map)
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       promise.resolve(null)
     } catch (error: Exception) {
       promise.reject("E_LIMITS_SAVE", error.message ?: "App limits could not be saved.", error)
@@ -502,6 +507,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
     try {
       require(packageId.isNotBlank()) { "Invalid package ID" }
       val entry = FocusLockUsageLimits.suspendAppReminder(reactContext, packageId, duration)
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       promise.resolve(jsonToWritableMap(entry))
     } catch (error: Exception) {
       promise.reject("E_SUSPEND_FAILED", error.message ?: "Reminder could not be suspended.", error)
@@ -512,6 +518,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
   fun clearAppReminderSuspension(packageId: String, promise: Promise) {
     try {
       FocusLockUsageLimits.clearSuspension(reactContext, packageId)
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       promise.resolve(null)
     } catch (error: Exception) {
       promise.reject("E_SUSPEND_CLEAR", "Suspension could not be cleared.", error)
@@ -559,6 +566,7 @@ class FocusLockModule(private val reactContext: ReactApplicationContext) : React
         }.getOrDefault(target)
       }
       val res = FocusLockUsageLimits.grantEmergencyPass(reactContext, target, appName, source ?: "app")
+      FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
       promise.resolve(jsonToWritableMap(res))
     } catch (error: Exception) {
       promise.reject("E_EMERGENCY_FAILED", error.message ?: "Emergency access failed.", error)

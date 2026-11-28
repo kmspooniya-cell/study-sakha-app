@@ -29,9 +29,11 @@ import type { ActiveStudyGroup } from '../lib/groupRooms';
 import { getFocusedMilliseconds, getFocusedSeconds } from '../lib/focusTimerAccounting';
 import { useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
+import { SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
 
 function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
   const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<AppNavigation>();
@@ -192,7 +194,6 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
     groupSelectModalVisible,
     leaveFocusCenterTo,
     musicSelectionVisible,
-    navigation,
     stayInSession,
   ]));
 
@@ -304,10 +305,10 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
 
         <Modal animationType="slide" transparent visible={groupSelectModalVisible} onRequestClose={() => setGroupSelectModalVisible(false)}>
           <View style={styles.bottomSheetBackdrop}>
-            <View style={[styles.bottomSheetCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <SSDSSurface variant="elevated" style={[styles.bottomSheetCard, { backgroundColor: tokens.colors.surface, borderColor: tokens.colors.border }]}>
               <View style={styles.sheetHandle} />
               <View style={styles.modalHeader}>
-                <Txt size={18} weight="800">Your Groups</Txt>
+                <SSDSText variant="CardTitle" style={{ fontSize: 18, fontWeight: '800' }}>Your Groups</SSDSText>
                 <Pressable accessibilityRole="button" accessibilityLabel="Close group selection" onPress={() => setGroupSelectModalVisible(false)} style={styles.closeButton}>
                   <Ionicons name="close" size={20} color={colors.textMuted} />
                 </Pressable>
@@ -335,7 +336,7 @@ function FocusCenterContent({ focus }: { focus: FocusSessionContextValue }) {
                   <Ionicons name="chevron-forward" size={18} color={colors.blue} />
                 </Pressable>
               ))}
-            </View>
+            </SSDSSurface>
           </View>
         </Modal>
 

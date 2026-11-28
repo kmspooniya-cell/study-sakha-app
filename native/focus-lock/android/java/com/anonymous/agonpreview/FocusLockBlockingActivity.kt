@@ -85,6 +85,50 @@ class FocusLockBlockingActivity : Activity() {
     }
   }
 
+  private fun isPackageBlockedBySession(session: JSONObject?): Boolean {
+    if (session == null || targetPackageId.isBlank()) return false
+    if (session.optString("status") != "active" || FocusLockSessionTiming.isExpired(this, session)) return false
+    val strategy = if (session.optString("strategy") == "allow") "allow" else "block"
+    return if (strategy == "allow") {
+      val allowedArray = session.optJSONArray("allowedPackageIds")
+      if (allowedArray != null && allowedArray.length() > 0) {
+        var found = false
+        for (i in 0 until allowedArray.length()) {
+          if (allowedArray.optString(i) == targetPackageId) { found = true; break }
+        }
+        !found
+      } else {
+        val pkgArray = session.optJSONArray("packageIds")
+        var found = false
+        if (pkgArray != null) {
+          for (i in 0 until pkgArray.length()) {
+            if (pkgArray.optString(i) == targetPackageId) { found = true; break }
+          }
+        }
+        found
+      }
+    } else {
+      val pkgArray = session.optJSONArray("packageIds")
+      var found = false
+      if (pkgArray != null) {
+        for (i in 0 until pkgArray.length()) {
+          if (pkgArray.optString(i) == targetPackageId) { found = true; break }
+        }
+      }
+      found
+    }
+  }
+
+  private fun isPackageBlockedByUsageLimit(nowMs: Long): Boolean {
+    if (targetPackageId.isBlank()) return false
+    if (FocusLockUsageLimits.isReminderSuspended(this, targetPackageId, nowMs)) return false
+    val currentLimit = FocusLockUsageLimits.getPackageLimitMins(this, targetPackageId)
+    if (currentLimit <= 0) return false
+    val liveUsed = FocusLockUsageLimits.getPackageUsedMsToday(this, targetPackageId, nowMs, forceRefresh = true)
+      .coerceAtLeast(usedMs)
+    return liveUsed >= currentLimit * 60_000L
+  }
+
   private fun isAccessCurrentlyAuthorized(): Boolean {
     if (targetPackageId.isBlank()) return false
     val nowMs = System.currentTimeMillis()
@@ -93,17 +137,9 @@ class FocusLockBlockingActivity : Activity() {
     val prefs = getSharedPreferences(FocusLockModule.PREFS, MODE_PRIVATE)
     val raw = prefs.getString(FocusLockModule.SESSION_KEY, null)
     val session = raw?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
-    val sessionActive = session != null && session.optString("status") == "active" && !FocusLockSessionTiming.isExpired(this, session)
-    if (sessionActive && blockReason == "session") return false
-
-    if (blockReason == "usage_limit") {
-      if (FocusLockUsageLimits.isReminderSuspended(this, targetPackageId, nowMs)) return true
-      val currentLimit = FocusLockUsageLimits.getPackageLimitMins(this, targetPackageId)
-      if (currentLimit <= 0) return true
-      val liveUsed = FocusLockUsageLimits.getPackageUsedMsToday(this, targetPackageId, nowMs)
-      return liveUsed < currentLimit * 60_000L
-    }
-    return !sessionActive
+    if (isPackageBlockedBySession(session)) return false
+    if (isPackageBlockedByUsageLimit(nowMs)) return false
+    return true
   }
 
   private fun render() {
@@ -112,16 +148,24 @@ class FocusLockBlockingActivity : Activity() {
     val raw = prefs.getString(FocusLockModule.SESSION_KEY, null)
     val session = raw?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
     val sessionActive = session != null && session.optString("status") == "active" && !FocusLockSessionTiming.isExpired(this, session)
+    val blockedBySession = isPackageBlockedBySession(session)
+    val blockedByLimit = isPackageBlockedByUsageLimit(nowMs)
+    val effectiveReason = when {
+      blockedBySession -> "session"
+      blockedByLimit -> "usage_limit"
+      else -> blockReason
+    }
+    blockReason = effectiveReason
 
     val liveLimitMins = if (targetPackageId.isNotBlank()) {
       FocusLockUsageLimits.getPackageLimitMins(this, targetPackageId).takeIf { it > 0 } ?: limitMins
     } else limitMins
     val liveUsedMs = if (targetPackageId.isNotBlank()) {
-      FocusLockUsageLimits.getPackageUsedMsToday(this, targetPackageId, nowMs).coerceAtLeast(usedMs)
+      FocusLockUsageLimits.getPackageUsedMsToday(this, targetPackageId, nowMs, forceRefresh = true).coerceAtLeast(usedMs)
     } else usedMs
 
     val authorized = isAccessCurrentlyAuthorized()
-    if (authorized && blockReason == "session" && !sessionActive && liveLimitMins <= 0) {
+    if (authorized && effectiveReason == "session" && !sessionActive && liveLimitMins <= 0) {
       finish()
       return
     }
@@ -308,6 +352,7 @@ class FocusLockBlockingActivity : Activity() {
           }
           val res = FocusLockUsageLimits.grantEmergencyPass(this@FocusLockBlockingActivity, targetPackageId, appName, "intervention")
           if (res.optBoolean("granted", false)) {
+            FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
             Toast.makeText(this@FocusLockBlockingActivity, "5-min Emergency Pass granted", Toast.LENGTH_SHORT).show()
             openTargetAppAndFinish()
           } else {
@@ -354,6 +399,7 @@ class FocusLockBlockingActivity : Activity() {
             }
             setOnClickListener {
               FocusLockUsageLimits.suspendAppReminder(this@FocusLockBlockingActivity, targetPackageId, durationKey)
+              FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()
               Toast.makeText(this@FocusLockBlockingActivity, "Reminder paused: $label", Toast.LENGTH_SHORT).show()
               showDisableOptions = false
               render()

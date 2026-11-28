@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Platform } from 'react-native';
 
@@ -163,29 +164,71 @@ describe('Focus Lock Real Blocking, Usage Limits & Profiles Cleanup', () => {
     const pluginJs = fs.readFileSync(path.join(process.cwd(), 'plugins', 'withFocusLock.js'), 'utf8');
 
     expect(pluginJs).toContain("'FocusLockUsageLimits.kt'");
+    expect(pluginJs).toContain("'android:launchMode': 'singleInstance'");
+    expect(pluginJs).toContain("'android:taskAffinity': ''");
     expect(usageLimitsKt).toContain('queryEvents(');
+    expect(usageLimitsKt).toContain('resumedClasses');
+    expect(usageLimitsKt).toContain('forceRefresh: Boolean = true');
     expect(usageLimitsKt).toContain('computeSuspensionExpiryMs');
     expect(usageLimitsKt).toContain('grantEmergencyPass');
     expect(usageLimitsKt).toContain('requiresPinForEmergency');
 
     expect(serviceKt).toContain('allowedPackageIds');
+    expect(serviceKt).toContain('syncCachesFromPrefs()');
+    expect(serviceKt).toContain('refreshLimitsAndRecheck()');
+    expect(serviceKt).toContain('currentForegroundBaseUsedMs + liveDelta');
+    expect(serviceKt).toContain('isHomeLauncherPackage');
+    expect(serviceKt).toContain('mainHandler.postDelayed(limitCheckRunnable, BURST_DEBOUNCE_MS)');
     expect(serviceKt).toContain('FocusLockUsageLimits.isPackageUnderEmergencyPass');
     expect(serviceKt).toContain('reason = "usage_limit"');
     expect(serviceKt).toContain('recheckForegroundOnEmergencyExpiry');
+    expect(serviceKt).toContain('BlockingActivity launch result: SUCCESS');
 
     expect(activityKt).toContain('DAILY LIMIT EXCEEDED');
+    expect(activityKt).toContain('isPackageBlockedBySession');
+    expect(activityKt).toContain('isPackageBlockedByUsageLimit');
+    expect(activityKt).toContain('effectiveReason');
     expect(activityKt).toContain('Close App');
     expect(activityKt).toContain('Rest of the day');
     expect(activityKt).toContain('Till tomorrow');
     expect(activityKt).toContain('7 days');
     expect(activityKt).toContain('if (authorized && targetPackageId.isNotBlank())');
 
+    const moduleKt = fs.readFileSync(path.join(nativeDir, 'FocusLockModule.kt'), 'utf8');
+    expect(moduleKt).toContain('FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()');
+
     expect(alarmKt).toContain('FOCUS_LOCK_EMERGENCY_EXPIRED');
     expect(alarmKt).toContain('scheduleEmergencyExpiry');
   });
 
+  it('does not overwrite native app limits before nativeLimitsHydrated resolves', async () => {
+    mockGetInstalledApps.mockResolvedValue([
+      { packageId: 'com.android.chrome', name: 'Chrome' },
+    ]);
+    const mockGetAppUsageLimits = jest.fn(async () => ({ 'com.android.chrome': 5 }));
+    const { focusLockNative } = require('../lib/focusLockNative');
+    const prevGetLimits = focusLockNative.getAppUsageLimits;
+    const prevGetSusp = focusLockNative.getReminderSuspensions;
+    const prevGetEmg = focusLockNative.getEmergencyAccessState;
+    focusLockNative.getAppUsageLimits = mockGetAppUsageLimits;
+    focusLockNative.getReminderSuspensions = jest.fn(async () => ({}));
+    focusLockNative.getEmergencyAccessState = jest.fn(async () => null);
+
+    try {
+      const view = renderWithSSDS(<FocusLockScreen />);
+      await waitFor(() => expect(mockGetAppUsageLimits).toHaveBeenCalled());
+      await waitFor(() => expect(mockSetAppUsageLimits).toHaveBeenCalledWith({ 'com.android.chrome': 5 }));
+      expect(mockSetAppUsageLimits).not.toHaveBeenCalledWith({});
+      view.unmount();
+    } finally {
+      focusLockNative.getAppUsageLimits = prevGetLimits;
+      focusLockNative.getReminderSuspensions = prevGetSusp;
+      focusLockNative.getEmergencyAccessState = prevGetEmg;
+    }
+  });
+
   it('removes Duplicate and Save Focus Profile modal and saves+applies directly', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
 
     expect(view.queryByText('Duplicate')).toBeNull();
@@ -213,7 +256,7 @@ describe('Focus Lock Real Blocking, Usage Limits & Profiles Cleanup', () => {
   });
 
   it('allows setting per-app daily usage limits and temporary reminder suspension', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
 
     fireEvent.press(view.getByText('App Selection'));

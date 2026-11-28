@@ -7,6 +7,7 @@ import StudyPlannerScreen from '../screens/StudyPlannerScreen';
 let mockState: Partial<State>;
 const mockDispatch = jest.fn();
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
 }));

@@ -4,6 +4,7 @@ import { Pressable, Text } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { endGroupRoomFocus, getGroupRoomFocusActivity, publishGroupRoomFocus } from '../lib/groupRoomFocusBridge';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('react-native-reanimated', () => {
   const { View } = jest.requireActual<typeof import('react-native')>('react-native');
   return {

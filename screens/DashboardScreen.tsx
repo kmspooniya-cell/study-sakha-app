@@ -1,12 +1,11 @@
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   ToastAndroid,
   useWindowDimensions,
   View,
@@ -16,13 +15,12 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { FocusSessionSetupModal } from '../components/FocusSessionSetupModal';
 import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { Shell, useLayout } from '../components/Shell';
-import { focusLockNative, isFocusLockNativeAvailable, subscribeFocusLockEvent } from '../lib/focusLockNative';
 import { useOptionalFocusSession } from '../lib/focusSession';
 import { translateLabel } from '../lib/i18n';
 import type { AppNavigation } from '../lib/navigation';
-import { dayKey, getDisplayName, useStore } from '../lib/store';
+import { getDisplayName, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
-import { readAlarmSummary, type AlarmSummary } from '../src/modules/alarm/alarmStorage';
+import { SSDSText, useSSDSTheme } from '../lib/ssds';
 
 /* ============================================================================
  * DESIGN TOKENS (Matched to Redesigned Gemini Homepage Prototype)
@@ -128,25 +126,6 @@ function formatStudiedDuration(totalMinutes: number): string {
 function formatStreakLabel(days: number): string {
   const safeDays = Math.max(0, Math.floor(days));
   return `${safeDays} ${safeDays === 1 ? 'day' : 'days'}`;
-}
-
-function formatTimerClock(totalSeconds: number): string {
-  const safe = Math.max(0, Math.floor(totalSeconds));
-  const hours = Math.floor(safe / 3600);
-  const mins = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  if (hours > 0) {
-    return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
-function formatDashboardAlarmTime(alarm: AlarmSummary['nextAlarm'], use24h: boolean): string | null {
-  if (!alarm) return null;
-  if (use24h) return `${String(alarm.hour).padStart(2, '0')}:${String(alarm.minute).padStart(2, '0')}`;
-  const period = alarm.hour >= 12 ? 'PM' : 'AM';
-  const hour = alarm.hour % 12 || 12;
-  return `${String(hour).padStart(2, '0')}:${String(alarm.minute).padStart(2, '0')} ${period}`;
 }
 
 /* ============================================================================
@@ -258,17 +237,17 @@ const GoalDial: React.FC<GoalDialProps> = ({ percent, isLive, palette, onPress }
       </Svg>
 
       <View style={styles.dialCenterOverlay} pointerEvents="none">
-        <Text style={[styles.dialPercentText, { color: palette.inkPrimary }]}>
+        <SSDSText style={[styles.dialPercentText, { color: palette.inkPrimary }]}>
           {clamped}%
-        </Text>
-        <Text
+        </SSDSText>
+        <SSDSText
           style={[
             styles.dialSubLabel,
             { color: isLive ? palette.sakhaDeep : palette.inkMuted },
           ]}
         >
           {isLive ? 'LIVE' : 'GOAL'}
-        </Text>
+        </SSDSText>
       </View>
     </Pressable>
   );
@@ -280,6 +259,7 @@ const GoalDial: React.FC<GoalDialProps> = ({ percent, isLive, palette, onPress }
 
 export default function DashboardScreen() {
   const { scheme, colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, streak, todayMinutes } = useStore();
   const focusSession = useOptionalFocusSession();
@@ -288,7 +268,7 @@ export default function DashboardScreen() {
   const { width } = useWindowDimensions();
 
   const isDark = scheme === 'dark';
-  const palette = useMemo(() => buildDashboardPalette(colors, isDark), [colors, isDark]);
+  const palette = useMemo(() => ({ ...buildDashboardPalette(colors, isDark), canvas: tokens.colors.background }), [colors, isDark, tokens.colors.background]);
   const isCompactWidth = width < 360;
   const horizontalPad = isCompactWidth ? 16 : 20;
 
@@ -297,8 +277,6 @@ export default function DashboardScreen() {
   const lastBackPress = useRef(0);
 
   const [focusSetupVisible, setFocusSetupVisible] = useState(false);
-  const [alarmSummary, setAlarmSummary] = useState<AlarmSummary>({ activeCount: 0, nextAlarm: null, use24h: false });
-  const [isFocusLockEnabled, setIsFocusLockEnabled] = useState(false);
   const [focusSetup, setFocusSetup] = useState<FocusSessionSetup>({
     mode: 'timer',
     durationMinutes: state.settings.focusDurationMinutes,
@@ -307,13 +285,9 @@ export default function DashboardScreen() {
     task: null,
   });
 
-  useEffect(() => {
-    setFocusSetup((current) =>
-      current.mode === 'timer'
-        ? { ...current, durationMinutes: state.settings.focusDurationMinutes }
-        : current
-    );
-  }, [state.settings.focusDurationMinutes]);
+  const displayedFocusSetup = focusSetup.mode === 'timer'
+    ? { ...focusSetup, durationMinutes: state.settings.focusDurationMinutes }
+    : focusSetup;
 
   useFocusEffect(
     useCallback(() => {
@@ -329,44 +303,6 @@ export default function DashboardScreen() {
     }, [])
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      let mounted = true;
-      readAlarmSummary().then((summary) => {
-        if (mounted) setAlarmSummary(summary);
-      });
-
-      if (isFocusLockNativeAvailable() && focusLockNative?.getBlockingStatus) {
-        focusLockNative
-          .getBlockingStatus()
-          .then((status) => {
-            if (mounted) {
-              setIsFocusLockEnabled(Boolean(status?.activeSession && status.activeSession.status === 'active'));
-            }
-          })
-          .catch(() => {
-            if (mounted) setIsFocusLockEnabled(false);
-          });
-      }
-
-      return () => {
-        mounted = false;
-      };
-    }, [])
-  );
-
-  useEffect(() => {
-    if (!isFocusLockNativeAvailable()) return undefined;
-    const unsubStart = subscribeFocusLockEvent('onBlockingStarted', () => setIsFocusLockEnabled(true));
-    const unsubStop = subscribeFocusLockEvent('onBlockingStopped', () => setIsFocusLockEnabled(false));
-    const unsubExpire = subscribeFocusLockEvent('onSessionExpired', () => setIsFocusLockEnabled(false));
-    return () => {
-      unsubStart();
-      unsubStop();
-      unsubExpire();
-    };
-  }, []);
-
   const dailyGoalMinutes = Math.max(1, Number(state.settings.dailyGoalMin) || 1);
   const safeTodayMinutes = Math.max(0, Number(todayMinutes) || 0);
   const goalPercent = useMemo(() => {
@@ -379,35 +315,7 @@ export default function DashboardScreen() {
   const studiedText = useMemo(() => formatStudiedDuration(safeTodayMinutes), [safeTodayMinutes]);
   const streakText = useMemo(() => formatStreakLabel(streak), [streak]);
 
-  const { pendingTaskCount, nextTaskTitle } = useMemo(() => {
-    const today = dayKey(new Date());
-    const pending = state.plannerTasks
-      .filter((task) => !task.completedOn && (!task.targetDate || task.targetDate >= today))
-      .sort((a, b) => (a.targetDate || '').localeCompare(b.targetDate || ''));
-    return {
-      pendingTaskCount: pending.length,
-      nextTaskTitle: pending[0]?.label ?? null,
-    };
-  }, [state.plannerTasks]);
-
   const isFocusSessionActive = Boolean(focusSession?.session);
-  const focusTimerDisplay = useMemo(() => {
-    if (focusSession?.session) {
-      const secs =
-        focusSession.session.mode === 'stopwatch'
-          ? focusSession.actualFocusedSeconds
-          : focusSession.secondsRemaining;
-      return formatTimerClock(secs);
-    }
-    const mins = Math.max(1, Number(state.settings.focusDurationMinutes) || 25);
-    return `${String(mins).padStart(2, '0')}:00`;
-  }, [focusSession?.session, focusSession?.actualFocusedSeconds, focusSession?.secondsRemaining, state.settings.focusDurationMinutes]);
-
-  const isAlarmEnabled = alarmSummary.activeCount > 0;
-  const nextAlarmLabel = useMemo(
-    () => formatDashboardAlarmTime(alarmSummary.nextAlarm, alarmSummary.use24h),
-    [alarmSummary.nextAlarm, alarmSummary.use24h]
-  );
 
   const handleOpenGoalDial = useCallback(() => {
     if (focusSession?.session) {
@@ -434,19 +342,19 @@ export default function DashboardScreen() {
           <View style={styles.focusOverviewSection}>
             <View style={styles.greetingRow}>
               <View style={styles.greetingTextWrap}>
-                <Text
+                <SSDSText
                   style={[styles.greetingPrefix, { color: palette.inkSecondary }]}
                   numberOfLines={1}
                 >
                   {greetingPrefix}
-                </Text>
-                <Text
+                </SSDSText>
+                <SSDSText
                   style={[styles.greetingName, { color: palette.inkPrimary }]}
                   numberOfLines={1}
                   ellipsizeMode="tail"
                 >
                   {firstName}
-                </Text>
+                </SSDSText>
               </View>
 
               {dashboardWidgets.dailyGoalRing ? (
@@ -478,18 +386,18 @@ export default function DashboardScreen() {
                   <ClockIcon color={palette.studiedIconColor} />
                 </View>
                 <View style={styles.statTextGroup}>
-                  <Text
+                  <SSDSText
                     style={[styles.statValue, { color: palette.inkPrimary }]}
                     numberOfLines={1}
                   >
                     {studiedText}
-                  </Text>
-                  <Text
+                  </SSDSText>
+                  <SSDSText
                     style={[styles.statLabel, { color: palette.inkMuted }]}
                     numberOfLines={1}
                   >
                     {translateLabel('Studied today', language)}
-                  </Text>
+                  </SSDSText>
                 </View>
               </View>
 
@@ -506,18 +414,18 @@ export default function DashboardScreen() {
                       <FlameIcon color={palette.streakIconColor} />
                     </View>
                     <View style={styles.statTextGroup}>
-                      <Text
+                      <SSDSText
                         style={[styles.statValue, { color: palette.inkPrimary }]}
                         numberOfLines={1}
                       >
                         {streakText}
-                      </Text>
-                      <Text
+                      </SSDSText>
+                      <SSDSText
                         style={[styles.statLabel, { color: palette.inkMuted }]}
                         numberOfLines={1}
                       >
                         {translateLabel('Study streak', language)}
-                      </Text>
+                      </SSDSText>
                     </View>
                   </View>
                 </>
@@ -530,12 +438,12 @@ export default function DashboardScreen() {
           ================================================================ */}
           <View style={styles.plannerSection}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: palette.inkPrimary }]}>
+              <SSDSText style={[styles.sectionTitle, { color: palette.inkPrimary }]}>
                 Study Planner
-              </Text>
-              <Text style={[styles.sectionSubtitle, { color: palette.inkMuted }]}>
+              </SSDSText>
+              <SSDSText style={[styles.sectionSubtitle, { color: palette.inkMuted }]}>
                 Quick controls
-              </Text>
+              </SSDSText>
             </View>
 
             {/* Row 1: Add Task + Focus Lock */}
@@ -544,7 +452,7 @@ export default function DashboardScreen() {
               <Pressable
                 onPress={() => nav.navigate('StudyPlanner')}
                 accessibilityRole="button"
-                accessibilityLabel={`Add Task, ${pendingTaskCount} pending`}
+                accessibilityLabel="Add Task"
                 style={({ pressed }) => [
                   styles.plannerCard,
                   {
@@ -558,24 +466,12 @@ export default function DashboardScreen() {
                   <View style={[styles.cardIconBox, { backgroundColor: palette.skySoft }]}>
                     <PlusIcon color={palette.sky} />
                   </View>
-                  <View style={[styles.metricPill, { backgroundColor: palette.skySoft }]}>
-                    <Text style={[styles.metricPillText, { color: palette.skyPillText }]}>
-                      {pendingTaskCount}
-                    </Text>
-                  </View>
                 </View>
 
                 <View style={styles.cardTextBlock}>
-                  <Text style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
+                  <SSDSText style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
                     Add Task
-                  </Text>
-                  <Text
-                    style={[styles.cardSubtitle, { color: palette.inkMuted }]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {nextTaskTitle?.trim() || 'Plan your next topic'}
-                  </Text>
+                  </SSDSText>
                 </View>
               </Pressable>
 
@@ -588,65 +484,22 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [
                   styles.plannerCard,
                   {
-                    backgroundColor: isFocusLockEnabled
-                      ? palette.roseActiveSurface
-                      : palette.surface,
-                    borderColor: isFocusLockEnabled
-                      ? palette.roseActiveBorder
-                      : pressed
-                      ? palette.rose
-                      : palette.hairline,
+                    backgroundColor: palette.surface,
+                    borderColor: pressed ? palette.rose : palette.hairline,
                   },
                   pressed && styles.pressedScaleCard,
                 ]}
               >
                 <View style={styles.cardTopRow}>
-                  <View
-                    style={[
-                      styles.cardIconBox,
-                      {
-                        backgroundColor: isFocusLockEnabled
-                          ? palette.rose
-                          : palette.roseSoft,
-                      },
-                    ]}
-                  >
-                    <LockIcon color={isFocusLockEnabled ? '#FFFFFF' : palette.rose} />
-                  </View>
-                  <View
-                    style={[
-                      styles.stateBadge,
-                      {
-                        backgroundColor: isFocusLockEnabled
-                          ? palette.rose
-                          : palette.neutralPillBg,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stateBadgeText,
-                        { color: isFocusLockEnabled ? '#FFFFFF' : palette.inkMuted },
-                      ]}
-                    >
-                      {isFocusLockEnabled ? 'ON' : 'OFF'}
-                    </Text>
+                  <View style={[styles.cardIconBox, { backgroundColor: palette.roseSoft }]}>
+                    <LockIcon color={palette.rose} />
                   </View>
                 </View>
 
                 <View style={styles.cardTextBlock}>
-                  <Text style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
+                  <SSDSText style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
                     Focus Lock
-                  </Text>
-                  <Text
-                    style={[
-                      styles.cardSubtitle,
-                      { color: isFocusLockEnabled ? palette.roseStatusText : palette.inkMuted },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {isFocusLockEnabled ? 'ON • Apps shielded' : 'OFF • Tap to shield'}
-                  </Text>
+                  </SSDSText>
                 </View>
               </Pressable>
             </View>
@@ -657,7 +510,7 @@ export default function DashboardScreen() {
               <Pressable
                 onPress={() => setFocusSetupVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel={`Focus Timer, ${focusTimerDisplay}`}
+                accessibilityLabel="Focus Timer"
                 style={({ pressed }) => [
                   styles.plannerCard,
                   {
@@ -671,20 +524,12 @@ export default function DashboardScreen() {
                   <View style={[styles.cardIconBox, { backgroundColor: palette.violetSoft }]}>
                     <TimerIcon color={palette.violet} />
                   </View>
-                  <View style={[styles.metricPill, { backgroundColor: palette.violetSoft }]}>
-                    <Text style={[styles.metricPillText, { color: palette.violetPillText }]} numberOfLines={1}>
-                      {focusTimerDisplay}
-                    </Text>
-                  </View>
                 </View>
 
                 <View style={styles.cardTextBlock}>
-                  <Text style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
+                  <SSDSText style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
                     Focus Timer
-                  </Text>
-                  <Text style={[styles.cardSubtitle, { color: palette.inkMuted }]} numberOfLines={1}>
-                    {isFocusSessionActive ? 'Running now' : 'Tap to open timer'}
-                  </Text>
+                  </SSDSText>
                 </View>
               </Pressable>
 
@@ -697,14 +542,8 @@ export default function DashboardScreen() {
                 style={({ pressed }) => [
                   styles.plannerCard,
                   {
-                    backgroundColor: isAlarmEnabled
-                      ? palette.amberActiveSurface
-                      : palette.surface,
-                    borderColor: isAlarmEnabled
-                      ? palette.amberActiveBorder
-                      : pressed
-                      ? palette.amber
-                      : palette.hairline,
+                    backgroundColor: palette.surface,
+                    borderColor: pressed ? palette.amber : palette.hairline,
                   },
                   pressed && styles.pressedScaleCard,
                 ]}
@@ -713,44 +552,12 @@ export default function DashboardScreen() {
                   <View style={[styles.cardIconBox, { backgroundColor: palette.amberSoft }]}>
                     <AlarmIcon color={palette.amber} />
                   </View>
-                  <View
-                    style={[
-                      styles.stateBadge,
-                      {
-                        backgroundColor: isAlarmEnabled
-                          ? palette.amber
-                          : palette.neutralPillBg,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stateBadgeText,
-                        { color: isAlarmEnabled ? '#FFFFFF' : palette.inkMuted },
-                      ]}
-                    >
-                      {isAlarmEnabled ? 'ON' : 'OFF'}
-                    </Text>
-                  </View>
                 </View>
 
                 <View style={styles.cardTextBlock}>
-                  <Text style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
+                  <SSDSText style={[styles.cardTitle, { color: palette.inkPrimary }]} numberOfLines={1}>
                     Alarm
-                  </Text>
-                  <Text
-                    style={[
-                      styles.cardSubtitleMono,
-                      { color: isAlarmEnabled ? palette.amberStatusText : palette.inkMuted },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {nextAlarmLabel
-                      ? `${isAlarmEnabled ? 'ON' : 'OFF'} • ${nextAlarmLabel}`
-                      : isAlarmEnabled
-                      ? 'ON • Scheduled'
-                      : 'OFF • Not set'}
-                  </Text>
+                  </SSDSText>
                 </View>
               </Pressable>
             </View>
@@ -760,7 +567,7 @@ export default function DashboardScreen() {
 
       <FocusSessionSetupModal
         visible={focusSetupVisible}
-        value={focusSetup}
+        value={displayedFocusSetup}
         onChange={setFocusSetup}
         onClose={() => setFocusSetupVisible(false)}
         onContinue={(setup) => {
@@ -920,7 +727,7 @@ const styles = StyleSheet.create({
   },
   plannerCard: {
     flex: 1,
-    minHeight: 106,
+    minHeight: 88,
     borderRadius: 20,
     borderWidth: 1,
     padding: 14,
@@ -949,28 +756,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  metricPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  metricPillText: {
-    fontFamily: MONO_FONT,
-    fontVariant: ['tabular-nums'],
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  stateBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  stateBadgeText: {
-    fontFamily: MONO_FONT,
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
   cardTextBlock: {
     marginTop: 10,
   },
@@ -978,18 +763,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 18,
-  },
-  cardSubtitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  cardSubtitleMono: {
-    fontFamily: MONO_FONT,
-    fontVariant: ['tabular-nums'],
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 2,
   },
 
   /* Micro-interaction feedback */

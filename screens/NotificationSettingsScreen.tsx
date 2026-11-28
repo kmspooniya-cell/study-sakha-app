@@ -1,4 +1,3 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -6,14 +5,22 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Txt } from '../components/ui';
 import { useNotificationPreferences } from '../hooks/notifications/useNotificationPreferences';
 import type { AppNavigation } from '../lib/navigation';
-import { radii, useTheme } from '../lib/theme';
+import { useTheme } from '../lib/theme';
+import {
+  SSDSButton,
+  SSDSIcon,
+  SSDSSurface,
+  SSDSSectionHeader,
+  SSDSSwitch,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
+import { ArrowLeft, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Megaphone, Moon, Users, type LucideIcon } from 'lucide-react-native';
 
 const QUIET_START_OPTIONS = ['21:00', '22:00', '22:30', '23:00', '23:30'];
 const QUIET_END_OPTIONS = ['05:00', '05:30', '06:00', '06:30', '07:00'];
@@ -53,25 +60,16 @@ function PreferenceRow({
         opacity: disabled ? 0.45 : 1,
       }}
     >
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt size={14.5} weight="600">
-          {label}
-        </Txt>
-        {description ? (
-          <Txt size={12} color={colors.textMuted}>
-            {description}
-          </Txt>
-        ) : null}
-      </View>
-      <Switch
-        testID={testID}
-        value={value}
-        onValueChange={onValueChange}
+      <View testID={testID} style={{ flex: 1 }}>
+      <SSDSSwitch
+        label={label}
+        description={description}
+        checked={value}
+        onChange={onValueChange}
         disabled={disabled}
-        trackColor={{ false: colors.borderStrong, true: colors.blue }}
-        thumbColor="#FFFFFF"
-        accessibilityLabel={label}
+        style={{ minHeight: 38 }}
       />
+      </View>
     </View>
   );
 }
@@ -79,7 +77,7 @@ function PreferenceRow({
 type ExpandableSectionProps = {
   title: string;
   subtitle: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: LucideIcon;
   expanded: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -95,17 +93,9 @@ function ExpandableSection({
   children,
   testID,
 }: ExpandableSectionProps) {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   return (
-    <View
-      style={{
-        backgroundColor: colors.surface,
-        borderRadius: radii.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        overflow: 'hidden',
-      }}
-    >
+    <SSDSSurface variant="outlined" radius="lg" style={{ overflow: 'hidden' }}>
       <Pressable
         onPress={onToggle}
         accessibilityRole="button"
@@ -120,43 +110,28 @@ function ExpandableSection({
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
-          backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+          backgroundColor: pressed ? tokens.colors.backgroundSecondary : 'transparent',
         })}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-          <View
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 11,
-              backgroundColor: colors.tint,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Ionicons name={icon} size={18} color={colors.blue} />
-          </View>
-          <View style={{ flex: 1, gap: 1 }}>
-            <Txt size={15} weight="800">
-              {title}
-            </Txt>
-            <Txt size={12} color={colors.textMuted} numberOfLines={1}>
-              {subtitle}
-            </Txt>
-          </View>
-        </View>
-        <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={19}
-          color={colors.textMuted}
+        <SSDSSectionHeader
+          title={title}
+          subtitle={subtitle}
+          icon={icon}
+          compact
+          style={{ flex: 1, marginBottom: 0 }}
+        />
+        <SSDSIcon
+          icon={expanded ? ChevronUp : ChevronDown}
+          size="md"
+          color="textSecondary"
         />
       </Pressable>
       {expanded ? (
-        <View style={{ borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
+        <View style={{ borderTopWidth: 1, borderTopColor: tokens.colors.divider }}>
           {children}
         </View>
       ) : null}
-    </View>
+    </SSDSSurface>
   );
 }
 
@@ -244,32 +219,33 @@ export default function NotificationSettingsScreen() {
               backgroundColor: pressed ? colors.surfaceAlt : 'transparent',
             })}
           >
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
+            <SSDSIcon icon={ArrowLeft} size="lg" color="textPrimary" />
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Txt size={18} weight="800" display numberOfLines={1}>
+            <SSDSText variant="ScreenTitle" numberOfLines={1}>
               Notification Settings
-            </Txt>
-            <Txt size={12} color={colors.textMuted} numberOfLines={1}>
+            </SSDSText>
+            <SSDSText variant="ScreenSubtitle" style={{ color: colors.textMuted }} numberOfLines={1}>
               Manage alerts, categories, and quiet hours
-            </Txt>
+            </SSDSText>
           </View>
         </View>
 
         {saveFeedback ? (
-          <View
+          <SSDSSurface
+            variant="filled"
+            radius="full"
             testID="notification-settings-saved-pill"
             style={{
               paddingHorizontal: 10,
               paddingVertical: 4,
-              borderRadius: radii.pill,
               backgroundColor: `${colors.success}1A`,
             }}
           >
-            <Txt size={11.5} weight="700" color={colors.success}>
+            <SSDSText variant="Caption" style={{ color: colors.success, fontWeight: '700' }}>
               {saveFeedback}
-            </Txt>
-          </View>
+            </SSDSText>
+          </SSDSSurface>
         ) : null}
       </View>
 
@@ -279,65 +255,64 @@ export default function NotificationSettingsScreen() {
       >
         {/* OS-Level Permission Status Banner */}
         {osPermission === 'denied' || osPermission === 'undetermined' ? (
-          <View
+          <SSDSSurface
+            variant="outlined"
+            radius="lg"
             testID="os-permission-banner"
             style={{
-              backgroundColor: colors.surface,
-              borderRadius: radii.lg,
-              borderWidth: 1,
               borderColor: `${colors.warning}88`,
               padding: 14,
               gap: 10,
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-              <Ionicons name="notifications-off-outline" size={20} color={colors.warning} />
+              <SSDSIcon icon={BellOff} size="md" color="warning" />
               <View style={{ flex: 1, gap: 3 }}>
-                <Txt size={14} weight="800">
+                <SSDSText variant="CardTitle">
                   {osPermission === 'denied'
                     ? 'System notifications are turned off'
                     : 'Allow system notifications'}
-                </Txt>
-                <Txt size={12.5} color={colors.textMuted}>
+                </SSDSText>
+                <SSDSText variant="BodySecondary" style={{ color: colors.textMuted }}>
                   {osPermission === 'denied'
                     ? 'In-app preferences are saved separately, but Android OS permission is required to show push alerts. Open system settings to allow notifications.'
                     : 'Grant OS notification permission to receive study reminders and group alerts outside the app.'}
-                </Txt>
+                </SSDSText>
               </View>
             </View>
-            <Button
-              label={osPermission === 'denied' ? 'Open System Settings' : 'Allow Notifications'}
+            <SSDSButton
               variant="outline"
-              size="sm"
+              size="small"
               onPress={() => {
                 if (osPermission === 'denied') void openSystemSettings();
                 else void requestSystemPermission();
               }}
-            />
-          </View>
+            >{osPermission === 'denied' ? 'Open System Settings' : 'Allow Notifications'}</SSDSButton>
+          </SSDSSurface>
         ) : null}
 
         {saveError ? (
-          <View
+          <SSDSSurface
+            variant="filled"
+            radius="md"
             style={{
               padding: 12,
-              borderRadius: radii.md,
               backgroundColor: `${colors.danger}18`,
               borderWidth: 1,
               borderColor: `${colors.danger}55`,
             }}
           >
-            <Txt size={12.5} color={colors.danger} weight="600">
+            <SSDSText variant="ErrorText" style={{ fontWeight: '600' }}>
               {saveError}
-            </Txt>
-          </View>
+            </SSDSText>
+          </SSDSSurface>
         ) : null}
 
         {/* 1. General */}
         <ExpandableSection
           title="General"
           subtitle="Push, in-app inbox, sound, and vibration"
-          icon="options-outline"
+          icon={Bell}
           expanded={expandedSections.general}
           onToggle={() => toggleSection('general')}
           testID="section-general"
@@ -395,7 +370,7 @@ export default function NotificationSettingsScreen() {
         <ExpandableSection
           title="Study"
           subtitle="Planner, focus sessions, test results, and streaks"
-          icon="book-outline"
+          icon={BookOpen}
           expanded={expandedSections.study}
           onToggle={() => toggleSection('study')}
           testID="section-study"
@@ -451,7 +426,7 @@ export default function NotificationSettingsScreen() {
         <ExpandableSection
           title="Social"
           subtitle="Friend requests, group invites, messages, and mentions"
-          icon="people-outline"
+          icon={Users}
           expanded={expandedSections.social}
           onToggle={() => toggleSection('social')}
           testID="section-social"
@@ -507,7 +482,7 @@ export default function NotificationSettingsScreen() {
         <ExpandableSection
           title="Updates"
           subtitle="Announcements, app updates, and system notices"
-          icon="megaphone-outline"
+          icon={Megaphone}
           expanded={expandedSections.updates}
           onToggle={() => toggleSection('updates')}
           testID="section-updates"
@@ -556,7 +531,7 @@ export default function NotificationSettingsScreen() {
               ? `${preferences.quietHours.startTime} – ${preferences.quietHours.endTime} (${preferences.quietHours.timezone})`
               : 'Off'
           }
-          icon="moon-outline"
+          icon={Moon}
           expanded={expandedSections.quietHours}
           onToggle={() => toggleSection('quietHours')}
           testID="section-quiet-hours"
@@ -576,80 +551,60 @@ export default function NotificationSettingsScreen() {
 
           <View style={{ paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
             <View style={{ gap: 6 }}>
-              <Txt size={12.5} weight="700" color={colors.textMuted}>
+              <SSDSText variant="InputLabel" style={{ color: colors.textMuted }}>
                 Start time
-              </Txt>
+              </SSDSText>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {QUIET_START_OPTIONS.map((time) => {
                   const active = preferences.quietHours.startTime === time;
                   return (
-                    <Pressable
+                    <SSDSButton
                       key={time}
+                      size="small"
+                      variant={active ? 'primary' : 'outline'}
                       onPress={() =>
                         void updatePreferences((prev) => ({
                           ...prev,
                           quietHours: { ...prev.quietHours, startTime: time },
                         }))
                       }
-                      style={{
-                        minHeight: 36,
-                        paddingHorizontal: 12,
-                        borderRadius: radii.pill,
-                        borderWidth: 1,
-                        borderColor: active ? colors.blue : colors.border,
-                        backgroundColor: active ? colors.tint : colors.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
                     >
-                      <Txt size={12.5} weight="700" color={active ? colors.blue : colors.text}>
-                        {time}
-                      </Txt>
-                    </Pressable>
+                      {time}
+                    </SSDSButton>
                   );
                 })}
               </View>
             </View>
 
             <View style={{ gap: 6 }}>
-              <Txt size={12.5} weight="700" color={colors.textMuted}>
+              <SSDSText variant="InputLabel" style={{ color: colors.textMuted }}>
                 End time
-              </Txt>
+              </SSDSText>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {QUIET_END_OPTIONS.map((time) => {
                   const active = preferences.quietHours.endTime === time;
                   return (
-                    <Pressable
+                    <SSDSButton
                       key={time}
+                      size="small"
+                      variant={active ? 'primary' : 'outline'}
                       onPress={() =>
                         void updatePreferences((prev) => ({
                           ...prev,
                           quietHours: { ...prev.quietHours, endTime: time },
                         }))
                       }
-                      style={{
-                        minHeight: 36,
-                        paddingHorizontal: 12,
-                        borderRadius: radii.pill,
-                        borderWidth: 1,
-                        borderColor: active ? colors.blue : colors.border,
-                        backgroundColor: active ? colors.tint : colors.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
                     >
-                      <Txt size={12.5} weight="700" color={active ? colors.blue : colors.text}>
-                        {time}
-                      </Txt>
-                    </Pressable>
+                      {time}
+                    </SSDSButton>
                   );
                 })}
               </View>
             </View>
 
-            <Txt size={11.5} color={colors.textFaint}>
+            <SSDSText variant="Caption" style={{ color: colors.textFaint }}>
               Timezone: {preferences.quietHours.timezone}
-            </Txt>
+            </SSDSText>
           </View>
         </ExpandableSection>
       </ScrollView>

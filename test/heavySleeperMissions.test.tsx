@@ -65,7 +65,7 @@ describe('Heavy Sleeper Mode — Modular Mission Logic & Persistence', () => {
     expect(missions.validateQrCodeMatch('', '')).toBe(false);
   });
 
-  it('persists and restores active mission state across restarts', async () => {
+  it('persists and restores active mission state and sensor progress across restarts', async () => {
     await missions.saveActiveMissionSession({
       sessionId: 'ms-1',
       alarmId: 'alm-1',
@@ -78,15 +78,25 @@ describe('Heavy Sleeper Mode — Modular Mission Logic & Persistence', () => {
       startedAtMs: 1000,
       stepStartedAtMs: 2000,
       results: [{ missionId: 'math', passed: true, attempts: 1, durationMs: 1000 }],
+      sensorProgress: { stepIndex: 1, missionId: 'shake', count: 18 },
     });
     const restored = await missions.loadActiveMissionSession();
     expect(restored?.alarmId).toBe('alm-1');
     expect(restored?.currentIndex).toBe(1);
     expect(restored?.retriesUsed).toBe(2);
     expect(restored?.queue).toEqual(['math', 'shake', 'qr']);
+    expect(restored?.sensorProgress).toEqual({ stepIndex: 1, missionId: 'shake', count: 18 });
 
     await missions.saveActiveMissionSession(null);
     await expect(missions.loadActiveMissionSession()).resolves.toBeNull();
+  });
+
+  it('formats mission permission, sensor, and camera errors clearly', () => {
+    expect(missions.formatMissionFailure('permission_denied')).toContain('Permission denied');
+    expect(missions.formatMissionFailure('sensor_unavailable')).toContain('sensor is unavailable');
+    expect(missions.formatMissionFailure('no_reference_photo')).toContain('No reference photo');
+    expect(missions.formatMissionFailure('no_barcode_found')).toContain('No QR or barcode detected');
+    expect(missions.formatMissionFailure('cancelled')).toContain('cancelled');
   });
 });
 
@@ -139,5 +149,31 @@ describe('Heavy Sleeper Mode — Native Android & No-Simulation Contracts', () =
     expect(pluginJs).toContain('android.permission.ACTIVITY_RECOGNITION');
     expect(pluginJs).toContain('com.google.zxing:core:3.5.3');
     expect(pluginJs).toContain('androidx.core.content.FileProvider');
+  });
+
+  it('prevents shake/step sensor restarts on re-renders and persists sensor session state', () => {
+    expect(missionView).toContain('advanceMissionRef.current');
+    expect(missionView).toContain('onCompleteRef.current');
+    expect(missionView).not.toContain('}, [advanceMission,');
+    expect(missionView).toContain('if (!referencePhotoUri)');
+
+    expect(missionKt).toContain('study_sakha_alarm_mission_sensor_prefs');
+    expect(missionKt).toContain('restorePersistedCount');
+    expect(missionKt).toContain('restorePersistedStepState');
+    expect(missionKt).toContain('SystemClock.elapsedRealtime()');
+    expect(missionKt).toContain('SensorManager.SENSOR_DELAY_UI, 0');
+    expect(missionKt).toContain('GlobalHistogramBinarizer');
+    expect(missionKt).toContain('fun deleteReferencePhoto');
+    expect(missionKt).toContain('fun hasReferencePhoto');
+  });
+
+  it('provides QR and Photo registration with Replace/Remove and coordinated session restore in Editor', () => {
+    expect(alarmModule).toContain('alarm-editor-qr-scan');
+    expect(alarmModule).toContain('alarm-editor-qr-remove');
+    expect(alarmModule).toContain('alarm-editor-photo-capture');
+    expect(alarmModule).toContain('alarm-editor-photo-preview');
+    expect(alarmModule).toContain('alarm-editor-photo-remove');
+    expect(alarmModule).toContain('deleteNativeReferencePhoto');
+    expect(alarmModule).toContain('missionRestorePromiseRef');
   });
 });

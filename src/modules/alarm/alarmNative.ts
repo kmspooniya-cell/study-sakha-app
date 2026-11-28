@@ -51,6 +51,7 @@ export type NativeVerifyPhotoResult =
 export type NativeSensorStartResult = {
   ok: boolean;
   reason?: string;
+  count?: number;
 };
 
 export type AlarmPermissionStatus = {
@@ -97,6 +98,8 @@ type NativeAlarmEngine = {
   stopSensorMission?(sessionId?: string | null): Promise<void>;
   captureBarcode?(): Promise<NativeCaptureBarcodeResult>;
   captureReferencePhoto?(alarmId: string): Promise<NativeReferencePhotoResult>;
+  deleteReferencePhoto?(alarmId: string): Promise<void>;
+  hasReferencePhoto?(alarmId: string): Promise<boolean>;
   verifyPhotoAgainstReference?(alarmId: string, thresholdPercent: number): Promise<NativeVerifyPhotoResult>;
 };
 
@@ -247,6 +250,17 @@ export function captureNativeReferencePhoto(alarmId: string): Promise<NativeRefe
     return Promise.resolve({ ok: false, reason: 'native_module_unavailable' });
   }
   return nativeEngine.captureReferencePhoto(alarmId);
+}
+
+export function deleteNativeReferencePhoto(alarmId: string): Promise<void> {
+  return nativeEngine?.deleteReferencePhoto?.(alarmId) ?? Promise.resolve();
+}
+
+export function hasNativeReferencePhoto(alarmId: string): Promise<boolean> {
+  if (!nativeEngine?.hasReferencePhoto) {
+    return Promise.resolve(false);
+  }
+  return nativeEngine.hasReferencePhoto(alarmId);
 }
 
 export function verifyNativePhotoAgainstReference(

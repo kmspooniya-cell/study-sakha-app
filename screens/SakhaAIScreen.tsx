@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -14,16 +14,17 @@ import {
 } from 'react-native';
 import { LogoMark } from '../components/Logo';
 import { Shell, useLayout } from '../components/Shell';
-import { Avatar, Button, Card, Chip, ConfirmDialog, InlineBanner, Txt } from '../components/ui';
-import { STARTER_PROMPTS } from '../lib/ai';
-import { askGemini, GEMINI_MODEL_OPTIONS, GeminiModelId } from '../lib/geminiChat';
+import { Avatar, ConfirmDialog, InlineBanner, Txt } from '../components/ui';
+import { askGemini, GEMINI_MODEL_OPTIONS } from '../lib/geminiChat';
 import { useStore } from '../lib/store';
-import { fonts, radii, spacing, useTheme } from '../lib/theme';
+import { fonts, radii, useTheme } from '../lib/theme';
 import { ChatMsg } from '../lib/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SSDSButton, SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
 
 export default function SakhaAIScreen() {
   const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'SakhaAI'>>();
@@ -35,8 +36,8 @@ export default function SakhaAIScreen() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [androidKeyboardOverlap, setAndroidKeyboardOverlap] = useState(0);
   const [typing, setTyping] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<GeminiModelId>(GEMINI_MODEL_OPTIONS[0].id);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const selectedModel = GEMINI_MODEL_OPTIONS[0].id;
+  const [, setErrorMessage] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState<boolean>(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
@@ -54,31 +55,40 @@ export default function SakhaAIScreen() {
 
   const hasCustomName = Boolean(state.user?.name && state.user.name !== 'Guest User' && state.user.name !== 'Aspirant');
 
-  const latestResult = state.results && state.results.length > 0 ? state.results[0] : null;
+  const latestResult = useMemo(
+    () => state.results && state.results.length > 0 ? state.results[0] : null,
+    [state.results],
+  );
   const weakestSubject = latestResult?.bySubject
     ? [...latestResult.bySubject].sort((a, b) => (a.correct / (a.total || 1)) - (b.correct / (b.total || 1)))[0]?.subject
     : undefined;
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const todayTasksList = (state.plannerTasks || [])
-    .filter((t) => t.targetDate === todayIso)
-    .slice(0, 4)
-    .map((t) => ({
-      label: t.label,
-      category: t.category,
-      taskType: t.taskType,
-      completed: t.completed,
-    }));
+  const todayTasksList = useMemo(
+    () => (state.plannerTasks || [])
+      .filter((t) => t.targetDate === todayIso)
+      .slice(0, 4)
+      .map((t) => ({
+        label: t.label,
+        category: t.category,
+        taskType: t.taskType,
+        completed: t.completed,
+      })),
+    [state.plannerTasks, todayIso],
+  );
 
-  const activeReadingList = Object.entries(state.progress || {})
-    .slice(0, 3)
-    .map(([resId, prog]) => ({
-      resourceId: resId,
-      title: prog.title || resId,
-      percent: prog.percent || 0,
-    }));
+  const activeReadingList = useMemo(
+    () => Object.entries(state.progress || {})
+      .slice(0, 3)
+      .map(([resId, prog]) => ({
+        resourceId: resId,
+        title: prog.title || resId,
+        percent: prog.percent || 0,
+      })),
+    [state.progress],
+  );
 
-  const examContext = {
+  const examContext = useMemo(() => ({
     name: hasCustomName ? state.user!.name : null,
     exam: state.user?.exam || null,
     streak: streak > 0 ? streak : 0,
@@ -108,7 +118,24 @@ export default function SakhaAIScreen() {
       detailLevel: state.settings.aiDetailLevel,
       learningMode: state.settings.aiLearningMode,
     },
-  };
+  }), [
+    activeReadingList,
+    hasCustomName,
+    latestResult,
+    state.notes.length,
+    state.results.length,
+    state.settings.aiDetailLevel,
+    state.settings.aiLearningMode,
+    state.settings.aiResponseLanguage,
+    state.settings.aiResponseLength,
+    state.settings.dailyGoalMin,
+    state.starred.length,
+    state.user,
+    streak,
+    todayMinutes,
+    todayTasksList,
+    weakestSubject,
+  ]);
 
   const send = useCallback(
     async (text: string, isRetry = false, originalMsgId?: string) => {
@@ -462,7 +489,7 @@ export default function SakhaAIScreen() {
           {empty ? (
             <View style={{ gap: 16 }}>
               {/* Starter Prompts */}
-              <Card>
+              <SSDSSurface variant="outlined" radius="xl" padding="cardPadding" style={{ gap: 12 }}>
                 <Txt size={12.5} weight="800" color={colors.textMuted} style={{ marginBottom: 12, letterSpacing: 0.5 }}>
                   TRY ASKING SAKHA
                 </Txt>
@@ -502,7 +529,7 @@ export default function SakhaAIScreen() {
                     </Pressable>
                   ))}
                 </View>
-              </Card>
+              </SSDSSurface>
 
             </View>
           ) : null}
@@ -528,9 +555,9 @@ export default function SakhaAIScreen() {
                     borderBottomRightRadius: 4,
                   }}
                 >
-                  <Txt size={14.5} color="#fff" weight="600" style={{ lineHeight: 21 }}>
+                  <SSDSText variant="BodyPrimary" color="textInverse" style={{ fontWeight: '600', lineHeight: 21 }}>
                     {m.text}
-                  </Txt>
+                  </SSDSText>
                 </View>
                 <Avatar name={state.user?.name ?? 'Guest User'} size={32} />
               </View>
@@ -582,9 +609,9 @@ export default function SakhaAIScreen() {
                       }}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Txt size={12} weight="800" color={m.status === 'error' ? colors.danger : colors.blue}>
+                        <SSDSText variant="CardTitle" color={m.status === 'error' ? 'danger' : 'primary'}>
                           Sakha AI
-                        </Txt>
+                        </SSDSText>
                         {m.modelUsed && (
                           <View
                             style={{
@@ -739,13 +766,11 @@ export default function SakhaAIScreen() {
                     {/* Error and Retry Action */}
                     {m.status === 'error' && m.retryText && (
                       <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Button
-                          label="Retry Request"
-                          icon="refresh"
-                          size="sm"
-                          variant="danger"
+                        <SSDSButton
+                          variant="destructive"
+                          size="small"
                           onPress={() => send(m.retryText!, true, m.requestId)}
-                        />
+                        >Retry Request</SSDSButton>
                       </View>
                     )}
                   </View>
@@ -865,8 +890,8 @@ export default function SakhaAIScreen() {
         <View
           style={{
             borderTopWidth: 1,
-            borderTopColor: colors.borderSubtle,
-            backgroundColor: colors.surface,
+            borderTopColor: tokens.colors.border,
+            backgroundColor: tokens.colors.surface,
             paddingHorizontal: isMobile ? 12 : 20,
             paddingTop: 10,
             paddingBottom: keyboardOpen ? 10 : Math.max(10, insets.bottom + 8),
@@ -882,8 +907,8 @@ export default function SakhaAIScreen() {
               height: Math.min(128, Math.max(46, inputHeight)),
               borderRadius: radii.lg,
               borderWidth: 1.4,
-              borderColor: colors.borderSubtle,
-              backgroundColor: colors.bg,
+              borderColor: tokens.colors.border,
+              backgroundColor: tokens.colors.background,
               paddingHorizontal: 14,
               justifyContent: 'center',
             }}

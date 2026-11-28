@@ -6,6 +6,8 @@ const mockNavigate = jest.fn();
 const mockDispatch = jest.fn();
 const mockSaveManagedContent = jest.fn(async () => ({ ok: true }));
 const mockDeleteManagedContent = jest.fn(async () => ({ ok: true }));
+const mockSaveProfile = jest.fn(async () => ({ ok: true }));
+const mockSignOut = jest.fn(async () => ({ ok: true }));
 const mockListFeedback = jest.fn(async () => []);
 const mockStorage = new Map<string, string>();
 let mockRouteParams: Record<string, any> = {};
@@ -74,7 +76,7 @@ jest.mock('../lib/supabase', () => ({
 
 jest.mock('../lib/feedback', () => ({
   FEEDBACK_STATUS_OPTIONS: ['submitted', 'received', 'in_progress', 'resolved', 'closed'],
-  listAllFeedbackSubmissionsForAdmin: (...args: any[]) => mockListFeedback(...args),
+  listAllFeedbackSubmissionsForAdmin: () => mockListFeedback(),
   updateFeedbackSubmissionAdmin: jest.fn(),
   createFeedbackScreenshotSignedUrl: jest.fn(),
 }));
@@ -109,7 +111,18 @@ jest.mock('../components/Shell', () => ({
   },
 }));
 
-const mockUser = { id: 'u1', role: 'student' as 'student' | 'admin', exam: 'upsc' };
+const mockUser = {
+  id: 'u1',
+  role: 'student' as 'student' | 'admin',
+  exam: 'upsc',
+  name: 'Riya Verma',
+  email: 'riya@example.in',
+  birthday: '',
+  phoneNumber: '',
+  currentCity: '',
+  examFocus: 'UPSC',
+  photoUri: undefined as string | undefined,
+};
 const mockState: any = {
   hydrated: true,
   get user() {
@@ -120,6 +133,7 @@ const mockState: any = {
   starred: [],
   progress: {},
   studyLog: {},
+  results: [],
   announcements: [],
   learners: [
     {
@@ -165,11 +179,17 @@ const mockState: any = {
 
 jest.mock('../lib/store', () => ({
   dayKey: () => '2026-11-28',
+  getDisplayName: (user: any) => user?.name ?? user?.email ?? 'Learner',
   useStore: () => ({
     state: mockState,
     dispatch: mockDispatch,
     saveManagedContent: mockSaveManagedContent,
     deleteManagedContent: mockDeleteManagedContent,
+    saveProfile: mockSaveProfile,
+    signOut: mockSignOut,
+    badges: [],
+    todayMinutes: 36,
+    streak: 5,
   }),
 }));
 
@@ -178,6 +198,8 @@ const { ThemeProvider: LegacyThemeProvider } = require('../lib/theme') as typeof
 const { SSDSThemeProvider } = require('../lib/ssds') as typeof import('../lib/ssds');
 const LibraryScreen = require('../screens/LibraryScreen').default as typeof import('../screens/LibraryScreen').default;
 const AdminScreen = require('../screens/AdminScreen').default as typeof import('../screens/AdminScreen').default;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Load after screen mocks are registered.
+const ProfileScreen = require('../screens/ProfileScreen').default as typeof import('../screens/ProfileScreen').default;
 
 const INITIAL_METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -200,6 +222,8 @@ describe('Phase 6 Batch 4 Screen Migrations', () => {
     mockStorage.clear();
     mockRouteParams = {};
     mockUser.role = 'student';
+    mockSaveProfile.mockClear();
+    mockSignOut.mockClear();
   });
 
   it('LibraryScreen renders all 6 sections and navigates to Notes and Tests', () => {
@@ -236,6 +260,58 @@ describe('Phase 6 Batch 4 Screen Migrations', () => {
 
     fireEvent.press(screen.getByText('Go to profile'));
     expect(mockNavigate).toHaveBeenCalledWith('Profile');
+  });
+
+  it('ProfileScreen saves the edit draft through the existing profile callback', async () => {
+    const screen = render(
+      <Providers>
+        <ProfileScreen />
+      </Providers>,
+    );
+
+    fireEvent.press(screen.getByLabelText('Edit Profile'));
+    fireEvent.press(screen.getByText('Save Changes'));
+
+    await waitFor(() => {
+      expect(mockSaveProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Riya Verma',
+          email: 'riya@example.in',
+          examFocus: 'UPSC',
+        }),
+      );
+    });
+  });
+
+  it('ProfileScreen switches between Overview, Statistics, and Account without unmounting panels', () => {
+    const screen = render(
+      <Providers>
+        <ProfileScreen />
+      </Providers>,
+    );
+
+    const flattenStyle = (styleProp: unknown) => {
+      const list = Array.isArray(styleProp) ? styleProp : [styleProp];
+      return Object.assign({}, ...list.filter(Boolean));
+    };
+
+    // Initially Overview is visible and Statistics/Account stay mounted with display: 'none'
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-overview').props.style).display).toBeUndefined();
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-stats', { includeHiddenElements: true }).props.style).display).toBe('none');
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-account', { includeHiddenElements: true }).props.style).display).toBe('none');
+
+    // Switch repeatedly: Statistics -> Account -> Overview
+    fireEvent.press(screen.getByText('Statistics'));
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-stats').props.style).display).toBeUndefined();
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-overview', { includeHiddenElements: true }).props.style).display).toBe('none');
+
+    fireEvent.press(screen.getByText('Account'));
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-account').props.style).display).toBeUndefined();
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-stats', { includeHiddenElements: true }).props.style).display).toBe('none');
+
+    fireEvent.press(screen.getByText('Overview'));
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-overview').props.style).display).toBeUndefined();
+    expect(flattenStyle(screen.getByTestId('profile-tab-panel-account', { includeHiddenElements: true }).props.style).display).toBe('none');
   });
 
   it('AdminScreen allows admin users to manage learners, approvals, announcements, and feedback', async () => {

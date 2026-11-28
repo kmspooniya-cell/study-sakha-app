@@ -305,4 +305,38 @@ describe('Smart Draggable Floating Focus Bubble', () => {
     expect(rightAnchored.x + 336).toBeLessThanOrEqual(390 - 12);
     expect(rightAnchored.x).toBeGreaterThanOrEqual(12);
   });
+
+  it('mounts non-collapsable Android overlay immediately when leaving FocusCenter and hides when session ends', async () => {
+    const view = render(
+      <FocusSessionProvider>
+        <BubbleHarness />
+      </FocusSessionProvider>,
+    );
+    await act(async () => { await Promise.resolve(); });
+
+    fireEvent.press(view.getByTestId('go-focus'));
+    fireEvent.press(view.getByTestId('start-session'));
+    // Hidden while on FocusCenter
+    expect(view.queryByTestId('active-session-bar')).toBeNull();
+
+    // Appears immediately upon leaving FocusCenter with non-collapsable Android overlay
+    fireEvent.press(view.getByTestId('go-library'));
+    const bubble = view.getByTestId('active-session-bar');
+    expect(bubble.props.collapsable).toBe(false);
+    expect(bubble.parent?.props.collapsable).toBe(false);
+    expect(view.getByTestId('focus-bubble-collapsed')).toBeTruthy();
+
+    // Tapping opens controls synchronized with session
+    fireEvent.press(view.getByTestId('focus-bubble-collapsed'));
+    expect(view.getByTestId('focus-bubble-expanded')).toBeTruthy();
+    expect(view.getByText(/25:00/)).toBeTruthy();
+
+    // Disappears when session ends
+    await act(async () => {
+      fireEvent.press(view.getByTestId('end-session'));
+      await Promise.resolve();
+    });
+    expect(view.queryByTestId('active-session-bar')).toBeNull();
+    view.unmount();
+  });
 });

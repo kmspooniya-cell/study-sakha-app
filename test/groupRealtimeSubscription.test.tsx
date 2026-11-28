@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+// GroupsScreen now consumes SSDS theme context. Keep this integration harness
+// focused on realtime lifecycle by using the shared presentation test doubles.
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
+
 type MockChannelRecord = {
   topic: string;
   subscribed: boolean;

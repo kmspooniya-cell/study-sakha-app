@@ -75,6 +75,7 @@ const mockStore = {
 };
 const mockAppendFocusHistory = jest.fn(async (_key: string, record: { id: string }) => [record]);
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
   return {

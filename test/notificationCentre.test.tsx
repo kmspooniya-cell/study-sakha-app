@@ -22,6 +22,15 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   getAllKeys: jest.fn(async () => [...mockStorage.keys()]),
 }));
 
+jest.mock('lucide-react-native', () => {
+  const ReactActual = jest.requireActual<typeof import('react')>('react');
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return new Proxy({}, {
+    get: (_target, icon) => (props: Record<string, unknown>) =>
+      ReactActual.createElement(View, { ...props, accessibilityLabel: String(icon) }),
+  });
+});
+
 const mockUser = {
   id: 'nc-user-1',
   email: 'aspirant@studysakha.test',
@@ -83,6 +92,7 @@ jest.mock('@expo/vector-icons/Ionicons', () => {
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
   SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
+  SafeAreaInsetsContext: jest.requireActual<typeof import('react')>('react').createContext({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 
@@ -163,6 +173,7 @@ const {
 const { getCategoryForKind, normalizeNotificationKind } = require('../lib/notifications/registry') as typeof import('../lib/notifications/registry');
 import type { AppNotification } from '../lib/notifications/types';
 const { StoreProvider, getUserScopedStorageKey, reducer } = require('../lib/store') as typeof import('../lib/store');
+const { SSDSThemeProvider } = require('../lib/ssds') as typeof import('../lib/ssds');
 const NotificationsScreen = require('../screens/NotificationsScreen').default as typeof import('../screens/NotificationsScreen').default;
 const NotificationSettingsScreen = require('../screens/NotificationSettingsScreen').default as typeof import('../screens/NotificationSettingsScreen').default;
 
@@ -374,7 +385,7 @@ describe('Notification Centre unit & integration tests', () => {
 
     const view = render(
       <StoreProvider>
-        <NotificationsScreen />
+        <SSDSThemeProvider><NotificationsScreen /></SSDSThemeProvider>
       </StoreProvider>,
     );
 
@@ -420,7 +431,7 @@ describe('Notification Centre unit & integration tests', () => {
   it('renders NotificationSettingsScreen with OS permission banner and persistent toggles', async () => {
     const view = render(
       <StoreProvider>
-        <NotificationSettingsScreen />
+        <SSDSThemeProvider><NotificationSettingsScreen /></SSDSThemeProvider>
       </StoreProvider>,
     );
 
@@ -429,7 +440,7 @@ describe('Notification Centre unit & integration tests', () => {
       expect(view.getByTestId('os-permission-banner')).toBeTruthy();
     });
 
-    fireEvent(view.getByTestId('toggle-push-enabled'), 'valueChange', false);
+    fireEvent.press(view.getByRole('switch', { name: 'Push notifications' }));
     await waitFor(() => {
       expect(mockUpsert).toHaveBeenCalled();
     });
@@ -449,7 +460,7 @@ describe('Notification Centre unit & integration tests', () => {
 
     const view = render(
       <StoreProvider>
-        <NotificationsScreen />
+        <SSDSThemeProvider><NotificationsScreen /></SSDSThemeProvider>
       </StoreProvider>,
     );
 

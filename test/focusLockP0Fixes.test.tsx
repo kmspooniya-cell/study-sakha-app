@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Platform } from 'react-native';
 
@@ -196,7 +197,7 @@ describe('Focus Lock P0 Critical Fixes', () => {
   });
 
   it('sends non-selected packages to native startBlockingSession in Allowlist mode', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
 
     fireEvent.press(view.getByText('App Selection'));
@@ -227,7 +228,7 @@ describe('Focus Lock P0 Critical Fixes', () => {
     expect(canCompleteSessionEarly(3, now, now + 60_000)).toBe(false);
     expect(canCompleteSessionEarly(2, now + 60_000, now + 60_000)).toBe(true);
 
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
 
     fireEvent.press(view.getByText('App Selection'));
@@ -262,7 +263,7 @@ describe('Focus Lock P0 Critical Fixes', () => {
     expect(await loadExitPin('u1')).toBeNull();
     expect(await verifyExitPin('4829', 'u1')).toBe(false);
 
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(view.getByText('Strict Mode')).toBeTruthy());
     fireEvent.press(view.getByText('Strict Mode'));
     expect(view.getByText('PIN protection (Not configured)')).toBeTruthy();
@@ -284,7 +285,7 @@ describe('Focus Lock P0 Critical Fixes', () => {
       .mockResolvedValueOnce([pendingRecord, pendingRecord])
       .mockResolvedValueOnce([]);
 
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockConsumePendingCompletions).toHaveBeenCalled());
 
     await waitFor(() => {

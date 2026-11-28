@@ -25,7 +25,7 @@ import type { AppNavigation } from '../lib/navigation';
 import { Shell, useLayout } from '../components/Shell';
 import { getProfileContentMaxWidth } from '../lib/profileLayout';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
-import { useSSDSTheme } from '../lib/ssds';
+import { SSDSAvatar, useSSDSTheme } from '../lib/ssds';
 import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
 import Svg, { Circle } from 'react-native-svg';
 import {
@@ -415,10 +415,8 @@ export default function StudySakhaProfileScreen() {
   const toastTranslateY = useRef(new Animated.Value(8)).current;
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Animations (rings, tab transition, pulse dot, dark switch, bars)
+  // Animations (rings, pulse dot, dark switch, bars)
   const heroRingOffsetAnim = useRef(new Animated.Value(HERO_RING_CIRCUMFERENCE * 0.5)).current;
-  const tabFadeAnim = useRef(new Animated.Value(1)).current;
-  const tabSlideAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const switchKnobAnim = useRef(new Animated.Value(0)).current;
   const todayBarAnim = useRef(new Animated.Value(36)).current;
@@ -586,22 +584,6 @@ export default function StudySakhaProfileScreen() {
   const handleSwitchTab = (tab: TabKey) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
-    tabFadeAnim.setValue(0);
-    tabSlideAnim.setValue(6);
-    Animated.parallel([
-      Animated.timing(tabFadeAnim, {
-        toValue: 1,
-        duration: 240,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-      Animated.timing(tabSlideAnim, {
-        toValue: 0,
-        duration: 240,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-    ]).start();
   };
 
   const handleToggleDarkMode = () => {
@@ -919,22 +901,12 @@ export default function StudySakhaProfileScreen() {
                     />
                   </Svg>
 
-                  {profile.photoUri ? (
-                    <Image
-                      source={{ uri: profile.photoUri }}
-                      resizeMode="cover"
-                      style={styles.heroAvatarCircle}
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={['#FBBF24', '#F97316', '#F43F5E']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.heroAvatarCircle}
-                    >
-                      <Text style={styles.heroAvatarInitials}>{initials}</Text>
-                    </LinearGradient>
-                  )}
+                  <SSDSAvatar
+                    name={profile.name || initials}
+                    source={profile.photoUri ? { uri: profile.photoUri } : undefined}
+                    size={58}
+                    style={{ position: 'absolute', top: 5, left: 5 }}
+                  />
 
                   <View style={styles.heroCameraBadge}>
                     <Camera size={12} color="#0F172A" />
@@ -1160,19 +1132,20 @@ export default function StudySakhaProfileScreen() {
             })}
           </View>
 
-          {/* ==================== ANIMATED TAB CONTENT ==================== */}
-          <Animated.View
+          {/* ==================== TAB CONTENT (KEPT MOUNTED TO PREVENT FLICKER) ==================== */}
+          <View
             style={{
-              opacity: tabFadeAnim,
-              transform: [{ translateY: tabSlideAnim }],
               width: '100%',
               maxWidth: profileContentMaxWidth,
               alignSelf: 'center',
             }}
           >
             {/* ==================== TAB 1: OVERVIEW ==================== */}
-            {activeTab === 'overview' && (
-              <View style={styles.tabStack}>
+            <View
+              testID="profile-tab-panel-overview"
+              collapsable={false}
+              style={[styles.tabStack, activeTab !== 'overview' && styles.hiddenTab]}
+            >
                 {/* Your Badges Preview Card */}
                 <View
                   style={[
@@ -1409,11 +1382,13 @@ export default function StudySakhaProfileScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            )}
 
             {/* ==================== TAB 2: STATISTICS ==================== */}
-            {activeTab === 'stats' && (
-              <View style={styles.tabStack}>
+            <View
+              testID="profile-tab-panel-stats"
+              collapsable={false}
+              style={[styles.tabStack, activeTab !== 'stats' && styles.hiddenTab]}
+            >
                 {/* Weekly Study Activity Bar Chart */}
                 <View
                   style={[
@@ -1623,7 +1598,7 @@ export default function StudySakhaProfileScreen() {
                     <Text
                       style={[styles.kpiValue, { color: theme.textPrimary }]}
                     >
-                      {state.plannerTasks.filter((task) => task.completedOn === task.targetDate).length}
+                      {(state.plannerTasks ?? []).filter((task) => task.completedOn === task.targetDate).length}
                     </Text>
                     <Text
                       style={[styles.kpiLabel, { color: theme.textSecondary }]}
@@ -1690,11 +1665,13 @@ export default function StudySakhaProfileScreen() {
                   <ArrowRight size={16} color={theme.ctaPrimaryText} />
                 </TouchableOpacity>
               </View>
-            )}
 
             {/* ==================== TAB 3: ACCOUNT ==================== */}
-            {activeTab === 'account' && (
-              <View style={styles.tabStack}>
+            <View
+              testID="profile-tab-panel-account"
+              collapsable={false}
+              style={[styles.tabStack, activeTab !== 'account' && styles.hiddenTab]}
+            >
                 {/* Personal Details Card */}
                 <View
                   style={[
@@ -2098,8 +2075,7 @@ export default function StudySakhaProfileScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-            )}
-          </Animated.View>
+          </View>
         </ScrollView>
 
         {/* ==================== BOTTOM NAVIGATION BAR ==================== */}
@@ -3185,6 +3161,9 @@ const styles = StyleSheet.create({
   // Shared Card Containers
   tabStack: {
     gap: 14,
+  },
+  hiddenTab: {
+    display: 'none',
   },
   card: {
     borderRadius: 22,

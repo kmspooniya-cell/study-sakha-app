@@ -5,6 +5,8 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
+
 const mockGetUser = jest.fn<any>();
 const mockInsert = jest.fn<any>();
 const mockSelect = jest.fn<any>();

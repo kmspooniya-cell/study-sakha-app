@@ -1,5 +1,6 @@
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 let mockScheme: 'light' | 'dark' = 'light';
@@ -84,7 +85,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
   });
 
   it('renders only Blocking Profiles, Discipline Controls (5 items), and Android Protection Readiness', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
 
     await waitFor(() => {
       expect(view.getByText('BLOCKING PROFILES')).toBeTruthy();
@@ -122,7 +123,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
   });
 
   it('opens each retained Discipline Controls screen correctly', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
 
     await waitFor(() => {
       expect(view.getByText('Blocking Modes')).toBeTruthy();
@@ -133,7 +134,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
 
     // Verify dark mode also renders cleanly
     mockScheme = 'dark';
-    const darkView = render(<FocusLockScreen />);
+    const darkView = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => {
       expect(darkView.getByText('App Selection')).toBeTruthy();
     });
@@ -141,7 +142,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
     expect(darkView.getByText('App Management')).toBeTruthy();
 
     // Strict Mode
-    const strictView = render(<FocusLockScreen />);
+    const strictView = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => {
       expect(strictView.getByText('Strict Mode')).toBeTruthy();
     });
@@ -149,7 +150,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
     expect(strictView.getByText('Configure discipline friction & safeguards')).toBeTruthy();
 
     // Focus Analytics
-    const analyticsView = render(<FocusLockScreen />);
+    const analyticsView = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => {
       expect(analyticsView.getByText('Focus Analytics')).toBeTruthy();
     });
@@ -157,7 +158,7 @@ describe('FocusLockScreen UI cleanup & feature removal', () => {
     expect(analyticsView.getByText('Actual usage vs blocked attempts kept separate')).toBeTruthy();
 
     // Web & Shorts
-    const contentView = render(<FocusLockScreen />);
+    const contentView = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => {
       expect(contentView.getByText('Web & Shorts')).toBeTruthy();
     });

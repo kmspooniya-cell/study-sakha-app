@@ -14,6 +14,7 @@ Animated,
 AppState,
 BackHandler,
 Easing,
+Image,
 Modal,
 Platform,
 Pressable,
@@ -39,6 +40,7 @@ import {
   captureNativeReferencePhoto,
   clearPendingNativeAlarm,
   consumePendingNativeAction,
+  deleteNativeReferencePhoto,
   getAlarmPermissionStatus,
   openExactAlarmSettings,
   openFullScreenIntentSettings,
@@ -59,6 +61,7 @@ import {
   clampStepsTarget,
   defaultShakeTargetForDifficulty,
   defaultStepsTargetForDifficulty,
+  formatMissionFailure,
   loadActiveMissionSession,
   type MissionDifficulty,
   type MissionId,
@@ -1413,7 +1416,10 @@ sharedWithFriends: false,
 setActiveScreen('editor');
 };
 const openEditAlarm = (alarm: AlarmItem) => {
-setEditingAlarm({ ...alarm });
+setEditingAlarm({
+  ...alarm,
+  perMission: alarm.perMission ? { ...alarm.perMission } : undefined,
+});
 setOpenMenuId(null);
 setActiveScreen('editor');
 };
@@ -1454,7 +1460,15 @@ prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled, skippedOnce: false }
 };
 const duplicateAlarm = (alarm: AlarmItem) => {
 setAlarms((prev) => [
-        { ...alarm, id: `alm-${Date.now()}`, title: `${alarm.title} (Copy)`, enabled: true, skippedOnce: false, snoozeCount: 0 },
+        {
+          ...alarm,
+          id: `alm-${Date.now()}`,
+          title: `${alarm.title} (Copy)`,
+          enabled: true,
+          skippedOnce: false,
+          snoozeCount: 0,
+          perMission: alarm.perMission ? { ...alarm.perMission, referencePhotoUri: undefined } : undefined,
+        },
 ...prev,
 ]);
 setOpenMenuId(null);
@@ -1466,6 +1480,7 @@ setOpenMenuId(null);
 showToast('Next occurrence updated');
 };
 const deleteAlarm = (id: string) => {
+void deleteNativeReferencePhoto(id).catch(() => {});
 setAlarms((prev) => prev.filter((a) => a.id !== id));
 setPlannerTasks((prev) => prev.map((t) => (t.alarmId === id ? { ...t, alarmId: null } : t)));
 setOpenMenuId(null);
@@ -1504,6 +1519,7 @@ Vibration.vibrate([400, 600, 400, 600], true);
 
 // Restore persisted mission state once after hydration across app restart / process recreation
 const missionRestoredRef = useRef(false);
+const missionRestorePromiseRef = useRef<Promise<void>>(Promise.resolve());
 const activeRingingIdRef = useRef<string | null>(null);
 useEffect(() => {
   activeRingingIdRef.current = ringingAlarm?.id ?? null;
@@ -1513,7 +1529,7 @@ useEffect(() => {
   if (!hydrated || missionRestoredRef.current) return;
   missionRestoredRef.current = true;
   let cancelled = false;
-  void loadActiveMissionSession().then((saved) => {
+  missionRestorePromiseRef.current = loadActiveMissionSession().then((saved) => {
     if (cancelled || !saved) return;
     if (activeRingingIdRef.current) return;
     const targetAlarm = alarms.find((a) => a.id === saved.alarmId);
@@ -1521,6 +1537,7 @@ useEffect(() => {
       void saveActiveMissionSession(null);
       return;
     }
+    activeRingingIdRef.current = targetAlarm.id;
     setRestoredMissionSession(saved);
     setRingingAlarm(targetAlarm);
     setMissionRunnerMode(saved.mode);
@@ -1693,7 +1710,7 @@ const unsubscribeAction = subscribeToNativeAlarmAction(handleNativeAction);
 void consumePendingNativeAction().then((actionPayload) => {
 if (mounted && actionPayload) handleNativeAction(actionPayload);
 });
-void peekPendingNativeAlarm().then((payload) => {
+void missionRestorePromiseRef.current.then(() => peekPendingNativeAlarm()).then((payload) => {
 if (mounted && payload) handleNativeAlarm(payload);
 });
 return () => {
@@ -2717,76 +2734,176 @@ dark={darkMode}
 </View>
 )}
 {editingAlarm.missions.includes('qr') && (
-<View style={{ backgroundColor: P.cardAlt, padding: 10, borderRadius: 12, gap: 8 }}>
+<View style={{ backgroundColor: P.cardAlt, padding: 12, borderRadius: 12, gap: 10 }}>
   <View style={styles.rowBetween}>
     <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Registered QR / Barcode</Text>
     <Text style={{ fontSize: 11, fontWeight: '700', color: editingAlarm.perMission?.registeredQrCode ? P.teal : P.textMuted }}>
-      {editingAlarm.perMission?.registeredQrCode || 'None'}
+      {editingAlarm.perMission?.registeredQrCode ? 'Registered' : 'Not registered'}
     </Text>
   </View>
-  <Pressable
-    disabled={missionSetupBusy}
-    onPress={async () => {
-      setMissionSetupBusy(true);
-      try {
-        const res = await captureNativeBarcode();
-        if (res.ok) {
-          updateField('perMission', {
-            ...editingAlarm.perMission,
-            registeredQrCode: res.code,
-            registeredQrFormat: res.format,
-          });
-          showToast(`Registered ${res.format}: ${res.code}`);
-        } else {
-          showToast(`QR scan failed (${res.reason})`);
-        }
-      } finally {
-        setMissionSetupBusy(false);
-      }
-    }}
-    style={[styles.smallChipBtn, { backgroundColor: '#F43F5E', alignSelf: 'flex-start' }]}
-  >
-    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
-      {missionSetupBusy ? 'Scanning...' : editingAlarm.perMission?.registeredQrCode ? 'Re-scan QR / Barcode' : 'Scan & Register QR / Barcode'}
+  {editingAlarm.perMission?.registeredQrCode ? (
+    <View style={{ backgroundColor: P.card, padding: 10, borderRadius: 10, gap: 2 }}>
+      <Text style={{ fontSize: 10, fontWeight: '700', color: P.textSecondary }}>
+        Format: {editingAlarm.perMission.registeredQrFormat || 'QR_CODE'}
+      </Text>
+      <Text numberOfLines={2} style={{ fontSize: 12, fontWeight: '700', color: P.text }}>
+        {editingAlarm.perMission.registeredQrCode}
+      </Text>
+    </View>
+  ) : (
+    <Text style={{ fontSize: 11, color: P.textSecondary }}>
+      Scan a QR code or barcode before saving so only that code can dismiss this alarm.
     </Text>
-  </Pressable>
+  )}
+  <View style={styles.rowGap8}>
+    <Pressable
+      disabled={missionSetupBusy}
+      testID="alarm-editor-qr-scan"
+      onPress={async () => {
+        setMissionSetupBusy(true);
+        try {
+          const targetId = editingAlarm.id || `alm-${Date.now()}`;
+          const res = await captureNativeBarcode();
+          if (res.ok) {
+            setEditingAlarm((prev) => (
+              prev
+                ? {
+                    ...prev,
+                    id: prev.id || targetId,
+                    perMission: {
+                      ...prev.perMission,
+                      registeredQrCode: res.code,
+                      registeredQrFormat: res.format,
+                    },
+                  }
+                : prev
+            ));
+            showToast(`Registered ${res.format}: ${res.code}`);
+          } else {
+            showToast(formatMissionFailure(res.reason));
+          }
+        } finally {
+          setMissionSetupBusy(false);
+        }
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: '#F43F5E' }]}
+    >
+      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
+        {missionSetupBusy ? 'Scanning...' : editingAlarm.perMission?.registeredQrCode ? 'Replace QR / Barcode' : 'Scan & Register QR / Barcode'}
+      </Text>
+    </Pressable>
+    {!!editingAlarm.perMission?.registeredQrCode && (
+      <Pressable
+        disabled={missionSetupBusy}
+        testID="alarm-editor-qr-remove"
+        onPress={() => {
+          setEditingAlarm((prev) => (
+            prev
+              ? {
+                  ...prev,
+                  perMission: {
+                    ...prev.perMission,
+                    registeredQrCode: '',
+                    registeredQrFormat: undefined,
+                  },
+                }
+              : prev
+          ));
+          showToast('Registered QR / Barcode removed');
+        }}
+        style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+      >
+        <Text style={{ color: P.textSecondary, fontSize: 11, fontWeight: '700' }}>Remove</Text>
+      </Pressable>
+    )}
+  </View>
 </View>
 )}
 {editingAlarm.missions.includes('photo') && (
-<View style={{ backgroundColor: P.cardAlt, padding: 10, borderRadius: 12, gap: 8 }}>
+<View style={{ backgroundColor: P.cardAlt, padding: 12, borderRadius: 12, gap: 10 }}>
   <View style={styles.rowBetween}>
     <Text style={{ fontSize: 12, fontWeight: '700', color: P.text }}>Reference Photo</Text>
     <Text style={{ fontSize: 11, fontWeight: '700', color: editingAlarm.perMission?.referencePhotoUri ? P.teal : P.textMuted }}>
-      {editingAlarm.perMission?.referencePhotoUri ? 'Captured' : 'Not set'}
+      {editingAlarm.perMission?.referencePhotoUri ? 'Registered' : 'Not registered'}
     </Text>
   </View>
-  <Pressable
-    disabled={missionSetupBusy}
-    onPress={async () => {
-      setMissionSetupBusy(true);
-      try {
-        const targetId = editingAlarm.id || `alm-${Date.now()}`;
-        if (!editingAlarm.id) updateField('id', targetId);
-        const res = await captureNativeReferencePhoto(targetId);
-        if (res.ok) {
-          updateField('perMission', {
-            ...editingAlarm.perMission,
-            referencePhotoUri: res.referenceUri,
-          });
-          showToast('Reference photo saved');
-        } else {
-          showToast(`Photo capture failed (${res.reason})`);
-        }
-      } finally {
-        setMissionSetupBusy(false);
-      }
-    }}
-    style={[styles.smallChipBtn, { backgroundColor: '#F43F5E', alignSelf: 'flex-start' }]}
-  >
-    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
-      {missionSetupBusy ? 'Opening Camera...' : editingAlarm.perMission?.referencePhotoUri ? 'Retake Reference Photo' : 'Capture Reference Photo'}
+  {editingAlarm.perMission?.referencePhotoUri ? (
+    <Image
+      source={{ uri: editingAlarm.perMission.referencePhotoUri }}
+      style={{ width: '100%', height: 120, borderRadius: 10, backgroundColor: P.card }}
+      resizeMode="cover"
+      testID="alarm-editor-photo-preview"
+    />
+  ) : (
+    <Text style={{ fontSize: 11, color: P.textSecondary }}>
+      Capture a reference photo of a location or object before scheduling this alarm.
     </Text>
-  </Pressable>
+  )}
+  <View style={styles.rowGap8}>
+    <Pressable
+      disabled={missionSetupBusy}
+      testID="alarm-editor-photo-capture"
+      onPress={async () => {
+        setMissionSetupBusy(true);
+        try {
+          const targetId = editingAlarm.id || `alm-${Date.now()}`;
+          if (!editingAlarm.id) updateField('id', targetId);
+          const res = await captureNativeReferencePhoto(targetId);
+          if (res.ok) {
+            setEditingAlarm((prev) => (
+              prev
+                ? {
+                    ...prev,
+                    id: prev.id || targetId,
+                    perMission: {
+                      ...prev.perMission,
+                      referencePhotoUri: res.referenceUri,
+                    },
+                  }
+                : prev
+            ));
+            showToast('Reference photo saved');
+          } else {
+            showToast(formatMissionFailure(res.reason));
+          }
+        } finally {
+          setMissionSetupBusy(false);
+        }
+      }}
+      style={[styles.smallChipBtn, { backgroundColor: '#F43F5E' }]}
+    >
+      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
+        {missionSetupBusy ? 'Opening Camera...' : editingAlarm.perMission?.referencePhotoUri ? 'Replace Photo' : 'Capture Reference Photo'}
+      </Text>
+    </Pressable>
+    {!!editingAlarm.perMission?.referencePhotoUri && (
+      <Pressable
+        disabled={missionSetupBusy}
+        testID="alarm-editor-photo-remove"
+        onPress={() => {
+          const alarmIdToDelete = editingAlarm.id;
+          if (alarmIdToDelete) {
+            void deleteNativeReferencePhoto(alarmIdToDelete).catch(() => {});
+          }
+          setEditingAlarm((prev) => (
+            prev
+              ? {
+                  ...prev,
+                  perMission: {
+                    ...prev.perMission,
+                    referencePhotoUri: undefined,
+                  },
+                }
+              : prev
+          ));
+          showToast('Reference photo removed');
+        }}
+        style={[styles.smallChipBtn, { backgroundColor: P.card }]}
+      >
+        <Text style={{ color: P.textSecondary, fontSize: 11, fontWeight: '700' }}>Remove</Text>
+      </Pressable>
+    )}
+  </View>
   <View style={styles.rowGap8}>
     {[70, 80, 85, 90].map((pct) => {
       const cur = clampPhotoThreshold(editingAlarm.perMission?.photoSimilarityThreshold ?? 80);

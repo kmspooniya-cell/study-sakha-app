@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { act, render, waitFor } from '@testing-library/react-native';
+import { act, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Platform } from 'react-native';
 
@@ -146,8 +147,10 @@ describe('Focus Lock P3 Production Hardening', () => {
       blockedAttemptsToday: 0,
     });
 
-    render(<FocusLockScreen />);
+    renderWithSSDS(<FocusLockScreen />);
+    await act(async () => { jest.advanceTimersByTime(0); });
     await waitFor(() => expect(mockAsyncSetItem).toHaveBeenCalledTimes(1));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     mockAsyncSetItem.mockClear();
 
     await act(async () => {
@@ -172,7 +175,7 @@ describe('Focus Lock P3 Production Hardening', () => {
       },
     ]);
 
-    render(<FocusLockScreen />);
+    renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockAcknowledgePendingCompletions).toHaveBeenCalledWith(['pending-p3-1']));
     expect(mockDispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'recordFocusStudy', id: 'pending-p3-1' }),

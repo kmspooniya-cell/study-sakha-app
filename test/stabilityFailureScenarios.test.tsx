@@ -6,6 +6,8 @@ import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
+
 const mockStorage = new Map<string, string>();
 const mockGetItem = jest.fn(async (key: string) => mockStorage.get(key) ?? null);
 const mockDispatch = jest.fn();

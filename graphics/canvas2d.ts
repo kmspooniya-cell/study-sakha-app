@@ -8,10 +8,16 @@ import {
   StrokeJoin,
   TileMode,
 } from '@shopify/react-native-skia';
-import type { SkCanvas, SkPaint, SkPath, SkPicture, SkShader } from '@shopify/react-native-skia';
+import type { SkCanvas, SkImage, SkMaskFilter, SkPaint, SkPath, SkPicture, SkShader } from '@shopify/react-native-skia';
 import { Platform } from 'react-native';
 
 const isWeb = Platform.OS === 'web';
+
+function disposeSkiaObject(obj: unknown) {
+  if (obj && typeof (obj as { dispose?: () => void }).dispose === 'function') {
+    (obj as { dispose: () => void }).dispose();
+  }
+}
 
 type ColorStop = { offset: number; color: string };
 type Gradient = {
@@ -132,8 +138,13 @@ export class Canvas2DContext {
   }
 
   beginPath() {
+    disposeSkiaObject(this.path);
     this.path = Skia.Path.Make();
     this.hasCurrentPoint = false;
+  }
+
+  dispose() {
+    disposeSkiaObject(this.path);
   }
   moveTo(x: number, y: number) {
     this.path.moveTo(x, y);
@@ -178,6 +189,19 @@ export class Canvas2DContext {
     else if (anticlockwise) while (sweep > 0) sweep -= fullTurn;
     else while (sweep < 0) sweep += fullTurn;
 
+    if (
+      rotation === 0 &&
+      !this.hasCurrentPoint &&
+      Math.abs(sweep) >= fullTurn - 0.0001 &&
+      radiusX > 0 &&
+      radiusY > 0 &&
+      typeof this.path.addOval === 'function'
+    ) {
+      this.path.addOval(Skia.XYWHRect(x - radiusX, y - radiusY, radiusX * 2, radiusY * 2));
+      this.hasCurrentPoint = true;
+      return;
+    }
+
     const steps = Math.max(8, Math.ceil(Math.abs(sweep) * Math.max(radiusX, radiusY) / 5));
     const cosRotation = Math.cos(rotation);
     const sinRotation = Math.sin(rotation);
@@ -195,7 +219,11 @@ export class Canvas2DContext {
     if (Math.abs(sweep) >= fullTurn - 0.0001) this.path.close();
   }
 
-  private makePaint(style: PaintStyleValue, isStroke: boolean, shadow = false): SkPaint {
+  private makePaint(
+    style: PaintStyleValue,
+    isStroke: boolean,
+    shadow = false,
+  ): { paint: SkPaint; shader: SkShader | null; maskFilter: SkMaskFilter | null } {
     const paint = Skia.Paint();
     paint.setAntiAlias(true);
     paint.setStyle(isStroke ? PaintStyle.Stroke : PaintStyle.Fill);
@@ -206,24 +234,36 @@ export class Canvas2DContext {
     paint.setBlendMode(blendModes[this.state.globalCompositeOperation] ?? BlendMode.SrcOver);
     paint.setAlphaf(this.state.globalAlpha);
 
+    let shader: SkShader | null = null;
+    let maskFilter: SkMaskFilter | null = null;
     if (shadow) {
       paint.setColor(Skia.Color(this.state.shadowColor));
       if (!isWeb) {
-        paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, Math.max(0.1, this.state.shadowBlur / 2), true));
+        maskFilter = Skia.MaskFilter.MakeBlur(BlurStyle.Normal, Math.max(0.1, this.state.shadowBlur / 2), true);
+        paint.setMaskFilter(maskFilter);
       }
     } else if (typeof style === 'string') {
       paint.setColor(Skia.Color(style));
     } else {
-      paint.setShader(shaderFor(style));
+      shader = shaderFor(style);
+      paint.setShader(shader);
     }
-    return paint;
+    return { paint, shader, maskFilter };
   }
 
   private drawPath(style: PaintStyleValue, isStroke: boolean, path = this.path) {
     if (this.state.shadowBlur > 0 && this.state.shadowColor !== 'rgba(0, 0, 0, 0)') {
-      this.canvas.drawPath(path, this.makePaint(style, isStroke, true));
+      const shadowRes = this.makePaint(style, isStroke, true);
+      this.canvas.drawPath(path, shadowRes.paint);
+      disposeSkiaObject(shadowRes.paint);
+      disposeSkiaObject(shadowRes.maskFilter);
+      disposeSkiaObject(shadowRes.shader);
     }
-    this.canvas.drawPath(path, this.makePaint(style, isStroke));
+    const res = this.makePaint(style, isStroke);
+    this.canvas.drawPath(path, res.paint);
+    disposeSkiaObject(res.paint);
+    disposeSkiaObject(res.maskFilter);
+    disposeSkiaObject(res.shader);
   }
 
   fill() { this.drawPath(this.state.fillStyle, false); }
@@ -231,7 +271,9 @@ export class Canvas2DContext {
   clip() { this.canvas.clipPath(this.path, ClipOp.Intersect, true); }
 
   fillRect(x: number, y: number, width: number, height: number) {
-    this.drawPath(this.state.fillStyle, false, Skia.Path.Rect(Skia.XYWHRect(x, y, width, height)));
+    const rectPath = Skia.Path.Rect(Skia.XYWHRect(x, y, width, height));
+    this.drawPath(this.state.fillStyle, false, rectPath);
+    disposeSkiaObject(rectPath);
   }
 
   save() {
@@ -250,26 +292,55 @@ export class Canvas2DContext {
   rotate(radians: number) { this.canvas.rotate((radians * 180) / Math.PI, 0, 0); }
 
   drawImage(image: MemoryCanvas, x: number, y: number) {
-    const picture = image.snapshot();
-    if (!picture) return;
+    const rasterImage = image.imageSnapshot();
+    const picture = rasterImage ? null : image.snapshot();
+    if (!rasterImage && !picture) return;
 
-    const paint = this.makePaint('#ffffff', false);
+    const needsLayer =
+      this.state.globalAlpha < 0.999 ||
+      this.state.shadowBlur > 0 ||
+      this.state.globalCompositeOperation !== 'source-over';
+
+    if (!needsLayer && rasterImage) {
+      this.canvas.drawImage(rasterImage, x, y);
+      return;
+    }
+
+    if (!needsLayer && picture) {
+      this.canvas.save();
+      this.canvas.translate(x, y);
+      this.canvas.drawPicture(picture);
+      this.canvas.restore();
+      return;
+    }
+
+    const res = this.makePaint('#ffffff', false);
+    let imageFilter: ReturnType<typeof Skia.ImageFilter.MakeBlur> | null = null;
     if (!isWeb && this.state.shadowBlur > 0) {
-      paint.setImageFilter(Skia.ImageFilter.MakeBlur(
+      imageFilter = Skia.ImageFilter.MakeBlur(
         this.state.shadowBlur / 2,
         this.state.shadowBlur / 2,
         TileMode.Decal,
-      ));
+      );
+      res.paint.setImageFilter(imageFilter);
     }
-    this.canvas.saveLayer(paint, Skia.XYWHRect(
+    this.canvas.saveLayer(res.paint, Skia.XYWHRect(
       x - this.state.shadowBlur,
       y - this.state.shadowBlur,
       image.width + this.state.shadowBlur * 2,
       image.height + this.state.shadowBlur * 2,
     ));
     this.canvas.translate(x, y);
-    this.canvas.drawPicture(picture);
+    if (rasterImage) {
+      this.canvas.drawImage(rasterImage, 0, 0);
+    } else if (picture) {
+      this.canvas.drawPicture(picture);
+    }
     this.canvas.restore();
+    disposeSkiaObject(imageFilter);
+    disposeSkiaObject(res.paint);
+    disposeSkiaObject(res.maskFilter);
+    disposeSkiaObject(res.shader);
   }
 }
 
@@ -279,6 +350,7 @@ export class MemoryCanvas {
   private context: Canvas2DContext | null = null;
   private recorder: ReturnType<typeof Skia.PictureRecorder> | null = null;
   private picture: SkPicture | null = null;
+  private image: SkImage | null = null;
 
   get width() { return this._width; }
   set width(value: number) {
@@ -300,17 +372,66 @@ export class MemoryCanvas {
     return this.context;
   }
 
+  private finalizeRecording() {
+    if (!this.recorder) return;
+    const pic = this.recorder.finishRecordingAsPicture();
+    disposeSkiaObject(this.recorder);
+    this.recorder = null;
+    this.context?.dispose();
+    this.context = null;
+
+    if (
+      !isWeb &&
+      this._width > 0 &&
+      this._height > 0 &&
+      typeof Skia.Surface?.MakeOffscreen === 'function'
+    ) {
+      const surface = Skia.Surface.MakeOffscreen(
+        Math.max(1, Math.ceil(this._width)),
+        Math.max(1, Math.ceil(this._height)),
+      );
+      if (surface) {
+        try {
+          const offscreen = surface.getCanvas();
+          offscreen.clear(Skia.Color('transparent'));
+          offscreen.drawPicture(pic);
+          surface.flush();
+          const raster = surface.makeImageSnapshot();
+          if (raster) {
+            this.image = raster;
+            disposeSkiaObject(pic);
+            return;
+          }
+        } finally {
+          disposeSkiaObject(surface);
+        }
+      }
+    }
+    this.picture = pic;
+  }
+
+  imageSnapshot(): SkImage | null {
+    if (!this.image && !this.picture && this.recorder) {
+      this.finalizeRecording();
+    }
+    return this.image;
+  }
+
   snapshot() {
-    if (!this.picture && this.recorder) {
-      this.picture = this.recorder.finishRecordingAsPicture();
-      this.recorder = null;
+    if (!this.picture && !this.image && this.recorder) {
+      this.finalizeRecording();
     }
     return this.picture;
   }
 
   private reset() {
+    this.context?.dispose();
     this.context = null;
+    disposeSkiaObject(this.image);
+    this.image = null;
+    disposeSkiaObject(this.picture);
     this.picture = null;
+    disposeSkiaObject(this.recorder);
     this.recorder = Skia.PictureRecorder();
     const canvas = this.recorder.beginRecording(Skia.XYWHRect(0, 0, Math.max(1, this._width), Math.max(1, this._height)));
     this.context = new Canvas2DContext(canvas);
@@ -324,6 +445,12 @@ export function createCanvas() {
 export function recordPicture(width: number, height: number, draw: (context: Canvas2DContext) => void) {
   const recorder = Skia.PictureRecorder();
   const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, width, height));
-  draw(new Canvas2DContext(canvas));
-  return recorder.finishRecordingAsPicture();
+  const ctx = new Canvas2DContext(canvas);
+  try {
+    draw(ctx);
+    return recorder.finishRecordingAsPicture();
+  } finally {
+    ctx.dispose();
+    disposeSkiaObject(recorder);
+  }
 }

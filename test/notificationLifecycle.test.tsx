@@ -73,6 +73,15 @@ jest.mock('@expo/vector-icons/Ionicons', () => {
   return { __esModule: true, default: Icon };
 });
 
+jest.mock('lucide-react-native', () => {
+  const ReactActual = jest.requireActual<typeof import('react')>('react');
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return new Proxy({}, {
+    get: (_target, icon) => (props: Record<string, unknown>) =>
+      ReactActual.createElement(View, { ...props, accessibilityLabel: String(icon) }),
+  });
+});
+
 jest.mock('../components/Shell', () => {
   const ReactActual = jest.requireActual<typeof import('react')>('react');
   const { View, Text: RNText } = jest.requireActual<typeof import('react-native')>('react-native');
@@ -92,6 +101,7 @@ jest.mock('../components/Shell', () => {
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
   SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
+  SafeAreaInsetsContext: jest.requireActual<typeof import('react')>('react').createContext({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 
@@ -136,6 +146,9 @@ jest.mock('expo-notifications', () => ({
 }));
 
 const { StoreProvider, getUserScopedStorageKey, reducer, useStore } = require('../lib/store') as typeof import('../lib/store');
+const { ThemeProvider: SSDSThemeProvider } = require('../study-sakha-design-system-native/src/theme/ThemeProvider') as {
+  ThemeProvider: typeof import('../study-sakha-design-system-native/src/theme/ThemeProvider').ThemeProvider;
+};
 const { notificationFromExpoNotification, notificationFromExpoResponse, getNotificationDestination } = require('../lib/notifications') as typeof import('../lib/notifications');
 const NotificationsScreen = require('../screens/NotificationsScreen').default as typeof import('../screens/NotificationsScreen').default;
 
@@ -151,7 +164,7 @@ function NotificationReceiverHarness({ expoEvent }: { expoEvent: unknown }) {
           if (notif) dispatch({ type: 'notify', notif, fromSystem: true });
         }}
       />
-      <NotificationsScreen />
+      <SSDSThemeProvider><NotificationsScreen /></SSDSThemeProvider>
     </>
   );
 }
@@ -167,7 +180,7 @@ describe('Real notification system lifecycle', () => {
   it('shows no fake notifications on initial empty state', async () => {
     const view = render(
       <StoreProvider>
-        <NotificationsScreen />
+        <SSDSThemeProvider><NotificationsScreen /></SSDSThemeProvider>
       </StoreProvider>,
     );
 
@@ -198,7 +211,7 @@ describe('Real notification system lifecycle', () => {
 
     const view = render(
       <StoreProvider>
-        <NotificationReceiverHarness expoEvent={expoPayload} />
+        <SSDSThemeProvider><NotificationReceiverHarness expoEvent={expoPayload} /></SSDSThemeProvider>
       </StoreProvider>,
     );
 
@@ -231,7 +244,7 @@ describe('Real notification system lifecycle', () => {
     view.unmount();
     const restarted = render(
       <StoreProvider>
-        <NotificationReceiverHarness expoEvent={expoPayload} />
+        <SSDSThemeProvider><NotificationReceiverHarness expoEvent={expoPayload} /></SSDSThemeProvider>
       </StoreProvider>,
     );
 
@@ -278,7 +291,7 @@ describe('Real notification system lifecycle', () => {
 
     const view = render(
       <StoreProvider>
-        <NotificationsScreen />
+        <SSDSThemeProvider><NotificationsScreen /></SSDSThemeProvider>
       </StoreProvider>,
     );
 

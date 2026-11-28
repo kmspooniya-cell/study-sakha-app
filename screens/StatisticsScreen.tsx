@@ -26,7 +26,7 @@ import {
   type NormalizedFocusSession,
 } from '../lib/statistics';
 import { getUserScopedStorageKey, useStore, type State } from '../lib/store';
-import { useSSDSTheme } from '../lib/ssds';
+import { SSDSSectionHeader, SSDSSurface, useSSDSTheme } from '../lib/ssds';
 import Svg, {
   Circle,
   Path,
@@ -1716,6 +1716,7 @@ interface AnalyticsCardProps {
   rightAction?: React.ReactNode;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  headerSingleRow?: boolean;
   dark: boolean;
   children: React.ReactNode;
   style?: ViewStyle;
@@ -1729,6 +1730,7 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
   rightAction,
   collapsible = false,
   defaultOpen = true,
+  headerSingleRow = false,
   dark,
   children,
   style,
@@ -1747,7 +1749,9 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
   const tone = toneStyles[iconTone] || toneStyles.teal;
 
   return (
-    <View
+    <SSDSSurface
+      variant="outlined"
+      radius="lg"
       style={[
         styles.card,
         {
@@ -1758,21 +1762,30 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
         style,
       ]}
     >
-      <View style={styles.cardHeader}>
-        <View style={styles.cardHeaderLeft}>
-          {Icon && (
+      <View style={[styles.cardHeader, headerSingleRow && styles.cardHeaderSingleRow]}>
+        <View style={[styles.cardHeaderLeft, headerSingleRow && styles.cardHeaderLeftSingleRow]}>
+          {Icon ? (
             <View style={[styles.cardIconBox, { backgroundColor: tone.bg }]}>
               <Icon size={16} color={tone.fg} />
             </View>
+          ) : null}
+          {headerSingleRow ? (
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={[styles.cardTitleSingleRow, { color: c.textHeading }]}
+            >
+              {title}
+            </Text>
+          ) : (
+            <SSDSSectionHeader
+              title={title}
+              subtitle={subtitle}
+              compact
+              style={{ flex: 1, marginBottom: 0 }}
+            />
           )}
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.cardTitle, { color: c.textHeading }]}>{title}</Text>
-            {subtitle ? (
-              <Text style={[styles.cardSubtitle, { color: c.textSecondary }]}>{subtitle}</Text>
-            ) : null}
-          </View>
         </View>
-
         <View style={styles.cardHeaderRight}>
           {rightAction}
           {collapsible && (
@@ -1793,7 +1806,7 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
       </View>
 
       {(!collapsible || isOpen) && <View style={styles.cardBody}>{children}</View>}
-    </View>
+    </SSDSSurface>
   );
 };
 
@@ -2017,19 +2030,112 @@ function StudySakhaStatisticsScreen() {
     showToast(`Reporting period updated: ${formatCompactDate(customStart)} – ${formatCompactDate(customEnd)}`);
   };
 
-  const activeActivityData = useMemo(() => {
-    if (activityView === 'weekly' && analytics.activity.weeklyBuckets.length > 1) {
-      return analytics.activity.weeklyBuckets;
+  const activityAnalytics = useMemo(() => {
+    const allSessions = deduplicateSessions(dataset.sessions);
+    const dailyTargetMinutes = dataset.goals?.dailyTargetMinutes ?? 180;
+
+    const buildSeriesForSpan = (span: string[], useDayInitials: boolean): DailyPoint[] => {
+      const map = new Map<string, Omit<DailyPoint, 'topSubject' | 'goalMet'>>();
+      for (const iso of span) {
+        map.set(iso, {
+          date: iso,
+          label: useDayInitials
+            ? DAY_INITIALS[getDayOfWeekIndex(iso)]
+            : String(parseISODate(iso).getUTCDate()),
+          dayName: SHORT_DAYS[getDayOfWeekIndex(iso)],
+          shortDate: formatCompactDate(iso),
+          seconds: 0,
+          minutes: 0,
+          sessions: 0,
+          bySubject: {},
+        });
+      }
+      for (const s of allSessions) {
+        const entry = map.get(s.date);
+        if (!entry) continue;
+        entry.seconds += s.durationSeconds;
+        entry.sessions += 1;
+        entry.bySubject[s.subject] = (entry.bySubject[s.subject] || 0) + s.durationSeconds;
+      }
+      return span.map((iso) => {
+        const entry = map.get(iso)!;
+        const topSubjEntry = Object.entries(entry.bySubject).sort((a, b) => b[1] - a[1])[0];
+        return {
+          ...entry,
+          minutes: Number((entry.seconds / 60).toFixed(2)),
+          topSubject: topSubjEntry ? topSubjEntry[0] : null,
+          goalMet: entry.seconds >= dailyTargetMinutes * 60,
+        };
+      });
+    };
+
+    if (activityView === 'weekly') {
+      const anchor = selectedDayISO && isValidISODate(selectedDayISO) ? selectedDayISO : endISO;
+      const dow = getDayOfWeekIndex(anchor);
+      const mondayOffset = dow === 0 ? -6 : 1 - dow;
+      const weekStart = addDaysISO(anchor, mondayOffset);
+      const weekEnd = addDaysISO(weekStart, 6);
+      const weekSpan = buildDateSpan(weekStart, weekEnd);
+      const series = buildSeriesForSpan(weekSpan, true);
+      const totalSeconds = series.reduce((sum, d) => sum + d.seconds, 0);
+      const prevWeekStart = addDaysISO(weekStart, -7);
+      const prevWeekEnd = addDaysISO(weekEnd, -7);
+      const prevSeconds = allSessions
+        .filter((s) => s.date >= prevWeekStart && s.date <= prevWeekEnd)
+        .reduce((sum, s) => sum + s.durationSeconds, 0);
+
+      return {
+        series,
+        totalSeconds,
+        dailyAvgSeconds: Math.round(totalSeconds / 7),
+        prevLabel: 'PREV WEEK',
+        prevSeconds,
+      };
     }
-    if (activityView === 'monthly' && analytics.activity.monthlyBuckets.length > 1) {
-      return analytics.activity.monthlyBuckets;
+
+    if (activityView === 'monthly') {
+      const anchor = selectedDayISO && isValidISODate(selectedDayISO) ? selectedDayISO : endISO;
+      const anchorDate = parseISODate(anchor);
+      const year = anchorDate.getUTCFullYear();
+      const month = anchorDate.getUTCMonth();
+      const monthStart = toISODate(new Date(Date.UTC(year, month, 1)));
+      const monthEnd = toISODate(new Date(Date.UTC(year, month + 1, 0)));
+      const monthSpan = buildDateSpan(monthStart, monthEnd);
+      const series = buildSeriesForSpan(monthSpan, false);
+      const totalSeconds = series.reduce((sum, d) => sum + d.seconds, 0);
+
+      const prevMonthStart = toISODate(new Date(Date.UTC(year, month - 1, 1)));
+      const prevMonthEnd = toISODate(new Date(Date.UTC(year, month, 0)));
+      const prevSeconds = allSessions
+        .filter((s) => s.date >= prevMonthStart && s.date <= prevMonthEnd)
+        .reduce((sum, s) => sum + s.durationSeconds, 0);
+
+      return {
+        series,
+        totalSeconds,
+        dailyAvgSeconds: Math.round(totalSeconds / Math.max(1, monthSpan.length)),
+        prevLabel: 'PREV MONTH',
+        prevSeconds,
+      };
     }
-    return analytics.activity.dailySeries;
-  }, [activityView, analytics.activity]);
+
+    return {
+      series: analytics.activity.dailySeries,
+      totalSeconds: analytics.hero.totalActualSeconds,
+      dailyAvgSeconds: analytics.hero.dailyAvgSeconds,
+      prevLabel: `PREV ${analytics.meta.periodDays}D`,
+      prevSeconds: analytics.hero.prevActualSeconds,
+    };
+  }, [activityView, analytics.activity.dailySeries, analytics.hero.dailyAvgSeconds, analytics.hero.prevActualSeconds, analytics.hero.totalActualSeconds, analytics.meta.periodDays, dataset.goals?.dailyTargetMinutes, dataset.sessions, endISO, selectedDayISO]);
+
+  const activeActivityData = activityAnalytics.series;
 
   const selectedDayDetails = useMemo(
-    () => analytics.activity.dailySeries.find((d) => d.date === selectedDayISO) || null,
-    [analytics.activity.dailySeries, selectedDayISO]
+    () =>
+      activeActivityData.find((d) => d.date === selectedDayISO) ||
+      activeActivityData[activeActivityData.length - 1] ||
+      null,
+    [activeActivityData, selectedDayISO]
   );
 
   const activeSubjectDetail = useMemo(
@@ -2692,13 +2798,14 @@ function StudySakhaStatisticsScreen() {
             {/* SECTION C: STUDY ACTIVITY ANALYTICS */}
             <AnalyticsCard
               title="Study Activity Analytics"
-              subtitle="Interactive actual recorded focus time. Tap any bar to inspect details."
+              headerSingleRow
               icon={BarChart3}
               iconTone="blue"
               dark={dark}
               style={isLg ? { flex: 7 } : undefined}
               rightAction={
                 <View
+                  testID="activity-filter-group"
                   style={[
                     styles.miniSegControl,
                     {
@@ -2709,16 +2816,18 @@ function StudySakhaStatisticsScreen() {
                 >
                   {(
                     [
-                      { id: 'daily', label: 'Daily', enabled: true },
-                      { id: 'weekly', label: 'Weekly', enabled: analytics.activity.weeklyBuckets.length > 1 },
-                      { id: 'monthly', label: 'Monthly', enabled: analytics.activity.monthlyBuckets.length > 1 },
+                      { id: 'daily', label: 'Daily' },
+                      { id: 'weekly', label: 'Weekly' },
+                      { id: 'monthly', label: 'Monthly' },
                     ] as const
                   ).map((tab) => {
                     const active = activityView === tab.id;
                     return (
                       <TouchableOpacity
                         key={tab.id}
-                        disabled={!tab.enabled}
+                        testID={`activity-filter-${tab.id}`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
                         onPress={() => setActivityView(tab.id)}
                         style={[
                           styles.miniSegBtn,
@@ -2728,14 +2837,11 @@ function StudySakhaStatisticsScreen() {
                         ]}
                       >
                         <Text
+                          numberOfLines={1}
                           style={[
                             styles.miniSegText,
                             {
-                              color: active
-                                ? c.textPrimary
-                                : tab.enabled
-                                  ? c.textSecondary
-                                  : 'rgba(148,163,184,0.4)',
+                              color: active ? c.textPrimary : c.textSecondary,
                             },
                           ]}
                         >
@@ -2747,34 +2853,38 @@ function StudySakhaStatisticsScreen() {
                 </View>
               }
             >
+              <Text style={[styles.cardSubtitle, { color: c.textSecondary, marginTop: 0, marginBottom: 10 }]}>
+                Interactive actual recorded focus time. Tap any bar to inspect details.
+              </Text>
+
               {/* Compact Stats Strip */}
               <View style={[styles.statsStrip3, { backgroundColor: c.bgSubtleStrong }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.stripLabel, { color: c.textSecondary }]}>PERIOD TOTAL</Text>
-                  <Text style={[styles.stripValue, { color: c.textPrimary }]}>
-                    {formatDurationSeconds(analytics.hero.totalActualSeconds)}
+                  <Text testID="activity-period-total" style={[styles.stripValue, { color: c.textPrimary }]}>
+                    {formatDurationSeconds(activityAnalytics.totalSeconds)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.stripLabel, { color: c.textSecondary }]}>DAILY AVERAGE</Text>
-                  <Text style={[styles.stripValue, { color: c.textPrimary }]}>
-                    {formatDurationSeconds(analytics.hero.dailyAvgSeconds)}
+                  <Text testID="activity-daily-average" style={[styles.stripValue, { color: c.textPrimary }]}>
+                    {formatDurationSeconds(activityAnalytics.dailyAvgSeconds)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.stripLabel, { color: c.textSecondary }]}>
-                    PREV {analytics.meta.periodDays}D
+                  <Text testID="activity-prev-label" style={[styles.stripLabel, { color: c.textSecondary }]}>
+                    {activityAnalytics.prevLabel}
                   </Text>
-                  <Text style={[styles.stripValue, { color: c.textBody }]}>
-                    {analytics.hero.prevActualSeconds > 0
-                      ? formatDurationSeconds(analytics.hero.prevActualSeconds)
+                  <Text testID="activity-prev-value" style={[styles.stripValue, { color: c.textBody }]}>
+                    {activityAnalytics.prevSeconds > 0
+                      ? formatDurationSeconds(activityAnalytics.prevSeconds)
                       : '—'}
                   </Text>
                 </View>
               </View>
 
               {/* Interactive Bar Chart */}
-              {analytics.hero.totalActualSeconds === 0 ? (
+              {activityAnalytics.totalSeconds === 0 ? (
                 <View style={[styles.emptyChartBox, { borderColor: c.borderCard }]}>
                   <Activity size={26} color={c.textMuted} />
                   <Text style={[styles.emptyChartTitle, { color: c.textSecondary }]}>
@@ -2788,14 +2898,14 @@ function StudySakhaStatisticsScreen() {
                 <ActivityBarChartRN
                   data={activeActivityData}
                   activityView={activityView}
-                  selectedDayISO={selectedDayISO}
+                  selectedDayISO={selectedDayDetails?.date ?? selectedDayISO}
                   onSelectDay={setSelectedDayISO}
                   dark={dark}
                 />
               )}
 
               {/* Selected Day Inspector Pill */}
-              {activityView === 'daily' && selectedDayDetails && (
+              {selectedDayDetails && (
                 <View
                   style={[
                     styles.selectedDayPill,
@@ -3891,7 +4001,9 @@ function StudySakhaStatisticsScreen() {
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
               {modalTasks.length === 0 ? (
                 <Text style={[styles.emptyInlineText, { color: c.textSecondary }]}>
-                  No tasks match the current filter.
+                  {analytics.tasks.total === 0
+                    ? 'No scheduled tasks yet. Tasks you create in Study Planner will appear here.'
+                    : 'No tasks match the current filter.'}
                 </Text>
               ) : (
                 modalTasks.map((t) => {
@@ -4405,16 +4517,34 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
+  cardHeaderSingleRow: {
+    alignItems: 'center',
+    gap: 8,
+    paddingBottom: 8,
+  },
   cardHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
     flex: 1,
+    minWidth: 0,
+  },
+  cardHeaderLeftSingleRow: {
+    alignItems: 'center',
+    gap: 8,
   },
   cardHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
+  },
+  cardTitleSingleRow: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    flexShrink: 1,
+    minWidth: 0,
   },
   cardIconBox: {
     width: 32,
@@ -4505,14 +4635,15 @@ const styles = StyleSheet.create({
     padding: 2,
     borderRadius: 9,
     borderWidth: 1,
+    flexShrink: 0,
   },
   miniSegBtn: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 7,
   },
   miniSegText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '600',
   },
   statsStrip3: {

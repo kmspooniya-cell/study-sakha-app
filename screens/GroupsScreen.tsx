@@ -95,6 +95,7 @@ import type { FocusSessionSetup } from '../components/FocusSessionSetupModal';
 import { SmartStudyRoomScreen } from '../screens/SmartStudyRoomScreen';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { useTheme } from '../lib/theme';
+import { SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { AudioPlayerLifecycle } from '../lib/audioPlayerLifecycle';
 import { useStore } from '../lib/store';
@@ -473,22 +474,10 @@ const STUDY_ROOMS: StudyRoom[] = [
     isCam: false,
   },
   {
-    id: 'pomodoro',
-    name: '50/10 Deep Pomodoro',
-    type: 'Focus room',
-    isCam: false,
-  },
-  {
     id: 'desk-cam',
     name: 'Desk-Cam Accountability',
     type: 'Desk-Cam',
     isCam: true,
-  },
-  {
-    id: 'exam-simulation',
-    name: '3-Hour Exam Simulation',
-    type: 'Exam simulation',
-    isCam: false,
   },
 ];
 
@@ -1427,6 +1416,7 @@ export default function StudySakhaGroupsRN() {
   const isTablet = width >= 768;
   const insets = useSafeAreaInsets();
   const { colors: appColors, scheme } = useTheme();
+  const { tokens } = useSSDSTheme();
   const store = useStore();
   const globalFocus = useOptionalFocusSession();
   const navigation = useNavigation<AppNavigation>();
@@ -1437,15 +1427,15 @@ export default function StudySakhaGroupsRN() {
   const [isPremium, setIsPremium] = useState(true);
   const [activeScreen, setActiveScreen] = useState<'main' | 'detail' | 'notifications' | 'explore'>('main');
   const theme = useMemo<ThemeColors>(() => ({
-    canvas: appColors.bg,
-    surface: appColors.surface,
+    canvas: tokens.colors.background,
+    surface: tokens.colors.surface,
     surfaceElevated: appColors.surfaceAlt,
     border: appColors.border,
     borderSubtle: appColors.borderSubtle,
-    textPrimary: appColors.textPrimary,
-    textSecondary: appColors.textSecondary,
+    textPrimary: tokens.colors.textPrimary,
+    textSecondary: tokens.colors.textSecondary,
     textMuted: appColors.textMuted,
-    primary: appColors.blue,
+    primary: tokens.colors.primary,
     primarySoft: appColors.tint,
     primaryText: appColors.blue,
     teal: appColors.teal,
@@ -1464,7 +1454,7 @@ export default function StudySakhaGroupsRN() {
     successBorder: appColors.green,
     successText: appColors.green,
     overlay: appColors.overlay,
-  }), [appColors, scheme]);
+  }), [appColors, scheme, tokens]);
 
   // Groups Data & Filters
   // Group discovery is backend-owned. Never seed the production list with fixtures.
@@ -3775,10 +3765,8 @@ export default function StudySakhaGroupsRN() {
         ? !room.isCam
         : room.isCam
     ));
-    const descriptions: Record<GroupRoomId, string> = {
+    const descriptions: Partial<Record<GroupRoomId, string>> = {
       'silent-focus': 'A quiet room for individual focus. Chat stays off.',
-      pomodoro: 'A shared focus and break lounge, synced with the group.',
-      'exam-simulation': 'A distraction-free exam hall with a mock paper reference.',
       'desk-cam': 'Camera-off accountability. Desk video is not available yet.',
     };
     return (
@@ -3787,7 +3775,7 @@ export default function StudySakhaGroupsRN() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Study rooms</Text>
             <Text style={{ fontSize: 12, color: theme.textSecondary }}>
-              Four rooms for focused, distraction-free study.
+              Two rooms for focused, distraction-free study.
             </Text>
           </View>
         </View>
@@ -3807,13 +3795,7 @@ export default function StudySakhaGroupsRN() {
             {visibleRooms.map((room) => {
               const joined = activeRoom?.id === room.id;
               const roomCount = joined ? roomRealtime.participants.length : 0;
-              const Icon = room.isCam
-                ? VideoOff
-                : room.id === 'exam-simulation'
-                  ? FileText
-                  : room.id === 'pomodoro'
-                    ? Zap
-                    : BookOpen;
+              const Icon = room.isCam ? VideoOff : BookOpen;
               const isSilentFocusCard = room.id === 'silent-focus';
               const isCardClickable = isSilentFocusCard;
               const handleCardPress = () => {
@@ -4815,7 +4797,6 @@ export default function StudySakhaGroupsRN() {
     const memberRoom: Record<string, string> = {
       u1: 'In Silent Focus Hall',
       u2: 'In Desk-Cam Accountability',
-      u4: 'In 50/10 Deep Pomodoro',
       u5: 'In Silent Focus Hall',
     };
     const rolePalette: Record<string, { bg: string; fg: string }> = {
@@ -5360,7 +5341,7 @@ export default function StudySakhaGroupsRN() {
   // --------------------------------------------------------------------------
   return (
     <Shell active="Groups" title="" scroll={false} contentPadding={0} hideChrome={activeScreen === 'detail'}>
-      <View style={{ flex: 1 }}>
+      <SSDSSurface variant="flat" style={{ flex: 1, backgroundColor: tokens.colors.background }}>
         <KeyboardAvoidingView
           behavior={activeScreen === 'detail' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
@@ -5368,7 +5349,7 @@ export default function StudySakhaGroupsRN() {
           {openingDirectHall && !activeRoom ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
               <ActivityIndicator size="small" color={theme.primary} />
-              <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>Opening Group Hall…</Text>
+              <SSDSText variant="CardTitle" style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>Opening Group Hall…</SSDSText>
             </View>
           ) : activeScreen === 'detail' ? (
             <View style={{ flex: 1, paddingTop: insets.top }}>
@@ -6471,7 +6452,7 @@ export default function StudySakhaGroupsRN() {
           <Text style={[styles.toastText, { color: theme.surface }]}>{toast}</Text>
         </View>
       )}
-      </View>
+      </SSDSSurface>
     </Shell>
   );
 }

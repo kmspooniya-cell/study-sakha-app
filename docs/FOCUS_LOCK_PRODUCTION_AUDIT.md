@@ -518,3 +518,50 @@ All justified **P3 production-hardening improvements** have been implemented on 
 ### 16.4 Remaining Android Limitations & Real-Device Testing Status
 - **OS Boundaries:** Without Device Owner / MDM, Android allows users to revoke Accessibility permission in Settings, Force Stop the app, or uninstall it. OEMs (Xiaomi MIUI/HyperOS, Oppo ColorOS, Vivo FuntouchOS, Samsung OneUI) may still require user-granted "Display pop-up windows while running in background" and Battery Optimization exemption for reliable background `startActivity`.
 - **Real-Device Testing:** **NOT VERIFIED** in this Codespace (no Android SDK / `ANDROID_HOME` or `adb` device). Physical device verification via an EAS APK build is required before claiming production device readiness.
+
+---
+
+## 17. Usage-Limit-to-Blocking Enforcement Audit & Fix (Updated 2026-11-28)
+
+### 17.1 Exact Root Causes Why Usage Tracking Worked While Blocking Failed
+1. **Stale `cachedLimits` & Initial Sync Race (`FocusLockAccessibilityService.kt`, `FocusLockModule.kt`, `FocusLockScreen.tsx`):**
+   - `FocusLockAccessibilityService` relied solely on `SharedPreferences.OnSharedPreferenceChangeListener` to update `cachedLimits`, and `FocusLockModule` (`setAppUsageLimits`, `suspendAppReminder`, `clearAppReminderSuspension`, `requestEmergencyAccess`, session lifecycle methods) never notified `FocusLockAccessibilityService.instance` to refresh and immediately recheck the foreground app.
+   - `FocusLockScreen.tsx` also had a startup race where `setAppUsageLimits(appLimits)` ran as soon as `hydrated` became `true` (with `{}` if JS storage was empty) before `refreshNativeState()` finished merging `getAppUsageLimits()`.
+2. **Ignored `liveDelta` When `usedMs > 0L` & Multi-Activity `UsageEvents` Drops (`FocusLockAccessibilityService.kt`, `FocusLockUsageLimits.kt`):**
+   - `evaluatePackage()` only added `liveDelta` when `usedMs == 0L`. Whenever an app had prior usage today (`usedMs > 0L`), any lag or missed `ACTIVITY_RESUMED` in `UsageStatsManager.queryEvents()` froze `usedMs` below `limitMs` while the user remained in Chrome.
+   - `queryTodayUsageMs()` keyed `activeStart` only by `packageName`, so switching between internal activities (e.g. Chrome tabs / Custom Tabs / dialogs) could trigger `activeStart.remove(pkg)` and stop counting foreground time.
+3. **In-App Timer Starvation & Debounce Drop (`FocusLockAccessibilityService.kt`):**
+   - `com.android.systemui` `TYPE_WINDOW_STATE_CHANGED` events (notifications, volume panel, heads-up) cleared `currentForegroundPackage` and cancelled `limitCheckRunnable` without restoring it when SystemUI closed.
+   - When `usedMs >= limitMs` and `launchIntervention()` hit `BURST_DEBOUNCE_MS`, `evaluatePackage()` returned early without scheduling a retry, leaving static foreground pages unblocked.
+4. **`FocusLockBlockingActivity` Task Affinity & Launch Mode (`plugins/withFocusLock.js`, `FocusLockAccessibilityService.kt`):**
+   - `.FocusLockBlockingActivity` used `launchMode="singleTop"` with default `taskAffinity` (sharing `MainActivity`'s task), which could cause background task-reordering issues instead of presenting cleanly over Chrome.
+5. **Session-to-Limit Precedence Gap (`FocusLockBlockingActivity.kt`):**
+   - If a Focus Lock session expired while `FocusLockBlockingActivity` was open for a package whose daily usage limit was also exceeded, `isAccessCurrentlyAuthorized()` returned `!sessionActive` (`true`) instead of falling through to Policy B (`usage_limit`).
+
+### 17.2 Complete Enforcement Pipeline & Precedence
+1. **Sync:** `FocusLockScreen.tsx` waits for `nativeLimitsHydrated` before pushing `setAppUsageLimits`, and `FocusLockModule` calls `FocusLockAccessibilityService.instance?.refreshLimitsAndRecheck()` on every limit/suspension/emergency/session mutation.
+2. **Detection:** `FocusLockAccessibilityService` ignores IME windows and preserves `currentForegroundPackage` across `SystemUI` overlays, only clearing on `MainActivity` or Home launcher transitions.
+3. **Accumulation:** `FocusLockUsageLimits.queryTodayUsageMs()` tracks per-activity `resumedClasses` and caches for 1000ms on rapid `TYPE_WINDOWS_CHANGED` bursts (`forceRefresh = false`), while `evaluatePackage()` enforces `maxOf(queryUsedMs, currentForegroundBaseUsedMs + liveDelta)`.
+4. **Precedence:**
+   - Authorized **Emergency Pass** (5m) -> **ALLOW** (until `FOCUS_LOCK_EMERGENCY_EXPIRED` alarm / expiry check).
+   - **Policy A (Active Focus Session)** -> **BLOCK** (`reason = "session"`) for blocklist / non-allowlist apps.
+   - **Policy B (Per-App Daily Usage Limit)** -> **BLOCK** (`reason = "usage_limit"`) when `limitMins > 0`, not suspended, and `usedMs >= limitMins * 60_000L`.
+5. **Launch & Diagnostics:** `FocusLockBlockingActivity` runs in `singleInstance` with `taskAffinity=""`, launched with `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP | FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_NO_ANIMATION`. Structured `StudySakhaFocusLock` logs record foreground package, usage, limit, suspension, emergency status, decision, and launch result/failure without logging PINs.
+
+### 17.3 Modified Files
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockUsageLimits.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockAccessibilityService.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockBlockingActivity.kt`
+- `native/focus-lock/android/java/com/anonymous/agonpreview/FocusLockModule.kt`
+- `plugins/withFocusLock.js`
+- `screens/FocusLockScreen.tsx`
+- `test/focusLockRealBlocking.test.tsx`
+- `docs/FOCUS_LOCK_PRODUCTION_AUDIT.md`
+
+### 17.4 Verification Matrix
+| Check / Scenario | Status | Notes |
+|---|---|---|
+| Expo CNG Prebuild (`expo prebuild --no-install --platform android`) | **PASS** | Generated `android/` with `singleInstance` + `taskAffinity=""` manifest entry and copied updated Kotlin sources. |
+| Focus Lock Jest Suites (`test/focusLockRealBlocking.test.tsx`, `focusLockP0Fixes`, `focusLockP1Fixes`, `focusLockP2Fixes`, `focusLockP3Hardening`, `focusLockCleanup`) | **PASS** | **6 suites, 26 tests passed** (mocked RN + Kotlin invariant checks). |
+| Scoped TypeScript & Expo ESLint | **PASS** | `expo lint` (0 errors) and `tsc --noEmit` (0 errors in `FocusLockScreen.tsx`, `lib/focusLockNative.ts`, `lib/focusLockUsageLimits.ts`, `test/focusLockRealBlocking.test.tsx`). |
+| Real Chrome 5-min limit, Home/Recents, rapid switch, suspension, 5m Emergency Pass, reboot | **NOT TESTED** | Blocked in Codespace: no Android SDK (`ANDROID_HOME`), Gradle Android build, or physical Android device/`adb`. |

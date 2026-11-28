@@ -1,7 +1,8 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock(
   '@react-native-async-storage/async-storage',
   () => require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -144,7 +145,7 @@ describe('DashboardScreen Redesigned Homepage', () => {
     });
   });
 
-  it('renders greeting, goal dial, real stats, 2x2 Study Planner grid, and Shell nav', async () => {
+  it('renders greeting, goal dial, real stats, action-only 2x2 Study Planner grid, and Shell nav', async () => {
     const view = renderDashboard('light');
 
     expect(view.getByText('Aarav')).toBeTruthy();
@@ -156,16 +157,21 @@ describe('DashboardScreen Redesigned Homepage', () => {
     expect(view.getByText('Study Planner')).toBeTruthy();
     expect(view.getByText('Quick controls')).toBeTruthy();
     expect(view.getByText('Add Task')).toBeTruthy();
-    expect(view.getByLabelText('Add Task, 2 pending')).toBeTruthy();
-    expect(view.getByText('Revise Laxmikanth Ch 4')).toBeTruthy();
+    expect(view.getByLabelText('Add Task')).toBeTruthy();
     expect(view.getByText('Focus Lock')).toBeTruthy();
     expect(view.getByText('Focus Timer')).toBeTruthy();
-    expect(view.getByText('25:00')).toBeTruthy();
+    expect(view.getByLabelText('Focus Timer')).toBeTruthy();
     expect(view.getByText('Alarm')).toBeTruthy();
 
-    await waitFor(() => {
-      expect(view.getByText('ON • 06:30 AM')).toBeTruthy();
-    });
+    // Live activity information and status indicators are removed from Quick Control cards
+    expect(view.queryByText('Revise Laxmikanth Ch 4')).toBeNull();
+    expect(view.queryByText('Plan your next topic')).toBeNull();
+    expect(view.queryByText('25:00')).toBeNull();
+    expect(view.queryByText('Running now')).toBeNull();
+    expect(view.queryByText('Tap to open timer')).toBeNull();
+    expect(view.queryByText('ON')).toBeNull();
+    expect(view.queryByText('OFF')).toBeNull();
+    expect(view.queryByText(/Apps shielded|Tap to shield|06:30 AM|Scheduled|Not set/)).toBeNull();
 
     // Shell bottom nav & header controls present without duplicates
     expect(view.getByTestId('app-bottom-nav')).toBeTruthy();
@@ -197,7 +203,7 @@ describe('DashboardScreen Redesigned Homepage', () => {
     });
   });
 
-  it('reflects active Focus Lock state and supports dark mode', async () => {
+  it('renders clean action-only cards in dark mode even when Focus Lock or Alarm is active', async () => {
     mockGetBlockingStatus.mockResolvedValue({
       available: true,
       accessibilityEnabled: true,
@@ -208,8 +214,12 @@ describe('DashboardScreen Redesigned Homepage', () => {
 
     const view = renderDashboard('dark');
 
-    await waitFor(() => {
-      expect(view.getByText('ON • Apps shielded')).toBeTruthy();
-    });
+    expect(view.getByText('Add Task')).toBeTruthy();
+    expect(view.getByText('Focus Lock')).toBeTruthy();
+    expect(view.getByText('Focus Timer')).toBeTruthy();
+    expect(view.getByText('Alarm')).toBeTruthy();
+    expect(view.queryByText('ON')).toBeNull();
+    expect(view.queryByText('OFF')).toBeNull();
+    expect(view.queryByText(/Apps shielded|06:30 AM/)).toBeNull();
   });
 });

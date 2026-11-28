@@ -67,14 +67,28 @@ object FocusLockUsageLimits {
     return mode == AppOpsManager.MODE_ALLOWED
   }
 
+  @Volatile private var cachedQueryElapsedMs: Long = 0L
+  @Volatile private var cachedQueryDate: String? = null
+  @Volatile private var cachedQueryResult: Map<String, Long> = emptyMap()
+  private const val QUERY_CACHE_TTL_MS = 1000L
+
   /**
    * Computes accurate today's foreground usage in milliseconds per package using
    * UsageStatsManager.queryEvents from local midnight to now, persisting a daily
    * cache that resets at local calendar midnight.
    */
-  fun queryTodayUsageMs(context: Context, nowMs: Long = System.currentTimeMillis()): Map<String, Long> {
-    val prefs = context.getSharedPreferences(FocusLockModule.PREFS, Context.MODE_PRIVATE)
+  fun queryTodayUsageMs(
+    context: Context,
+    nowMs: Long = System.currentTimeMillis(),
+    forceRefresh: Boolean = true,
+  ): Map<String, Long> {
     val today = todayDateKey(nowMs)
+    val elapsedNow = SystemClock.elapsedRealtime()
+    if (!forceRefresh && cachedQueryDate == today && elapsedNow - cachedQueryElapsedMs < QUERY_CACHE_TTL_MS) {
+      return cachedQueryResult
+    }
+
+    val prefs = context.getSharedPreferences(FocusLockModule.PREFS, Context.MODE_PRIVATE)
     val cachedDate = prefs.getString(USAGE_DATE_KEY, null)
     val cachedMap = mutableMapOf<String, Long>()
     if (cachedDate == today) {
@@ -90,8 +104,14 @@ object FocusLockUsageLimits {
     if (!hasUsageAccess(context)) {
       if (cachedDate != today) {
         prefs.edit().putString(USAGE_DATE_KEY, today).putString(USAGE_CACHE_KEY, "{}").apply()
+        cachedQueryDate = today
+        cachedQueryElapsedMs = elapsedNow
+        cachedQueryResult = emptyMap()
         return emptyMap()
       }
+      cachedQueryDate = today
+      cachedQueryElapsedMs = elapsedNow
+      cachedQueryResult = cachedMap
       return cachedMap
     }
 
@@ -99,6 +119,7 @@ object FocusLockUsageLimits {
     val startMs = localMidnightMs(nowMs)
     val totals = mutableMapOf<String, Long>()
     val activeStart = mutableMapOf<String, Long>()
+    val resumedClasses = mutableMapOf<String, MutableSet<String>>()
 
     runCatching {
       val events = manager.queryEvents(startMs, nowMs)
@@ -106,9 +127,12 @@ object FocusLockUsageLimits {
       while (events.hasNextEvent()) {
         events.getNextEvent(event)
         val pkg = event.packageName ?: continue
+        val cls = event.className ?: ""
         when (event.eventType) {
           UsageEvents.Event.ACTIVITY_RESUMED,
           UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+            val classes = resumedClasses.getOrPut(pkg) { mutableSetOf() }
+            classes.add(cls)
             if (!activeStart.containsKey(pkg)) {
               activeStart[pkg] = event.timeStamp.coerceAtLeast(startMs)
             }
@@ -116,9 +140,21 @@ object FocusLockUsageLimits {
           UsageEvents.Event.ACTIVITY_PAUSED,
           UsageEvents.Event.MOVE_TO_BACKGROUND,
           UsageEvents.Event.ACTIVITY_STOPPED -> {
-            val started = activeStart.remove(pkg)
-            if (started != null && event.timeStamp > started) {
-              totals[pkg] = (totals[pkg] ?: 0L) + (event.timeStamp - started)
+            val classes = resumedClasses[pkg]
+            if (classes != null) {
+              classes.remove(cls)
+              if (classes.isEmpty()) {
+                resumedClasses.remove(pkg)
+                val started = activeStart.remove(pkg)
+                if (started != null && event.timeStamp > started) {
+                  totals[pkg] = (totals[pkg] ?: 0L) + (event.timeStamp - started)
+                }
+              }
+            } else {
+              val started = activeStart.remove(pkg)
+              if (started != null && event.timeStamp > started) {
+                totals[pkg] = (totals[pkg] ?: 0L) + (event.timeStamp - started)
+              }
             }
           }
         }
@@ -147,11 +183,19 @@ object FocusLockUsageLimits {
       .putString(USAGE_DATE_KEY, today)
       .putString(USAGE_CACHE_KEY, json.toString())
       .apply()
+    cachedQueryDate = today
+    cachedQueryElapsedMs = elapsedNow
+    cachedQueryResult = merged
     return merged
   }
 
-  fun getPackageUsedMsToday(context: Context, packageId: String, nowMs: Long = System.currentTimeMillis()): Long {
-    val all = queryTodayUsageMs(context, nowMs)
+  fun getPackageUsedMsToday(
+    context: Context,
+    packageId: String,
+    nowMs: Long = System.currentTimeMillis(),
+    forceRefresh: Boolean = true,
+  ): Long {
+    val all = queryTodayUsageMs(context, nowMs, forceRefresh)
     return all[packageId] ?: 0L
   }
 

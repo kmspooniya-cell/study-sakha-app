@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Platform } from 'react-native';
 
@@ -179,7 +180,7 @@ describe('Focus Lock P1 High-Priority Fixes', () => {
   });
 
   it('synchronizes native Pause & Resume during active sessions', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(mockGetInstalledApps).toHaveBeenCalled());
 
     fireEvent.press(view.getByText('App Selection'));
@@ -207,8 +208,10 @@ describe('Focus Lock P1 High-Priority Fixes', () => {
   });
 
   it('calculates Android Protection Readiness dynamically from all 5 real permissions', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(view.getByText('100%')).toBeTruthy());
+    await waitFor(() => expect(mockGetBlockingStatus).toHaveBeenCalledTimes(1));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1)); });
 
     mockGetBlockingStatus.mockResolvedValueOnce({
       available: true,
@@ -223,12 +226,12 @@ describe('Focus Lock P1 High-Priority Fixes', () => {
       blockedAttemptsToday: 0,
     });
 
-    const viewPartial = render(<FocusLockScreen />);
+    const viewPartial = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(viewPartial.getByText('33%')).toBeTruthy());
   });
 
   it('handles nested Hardware Back navigation and prevents accidental exit during active session', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(view.getByText('Blocking Modes')).toBeTruthy());
 
     // Idle on home -> returns false to allow exiting FocusLock route

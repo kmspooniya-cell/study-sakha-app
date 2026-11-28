@@ -1,12 +1,70 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowUpRight,
+  Ban,
+  BarChart3,
+  Bell,
+  BookOpen,
+  Bug,
+  Calendar,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  CreditCard,
+  Crown,
+  Download,
+  ExternalLink,
+  FileText,
+  Flame,
+  Folder,
+  Globe,
+  GraduationCap,
+  HardDrive,
+  Headphones,
+  Heart,
+  HelpCircle,
+  Home,
+  Image as ImageIcon,
+  Info,
+  KeyRound,
+  LayoutGrid,
+  LifeBuoy,
+  Lock,
+  LogOut,
+  Mail,
+  MessageSquare,
+  Minus,
+  Palette,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Settings,
+  Shield,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  SunMoon,
+  Target,
+  Timer,
+  Trash2,
+  Trophy,
+  Upload,
+  User as UserIcon,
+  Users,
+  Volume2,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Switch,
   Modal,
   StyleSheet,
   StatusBar,
@@ -32,6 +90,13 @@ import { PreferredSubjectsManager } from '../components/PreferredSubjectsManager
 import { HelpFeedbackModal } from '../components/HelpFeedbackModal';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import appConfig from '../app.json';
+import {
+  SSDSIcon,
+  SSDSSurface,
+  SSDSSwitch,
+  SSDSText as Text,
+  useSSDSTheme,
+} from '../lib/ssds';
 
 /* ==========================================================================
    STUDY SAKHA — SETTINGS CONTROL CENTER (STRICT 1:1 REACT NATIVE CONVERSION)
@@ -131,26 +196,50 @@ const BACKGROUND_LIBRARY = [
   { id: 'deep-aurora',  name: 'Deep Aurora',      hi: 'डीप ऑरोरा',       premium: true,  previewBg: '#1e1b4b', darkBg: '#064e3b' },
 ];
 
-const MAIN_CATEGORIES = [
-  { id: 'account',       num: '01', icon: '👤', bgLight: '#eef2ff', bgDark: '#1e1b4b', textLight: '#4f46e5', textDark: '#818cf8', en: 'Account & Profile',            hi: 'खाता और प्रोफ़ाइल',           descEn: 'Personal info, security, active sessions & account actions', descHi: 'व्यक्तिगत जानकारी, सुरक्षा और सक्रिय सत्र' },
-  { id: 'appearance',    num: '02', icon: '🎨', bgLight: '#f5f3ff', bgDark: '#2e1065', textLight: '#7c3aed', textDark: '#a78bfa', en: 'Appearance & Personalization', hi: 'रूप और वैयक्तिकरण',            descEn: 'Theme, brand colors, backgrounds, typography & language',    descHi: 'थीम, ब्रांड रंग, फ़ॉन्ट, लेआउट और भाषा' },
-  { id: 'learning',      num: '03', icon: '🎓', bgLight: '#f0f9ff', bgDark: '#082f49', textLight: '#0284c7', textDark: '#38bdf8', en: 'Learning & Study Preferences', hi: 'अध्ययन प्राथमिकताएँ',           descEn: 'Target exam, medium, subjects, notes style & presets',       descHi: 'लक्ष्य परीक्षा, माध्यम, विषय और प्रीसेट' },
-  { id: 'planner',       num: '04', icon: '📅', bgLight: '#ecfdf5', bgDark: '#064e3b', textLight: '#059669', textDark: '#34d399', en: 'Study Planner & Goals',        hi: 'स्टडी प्लानर और लक्ष्य',        descEn: 'Daily/weekly study goals, tasks, timetable & reminders',     descHi: 'दैनिक लक्ष्य, कार्य प्रबंधन और समय-सारणी' },
-  { id: 'focus',         num: '05', icon: '⏱️', bgLight: '#f0fdfa', bgDark: '#134e4a', textLight: '#0d9488', textDark: '#2dd4bf', en: 'Focus Centre & Wellbeing',     hi: 'फ़ोकस सेंटर और वेलबीइंग',       descEn: 'Pomodoro timers, meditation, 21 focus themes & ambient audio', descHi: 'फ़ोकस टाइमर, ध्यान, 21 थीम और संगीत' },
-  { id: 'focuslock',     num: '06', icon: '🛡️', bgLight: '#fff1f2', bgDark: '#4c0519', textLight: '#e11d48', textDark: '#fb7185', en: 'Focus Lock & App Blocking',    hi: 'फ़ोकस लॉक और ऐप ब्लॉकिंग',      descEn: 'Block distracting apps, allowlist, schedules & OS status',   descHi: 'ध्यान भटकाने वाले ऐप ब्लॉक और नियम' },
-  { id: 'ai',            num: '07', icon: '✨', bgLight: '#fffbeb', bgDark: '#451a03', textLight: '#d97706', textDark: '#fbbf24', en: 'Sakha AI',                     hi: 'सखा AI (जेमिनी सहायक)',        descEn: 'AI language, learning modes, explanations & chat privacy',   descHi: 'AI भाषा, शिक्षण मोड, व्याख्या और इतिहास' },
-  { id: 'library',       num: '08', icon: '📖', bgLight: '#eff6ff', bgDark: '#172554', textLight: '#2563eb', textDark: '#60a5fa', en: 'Library & Learning Tools',     hi: 'लाइब्रेरी और शिक्षण उपकरण',     descEn: 'Notes, Books, PDF Reader, PYQ filters, Tests & downloads',   descHi: 'नोट्स, PDF रीडर, PYQ, टेस्ट और डाउनलोड' },
-  { id: 'stats',         num: '09', icon: '📊', bgLight: '#ecfeff', bgDark: '#083344', textLight: '#0891b2', textDark: '#22d3ee', en: 'Progress & Statistics',        hi: 'प्रगति और आँकड़े',             descEn: 'Subject tracking, focus analytics, streaks & summaries',     descHi: 'विषयवार ट्रैकिंग, स्ट्रीक और प्रगति रिपोर्ट' },
-  { id: 'community',     num: '10', icon: '👥', bgLight: '#fdf4ff', bgDark: '#4a044e', textLight: '#c026d3', textDark: '#e879f9', en: 'Groups & Community',           hi: 'समूह और समुदाय',               descEn: 'Profile visibility, study groups, chats & blocked users',    descHi: 'गोपनीयता, स्टडी ग्रुप और चैट सेटिंग्स' },
-  { id: 'notifications', num: '11', icon: '🔔', bgLight: '#fff7ed', bgDark: '#431407', textLight: '#ea580c', textDark: '#fb923c', en: 'Notifications & Reminders',    hi: 'सूचनाएँ और रिमाइंडर',          descEn: 'Category alerts, quiet hours, DND, sounds & timing',         descHi: 'अलर्ट, शांत समय, ध्वनि और कंपन' },
-  { id: 'data',          num: '12', icon: '💾', bgLight: '#f1f5f9', bgDark: '#1e293b', textLight: '#334155', textDark: '#94a3b8', en: 'Data, Privacy & Security',     hi: 'डेटा, गोपनीयता और सुरक्षा',     descEn: 'Cloud sync, local backup, storage, export & recovery',       descHi: 'बैकअप, क्लाउड सिंक, स्टोरेज और डेटा एक्सपोर्ट' },
+const MAIN_CATEGORIES: {
+  id: string;
+  num: string;
+  icon: LucideIcon;
+  bgLight: string;
+  bgDark: string;
+  textLight: string;
+  textDark: string;
+  en: string;
+  hi: string;
+  descEn: string;
+  descHi: string;
+}[] = [
+  { id: 'account',       num: '01', icon: UserIcon,      bgLight: '#EBF1FA', bgDark: '#1B283D', textLight: '#2B4C7E', textDark: '#6B9CE8', en: 'Account & Profile',            hi: 'खाता और प्रोफ़ाइल',           descEn: 'Personal info, security, active sessions & account actions', descHi: 'व्यक्तिगत जानकारी, सुरक्षा और सक्रिय सत्र' },
+  { id: 'appearance',    num: '02', icon: Palette,       bgLight: '#f5f3ff', bgDark: '#2e1065', textLight: '#7c3aed', textDark: '#a78bfa', en: 'Appearance & Personalization', hi: 'रूप और वैयक्तिकरण',            descEn: 'Theme, brand colors, backgrounds, typography & language',    descHi: 'थीम, ब्रांड रंग, फ़ॉन्ट, लेआउट और भाषा' },
+  { id: 'learning',      num: '03', icon: GraduationCap, bgLight: '#f0f9ff', bgDark: '#082f49', textLight: '#0284c7', textDark: '#38bdf8', en: 'Learning & Study Preferences', hi: 'अध्ययन प्राथमिकताएँ',           descEn: 'Target exam, medium, subjects, notes style & presets',       descHi: 'लक्ष्य परीक्षा, माध्यम, विषय और प्रीसेट' },
+  { id: 'planner',       num: '04', icon: Calendar,      bgLight: '#ecfdf5', bgDark: '#064e3b', textLight: '#059669', textDark: '#34d399', en: 'Study Planner & Goals',        hi: 'स्टडी प्लानर और लक्ष्य',        descEn: 'Daily/weekly study goals, tasks, timetable & reminders',     descHi: 'दैनिक लक्ष्य, कार्य प्रबंधन और समय-सारणी' },
+  { id: 'focus',         num: '05', icon: Timer,         bgLight: '#f0fdfa', bgDark: '#134e4a', textLight: '#0d9488', textDark: '#2dd4bf', en: 'Focus Centre & Wellbeing',     hi: 'फ़ोकस सेंटर और वेलबीइंग',       descEn: 'Pomodoro timers, meditation, 21 focus themes & ambient audio', descHi: 'फ़ोकस टाइमर, ध्यान, 21 थीम और संगीत' },
+  { id: 'focuslock',     num: '06', icon: Shield,        bgLight: '#fff1f2', bgDark: '#4c0519', textLight: '#e11d48', textDark: '#fb7185', en: 'Focus Lock & App Blocking',    hi: 'फ़ोकस लॉक और ऐप ब्लॉकिंग',      descEn: 'Block distracting apps, allowlist, schedules & OS status',   descHi: 'ध्यान भटकाने वाले ऐप ब्लॉक और नियम' },
+  { id: 'ai',            num: '07', icon: Sparkles,      bgLight: '#fffbeb', bgDark: '#451a03', textLight: '#d97706', textDark: '#fbbf24', en: 'Sakha AI',                     hi: 'सखा AI (जेमिनी सहायक)',        descEn: 'AI language, learning modes, explanations & chat privacy',   descHi: 'AI भाषा, शिक्षण मोड, व्याख्या और इतिहास' },
+  { id: 'library',       num: '08', icon: BookOpen,      bgLight: '#eff6ff', bgDark: '#172554', textLight: '#2563eb', textDark: '#60a5fa', en: 'Library & Learning Tools',     hi: 'लाइब्रेरी और शिक्षण उपकरण',     descEn: 'Notes, Books, PDF Reader, PYQ filters, Tests & downloads',   descHi: 'नोट्स, PDF रीडर, PYQ, टेस्ट और डाउनलोड' },
+  { id: 'stats',         num: '09', icon: BarChart3,     bgLight: '#ecfeff', bgDark: '#083344', textLight: '#0891b2', textDark: '#22d3ee', en: 'Progress & Statistics',        hi: 'प्रगति और आँकड़े',             descEn: 'Subject tracking, focus analytics, streaks & summaries',     descHi: 'विषयवार ट्रैकिंग, स्ट्रीक और प्रगति रिपोर्ट' },
+  { id: 'community',     num: '10', icon: Users,         bgLight: '#fdf4ff', bgDark: '#4a044e', textLight: '#c026d3', textDark: '#e879f9', en: 'Groups & Community',           hi: 'समूह और समुदाय',               descEn: 'Profile visibility, study groups, chats & blocked users',    descHi: 'गोपनीयता, स्टडी ग्रुप और चैट सेटिंग्स' },
+  { id: 'notifications', num: '11', icon: Bell,          bgLight: '#fff7ed', bgDark: '#431407', textLight: '#ea580c', textDark: '#fb923c', en: 'Notifications & Reminders',    hi: 'सूचनाएँ और रिमाइंडर',          descEn: 'Category alerts, quiet hours, DND, sounds & timing',         descHi: 'अलर्ट, शांत समय, ध्वनि और कंपन' },
+  { id: 'data',          num: '12', icon: HardDrive,     bgLight: '#f1f5f9', bgDark: '#1e293b', textLight: '#334155', textDark: '#94a3b8', en: 'Data, Privacy & Security',     hi: 'डेटा, गोपनीयता और सुरक्षा',     descEn: 'Cloud sync, local backup, storage, export & recovery',       descHi: 'बैकअप, क्लाउड सिंक, स्टोरेज और डेटा एक्सपोर्ट' },
 ];
 
-const SPECIAL_AREAS = [
-  { id: 'special_premium',     code: 'A', icon: '👑', bgLight: '#fffbeb', bgDark: '#451a03', textLight: '#d97706', textDark: '#fbbf24', en: 'Premium & Subscription', hi: 'प्रीमियम और सदस्यता',    descEn: 'Plan benefits, billing, renewal & Pro simulator',   descHi: 'प्लान लाभ, बिलिंग और नवीनीकरण' },
-  { id: 'special_permissions', code: 'B', icon: '🛡️', bgLight: '#ecfdf5', bgDark: '#064e3b', textLight: '#059669', textDark: '#34d399', en: 'Permissions Centre',     hi: 'अनुमति केंद्र',           descEn: 'Android notifications, audio, app blocking & files', descHi: 'डिवाइस अनुमतियाँ और मार्गदर्शन' },
-  { id: 'special_help',        code: 'C', icon: '🛟', bgLight: '#f0f9ff', bgDark: '#082f49', textLight: '#0284c7', textDark: '#38bdf8', en: 'Help & Support',         hi: 'सहायता और समर्थन',        descEn: 'App guide, FAQs, feedback, bug report & contact',   descHi: 'गाइड, अक्सर पूछे जाने वाले प्रश्न और संपर्क' },
-  { id: 'special_about',       code: 'D', icon: 'ℹ️', bgLight: '#f1f5f9', bgDark: '#1e293b', textLight: '#475569', textDark: '#cbd5e1', en: 'About Study Sakha',      hi: 'स्टडी सखा के बारे में',    descEn: `Version ${APP_VERSION}, changelog, credits & legal`, descHi: 'संस्करण, नया क्या है और कानूनी जानकारी' },
+const SPECIAL_AREAS: {
+  id: string;
+  code: string;
+  icon: LucideIcon;
+  bgLight: string;
+  bgDark: string;
+  textLight: string;
+  textDark: string;
+  en: string;
+  hi: string;
+  descEn: string;
+  descHi: string;
+}[] = [
+  { id: 'special_premium',     code: 'A', icon: Crown,       bgLight: '#fffbeb', bgDark: '#451a03', textLight: '#d97706', textDark: '#fbbf24', en: 'Premium & Subscription', hi: 'प्रीमियम और सदस्यता',    descEn: 'Plan benefits, billing, renewal & Pro simulator',   descHi: 'प्लान लाभ, बिलिंग और नवीनीकरण' },
+  { id: 'special_permissions', code: 'B', icon: ShieldCheck, bgLight: '#ecfdf5', bgDark: '#064e3b', textLight: '#059669', textDark: '#34d399', en: 'Permissions Centre',     hi: 'अनुमति केंद्र',           descEn: 'Android notifications, audio, app blocking & files', descHi: 'डिवाइस अनुमतियाँ और मार्गदर्शन' },
+  { id: 'special_help',        code: 'C', icon: LifeBuoy,    bgLight: '#f0f9ff', bgDark: '#082f49', textLight: '#0284c7', textDark: '#38bdf8', en: 'Help & Support',         hi: 'सहायता और समर्थन',        descEn: 'App guide, FAQs, feedback, bug report & contact',   descHi: 'गाइड, अक्सर पूछे जाने वाले प्रश्न और संपर्क' },
+  { id: 'special_about',       code: 'D', icon: Info,        bgLight: '#f1f5f9', bgDark: '#1e293b', textLight: '#475569', textDark: '#cbd5e1', en: 'About Study Sakha',      hi: 'स्टडी सखा के बारे में',    descEn: `Version ${APP_VERSION}, changelog, credits & legal`, descHi: 'संस्करण, नया क्या है और कानूनी जानकारी' },
 ];
 
 // Full 51-entry bilingual search index matching index.html 1:1
@@ -483,9 +572,10 @@ function normalizeSettingsState(raw: SettingsState): SettingsState {
    3. MAIN APPLICATION COMPONENT
    -------------------------------------------------------------------------- */
 export function SettingsScreen() {
+  const { tokens } = useSSDSTheme();
   const navigation = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'Settings'>>();
-  const { state, dispatch, saveProfile, signOut, streak, todayMinutes } = useStore();
+  const { state, dispatch, saveProfile, signOut, streak } = useStore();
   const accountStorageKey = useMemo(
     () => state.user?.id
       ? `${STORAGE_KEY}:user:${encodeURIComponent(state.user.id)}`
@@ -497,7 +587,81 @@ export function SettingsScreen() {
   const isTablet = width >= 768;
   const isDesktop = width >= 1024;
 
-  const [settings, setSettings] = useState<SettingsState>(() => getDefaultSettings(state.user));
+  const [storedSettings, setStoredSettings] = useState<SettingsState>(() => getDefaultSettings(state.user));
+  const settings = useMemo<SettingsState>(() => {
+    const exam = EXAMS.find((item) => item.id === state.user?.exam);
+    return {
+      ...storedSettings,
+      account: {
+        ...storedSettings.account,
+        name: state.user?.name || 'Aspirant',
+        email: state.user?.email || 'Unavailable',
+        joinedDate: state.user?.joined || 'Unavailable',
+        bio: state.user?.examFocus || '',
+        state: state.user?.currentCity || '',
+        avatarInitials: (state.user?.name || 'A').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+      },
+      appearance: {
+        ...storedSettings.appearance,
+        theme: state.settings.themeMode,
+        language: state.settings.language,
+        readingTextScale: Math.round(state.settings.textScale * 100),
+        accentColor: state.settings.accentColor,
+        useCustomHex: Boolean(state.settings.customAccentHex),
+        customBrandHex: state.settings.customAccentHex ?? storedSettings.appearance.customBrandHex,
+        highContrast: state.settings.highContrast,
+        reduceMotion: state.settings.reduceMotion,
+        animationIntensity: state.settings.animationIntensity,
+        displayScaling: state.settings.displayScaling,
+        layoutDensity: state.settings.layoutDensity,
+        backgroundId: state.settings.backgroundId,
+        bgOpacity: state.settings.backgroundOpacity,
+        overlayIntensity: state.settings.overlayIntensity,
+        dashboardWidgets: state.settings.dashboardWidgets ?? storedSettings.appearance.dashboardWidgets,
+        quickActions: state.settings.dashboardQuickActions ?? storedSettings.appearance.quickActions,
+      },
+      learning: { ...storedSettings.learning, targetExam: exam?.short || 'Unavailable' },
+      planner: {
+        ...storedSettings.planner,
+        dailyStudyGoalHours: state.plannerSettings.dailyTargetHours,
+        weeklyStudyGoalHours: state.plannerSettings.weeklyTargetHours,
+        defaultTaskDuration: state.plannerSettings.defaultTaskDurationMinutes,
+        autoCarryForward: state.plannerSettings.autoCarryForward,
+        recurringTasks: state.plannerSettings.recurringTasksEnabled,
+        breakIntervals: state.plannerSettings.breakIntervalMinutes,
+      },
+      focus: {
+        ...storedSettings.focus,
+        defaultFocusDuration: state.settings.focusDurationMinutes,
+        shortBreakDuration: state.settings.shortBreakMinutes,
+        longBreakDuration: state.settings.longBreakMinutes,
+        autoStartNextSession: state.settings.focusAutoStartNextSession,
+        meditationDuration: state.settings.meditationDurationMinutes,
+        selectedTheme: FOCUS_THEME_ALIASES[state.settings.focusThemeId] || state.settings.focusThemeId,
+        reduceFocusMotion: state.settings.reduceFocusMotion,
+        ambientVolume: Math.round(state.settings.focusMusicVolume * 100),
+      },
+      ai: {
+        ...storedSettings.ai,
+        responseLanguage: state.settings.aiResponseLanguage,
+        responseLength: state.settings.aiResponseLength,
+        detailLevel: state.settings.aiDetailLevel,
+        defaultMode: state.settings.aiLearningMode,
+        saveChatHistory: state.settings.aiSaveChatHistory,
+      },
+      stats: { ...storedSettings.stats, currentStreakDays: streak },
+      notifications: { ...storedSettings.notifications, globalEnabled: state.settings.notifications },
+    };
+  }, [state.plannerSettings, state.settings, state.user, storedSettings, streak]);
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+  const setSettings = useCallback<React.Dispatch<React.SetStateAction<SettingsState>>>((action) => {
+    setStoredSettings((previous) =>
+      typeof action === 'function' ? action(settingsRef.current) : action
+    );
+  }, []);
   const [loaded, setLoaded] = useState(false);
   const appearanceSyncRef = useRef('');
 
@@ -519,14 +683,21 @@ export function SettingsScreen() {
     () => (route.params?.openDetail === 'preferred_subjects' ? 'preferred_subjects' : null)
   );
   useEffect(() => {
-    if (route.params?.openDetail === 'preferred_subjects') {
+    const applyPreferredSubjectsRoute = () => {
+      if (route.params?.openDetail !== 'preferred_subjects') return;
       setCategoryId('learning');
       setDetailId('preferred_subjects');
       setNavLevel(3);
-    }
-  }, [route.params?.openDetail]);
+    };
+    const removeFocusListener = navigation.addListener('focus', applyPreferredSubjectsRoute);
+    const removeStateListener = navigation.addListener('state', applyPreferredSubjectsRoute);
+    return () => {
+      removeFocusListener();
+      removeStateListener();
+    };
+  }, [navigation, route.params?.openDetail]);
   const [searchQuery, setSearchQuery] = useState('');
-  const scrollOffsetsRef = useRef<Record<string, number>>({});
+  const [scrollOffsets, setScrollOffsets] = useState<Record<string, number>>({});
 
   // Local Form States for Level 3 Screens & Modals
   const [profileForm, setProfileForm] = useState({ name: '', email: '', state: '', attemptYear: '', bio: '' });
@@ -585,73 +756,7 @@ export function SettingsScreen() {
     return () => {
       mounted = false;
     };
-  }, [accountStorageKey, state.user]);
-
-  useEffect(() => {
-    const exam = EXAMS.find((item) => item.id === state.user?.exam);
-    setSettings((previous) => ({
-      ...previous,
-      account: {
-        ...previous.account,
-        name: state.user?.name || 'Aspirant',
-        email: state.user?.email || 'Unavailable',
-        joinedDate: state.user?.joined || 'Unavailable',
-        bio: state.user?.examFocus || '',
-        state: state.user?.currentCity || '',
-        avatarInitials: (state.user?.name || 'A').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
-      },
-      appearance: {
-        ...previous.appearance,
-        theme: state.settings.themeMode,
-        language: state.settings.language,
-        readingTextScale: Math.round(state.settings.textScale * 100),
-        accentColor: state.settings.accentColor,
-        useCustomHex: Boolean(state.settings.customAccentHex),
-        customBrandHex: state.settings.customAccentHex ?? previous.appearance.customBrandHex,
-        highContrast: state.settings.highContrast,
-        reduceMotion: state.settings.reduceMotion,
-        animationIntensity: state.settings.animationIntensity,
-        displayScaling: state.settings.displayScaling,
-        layoutDensity: state.settings.layoutDensity,
-        backgroundId: state.settings.backgroundId,
-        bgOpacity: state.settings.backgroundOpacity,
-        overlayIntensity: state.settings.overlayIntensity,
-        dashboardWidgets: state.settings.dashboardWidgets ?? previous.appearance.dashboardWidgets,
-        quickActions: state.settings.dashboardQuickActions ?? previous.appearance.quickActions,
-      },
-      learning: { ...previous.learning, targetExam: exam?.short || 'Unavailable' },
-      planner: {
-        ...previous.planner,
-        dailyStudyGoalHours: state.plannerSettings.dailyTargetHours,
-        weeklyStudyGoalHours: state.plannerSettings.weeklyTargetHours,
-        defaultTaskDuration: state.plannerSettings.defaultTaskDurationMinutes,
-        autoCarryForward: state.plannerSettings.autoCarryForward,
-        recurringTasks: state.plannerSettings.recurringTasksEnabled,
-        breakIntervals: state.plannerSettings.breakIntervalMinutes,
-      },
-      focus: {
-        ...previous.focus,
-        defaultFocusDuration: state.settings.focusDurationMinutes,
-        shortBreakDuration: state.settings.shortBreakMinutes,
-        longBreakDuration: state.settings.longBreakMinutes,
-        autoStartNextSession: state.settings.focusAutoStartNextSession,
-        meditationDuration: state.settings.meditationDurationMinutes,
-        selectedTheme: FOCUS_THEME_ALIASES[state.settings.focusThemeId] || state.settings.focusThemeId,
-        reduceFocusMotion: state.settings.reduceFocusMotion,
-        ambientVolume: Math.round(state.settings.focusMusicVolume * 100),
-      },
-      ai: {
-        ...previous.ai,
-        responseLanguage: state.settings.aiResponseLanguage,
-        responseLength: state.settings.aiResponseLength,
-        detailLevel: state.settings.aiDetailLevel,
-        defaultMode: state.settings.aiLearningMode,
-        saveChatHistory: state.settings.aiSaveChatHistory,
-      },
-      stats: { ...previous.stats, currentStreakDays: streak },
-      notifications: { ...previous.notifications, globalEnabled: state.settings.notifications },
-    }));
-  }, [state.plannerSettings.dailyTargetHours, state.plannerSettings.weeklyTargetHours, state.settings.accentColor, state.settings.animationIntensity, state.settings.backgroundId, state.settings.backgroundOpacity, state.settings.customAccentHex, state.settings.dashboardQuickActions, state.settings.dashboardWidgets, state.settings.displayScaling, state.settings.highContrast, state.settings.language, state.settings.layoutDensity, state.settings.notifications, state.settings.overlayIntensity, state.settings.reduceMotion, state.settings.textScale, state.settings.themeMode, state.user, streak, todayMinutes]);
+  }, [accountStorageKey, state.user, setSettings]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -728,7 +833,7 @@ export function SettingsScreen() {
     return () => {
       active = false;
     };
-  }, [state.user?.id]);
+  }, [state.user?.id, setSettings]);
 
   const persistSettings = useCallback(async (next: SettingsState) => {
     try {
@@ -777,7 +882,7 @@ export function SettingsScreen() {
       };
     }
     return ACCENT_PALETTES[a.accentColor] || ACCENT_PALETTES.indigo;
-  }, [settings.appearance.accentColor, settings.appearance.useCustomHex, settings.appearance.customBrandHex]);
+  }, [settings.appearance]);
 
   const fontScale = useMemo(() => {
     const map = { small: 0.92, default: 1.0, large: 1.07, xl: 1.14 };
@@ -804,30 +909,28 @@ export function SettingsScreen() {
       ? isDark
         ? bgItem!.darkBg
         : bgItem!.previewBg
-      : isDark
-      ? '#020617'
-      : '#f8fafc';
+      : tokens.colors.background;
 
     return {
       bg: baseBg,
-      surface: isDark ? '#0f172a' : '#ffffff',
-      surfaceAlt: isDark ? '#1e293b' : '#f1f5f9',
-      surfaceHover: isDark ? '#1e293b' : '#f8fafc',
-      border: highContrast ? (isDark ? '#94a3b8' : '#334155') : isDark ? '#1e293b' : '#e2e8f0',
-      divider: isDark ? '#1e293b' : '#f1f5f9',
-      text: isDark ? '#f8fafc' : '#0f172a',
-      textSecondary: isDark ? '#cbd5e1' : '#334155',
-      textMuted: isDark ? '#94a3b8' : '#64748b',
-      headerBg: isDark ? '#020617' : '#ffffff',
-      danger: '#e11d48',
-      dangerBg: isDark ? '#4c0519' : '#fff1f2',
-      emerald: '#059669',
-      emeraldBg: isDark ? '#064e3b' : '#ecfdf5',
-      amber: '#d97706',
-      amberBg: isDark ? '#451a03' : '#fffbeb',
-      amberBorder: isDark ? '#92400e' : '#fde68a',
+      surface: tokens.colors.surface,
+      surfaceAlt: tokens.colors.surfaceSecondary,
+      surfaceHover: tokens.colors.backgroundSecondary,
+      border: highContrast ? tokens.colors.borderStrong : tokens.colors.border,
+      divider: tokens.colors.divider,
+      text: tokens.colors.textPrimary,
+      textSecondary: tokens.colors.textSecondary,
+      textMuted: tokens.colors.textTertiary,
+      headerBg: tokens.colors.surface,
+      danger: tokens.colors.danger,
+      dangerBg: tokens.colors.dangerBackground,
+      emerald: tokens.colors.success,
+      emeraldBg: tokens.colors.successBackground,
+      amber: tokens.colors.warning,
+      amberBg: tokens.colors.warningBackground,
+      amberBorder: tokens.colors.warning,
     };
-  }, [isDark, highContrast, settings.appearance.backgroundId]);
+  }, [highContrast, isDark, settings.appearance, tokens]);
 
   // State Mutation
   const updateSetting = useCallback(
@@ -902,7 +1005,7 @@ export function SettingsScreen() {
       }
       if (toastMsg) showToast(toastMsg, 'success');
     },
-    [dispatch, persistSettings, saveProfile, showToast]
+    [dispatch, persistSettings, saveProfile, showToast, t, setSettings]
   );
 
   const mutateSettings = useCallback(
@@ -916,7 +1019,7 @@ export function SettingsScreen() {
       });
       if (toastMsg) showToast(toastMsg, toastType);
     },
-    [persistSettings, showToast]
+    [persistSettings, showToast, setSettings]
   );
 
   // Navigation Helpers
@@ -1168,9 +1271,10 @@ export function SettingsScreen() {
      4. REUSABLE UI PRIMITIVES (MATCHING index.html 1:1)
      -------------------------------------------------------------------------- */
   const BadgePro = () => (
-    <View style={[styles.badgePro, { backgroundColor: colors.amberBg, borderColor: colors.amberBorder }]}>
+    <View style={[styles.badgePro, { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.amberBg, borderColor: colors.amberBorder }]}>
+      <SSDSIcon icon={settings.subscription.isPremium ? Crown : Lock} size={10} color="warning" />
       <Text style={[styles.badgeProText, { color: colors.amber, fontSize: fs(10) }]}>
-        {settings.subscription.isPremium ? '👑 PRO' : `🔒 ${t('PRO', 'प्रो')}`}
+        {settings.subscription.isPremium ? 'PRO' : t('PRO', 'प्रो')}
       </Text>
     </View>
   );
@@ -1203,18 +1307,18 @@ export function SettingsScreen() {
           </Text>
         ) : null}
       </View>
-      <View
+      <SSDSSurface
+        variant="outlined"
+        radius="lg"
         style={[
           styles.card,
           {
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
             borderWidth: highContrast ? 1.5 : 1,
           },
         ]}
       >
         {children}
-      </View>
+      </SSDSSurface>
     </View>
   );
 
@@ -1266,15 +1370,13 @@ export function SettingsScreen() {
             </Text>
           ) : null}
         </View>
-        <Switch
-          value={available && (isLocked ? false : value)}
+        <SSDSSwitch
+          checked={available && (isLocked ? false : value)}
           disabled={!available}
-          onValueChange={(next) => {
+          onChange={(next) => {
             if (isLocked) openPremiumModal(label);
             else updateSetting(path, next, toastMsg);
           }}
-          trackColor={{ false: isDark ? '#334155' : '#cbd5e1', true: activeAccent[600] }}
-          thumbColor="#ffffff"
         />
       </View>
     );
@@ -1330,9 +1432,12 @@ export function SettingsScreen() {
             onPress={() => openPremiumModal(label)}
             style={[styles.selectPill, { backgroundColor: colors.amberBg, borderColor: colors.amberBorder }]}
           >
-            <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: colors.amber }}>
-              🔒 {t('Unlock with Pro', 'प्रो से अनलॉक करें')}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <SSDSIcon icon={Lock} size={12} color="warning" />
+              <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: colors.amber }}>
+                {t('Unlock with Pro', 'प्रो से अनलॉक करें')}
+              </Text>
+            </View>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -1525,7 +1630,7 @@ export function SettingsScreen() {
     label: string;
     desc?: string;
     valueText?: string;
-    icon?: string;
+    icon?: LucideIcon;
     onPress: () => void;
     premium?: boolean;
     danger?: boolean;
@@ -1549,10 +1654,13 @@ export function SettingsScreen() {
           <View
             style={[
               styles.navIconBox,
-              { backgroundColor: danger ? colors.dangerBg : colors.surfaceAlt },
+              {
+                backgroundColor: danger ? colors.dangerBg : tokens.colors.surfaceTertiary,
+                borderColor: danger ? colors.dangerBg : tokens.colors.borderSubtle,
+              },
             ]}
           >
-            <Text style={{ fontSize: 15 }}>{icon}</Text>
+            <SSDSIcon icon={icon} size={17} color={danger ? 'danger' : 'primary'} />
           </View>
         ) : null}
         <View style={{ flex: 1 }}>
@@ -1589,7 +1697,7 @@ export function SettingsScreen() {
             {valueText}
           </Text>
         ) : null}
-        <Text style={{ fontSize: 18, color: colors.textMuted, fontWeight: '500' }}>›</Text>
+        <SSDSIcon icon={ChevronRight} size={17} color="textTertiary" />
       </View>
     </TouchableOpacity>
   );
@@ -1612,10 +1720,15 @@ export function SettingsScreen() {
     return (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        contentOffset={{ x: 0, y: scrollOffsetsRef.current.home ?? 0 }}
-        onScroll={(event) => {
-          scrollOffsetsRef.current.home = event.nativeEvent.contentOffset.y;
-        }}
+        contentOffset={{ x: 0, y: scrollOffsets.home ?? 0 }}
+        onScrollEndDrag={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          home: event.nativeEvent.contentOffset.y,
+        }))}
+        onMomentumScrollEnd={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          home: event.nativeEvent.contentOffset.y,
+        }))}
         scrollEventThrottle={16}
       >
         {/* Student Profile Summary Card */}
@@ -1645,21 +1758,27 @@ export function SettingsScreen() {
                     style={[
                       styles.planPill,
                       {
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
                         backgroundColor: sub.isPremium ? colors.amberBg : colors.surfaceAlt,
                         borderColor: sub.isPremium ? colors.amberBorder : colors.border,
                       },
                     ]}
                   >
+                    {sub.isPremium ? <SSDSIcon icon={Crown} size={11} color="warning" /> : null}
                     <Text style={{ fontSize: fs(10.5), fontWeight: '700', color: sub.isPremium ? colors.amber : colors.textSecondary }}>
-                      {sub.isPremium ? '👑 ' : ''}
                       {sub.planName}
                     </Text>
                   </View>
                 </View>
-                <Text style={{ fontSize: fs(11.5), color: colors.textMuted, marginTop: 4, fontFamily: fontFamilyStyle }}>
-                  🎯 {t('Target:', 'लक्ष्य:')} <Text style={{ fontWeight: '700', color: colors.textSecondary }}>{settings.learning.targetExam}</Text> •{' '}
-                  {t('Joined', 'जुड़े')}: {acc.joinedDate}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                  <SSDSIcon icon={Target} size={13} color="textTertiary" />
+                  <Text style={{ fontSize: fs(11.5), color: colors.textMuted, fontFamily: fontFamilyStyle }}>
+                    {t('Target:', 'लक्ष्य:')} <Text style={{ fontWeight: '700', color: colors.textSecondary }}>{settings.learning.targetExam}</Text> •{' '}
+                    {t('Joined', 'जुड़े')}: {acc.joinedDate}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -1677,9 +1796,12 @@ export function SettingsScreen() {
                   onPress={() => openCategory('special_premium')}
                   style={[styles.smallActionBtn, { backgroundColor: activeAccent[600] }]}
                 >
-                  <Text style={{ fontSize: fs(11.5), fontWeight: '700', color: '#ffffff' }}>
-                    👑 {t('Upgrade Pro', 'प्रो बनें')}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <SSDSIcon icon={Crown} size={13} color="#ffffff" />
+                    <Text style={{ fontSize: fs(11.5), fontWeight: '700', color: '#ffffff' }}>
+                      {t('Upgrade Pro', 'प्रो बनें')}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
             </View>
@@ -1691,9 +1813,12 @@ export function SettingsScreen() {
               onPress={() => openCategory('planner')}
               style={[styles.metricTile, { width: metricWidth, backgroundColor: colors.surfaceAlt }]}
             >
-              <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
-                ⏱ {t('Daily Study Goal', 'दैनिक अध्ययन लक्ष्य')}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <SSDSIcon icon={Timer} size={13} color="textTertiary" />
+                <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
+                  {t('Daily Study Goal', 'दैनिक अध्ययन लक्ष्य')}
+                </Text>
+              </View>
               <Text style={{ fontSize: fs(15), fontWeight: '700', color: colors.text, marginTop: 4 }}>
                 {p.dailyStudyGoalHours}h 00m
               </Text>
@@ -1703,9 +1828,12 @@ export function SettingsScreen() {
               onPress={() => openCategory('stats')}
               style={[styles.metricTile, { width: metricWidth, backgroundColor: colors.surfaceAlt }]}
             >
-              <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
-                🔥 {t('Study Streak', 'अध्ययन स्ट्रीक')}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <SSDSIcon icon={Flame} size={13} color="warning" />
+                <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
+                  {t('Study Streak', 'अध्ययन स्ट्रीक')}
+                </Text>
+              </View>
               <Text style={{ fontSize: fs(15), fontWeight: '700', color: colors.text, marginTop: 4 }}>
                 {settings.stats.currentStreakDays} {t('Days', 'दिन')}
               </Text>
@@ -1715,9 +1843,12 @@ export function SettingsScreen() {
               onPress={() => openCategory('learning')}
               style={[styles.metricTile, { width: metricWidth, backgroundColor: colors.surfaceAlt }]}
             >
-              <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
-                🎓 {t('Target Exam', 'लक्ष्य परीक्षा')}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <SSDSIcon icon={GraduationCap} size={13} color="primary" />
+                <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
+                  {t('Target Exam', 'लक्ष्य परीक्षा')}
+                </Text>
+              </View>
               <Text style={{ fontSize: fs(15), fontWeight: '700', color: colors.text, marginTop: 4 }}>
                 {settings.learning.targetExam}
               </Text>
@@ -1727,9 +1858,12 @@ export function SettingsScreen() {
               onPress={() => openCategory('focuslock')}
               style={[styles.metricTile, { width: metricWidth, backgroundColor: colors.surfaceAlt }]}
             >
-              <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
-                🛡️ {t('Focus Lock', 'फ़ोकस लॉक')}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <SSDSIcon icon={Shield} size={13} color={fl.masterEnabled ? 'success' : 'textTertiary'} />
+                <Text style={{ fontSize: fs(10.5), fontWeight: '600', color: colors.textMuted }}>
+                  {t('Focus Lock', 'फ़ोकस लॉक')}
+                </Text>
+              </View>
               <Text
                 style={{
                   fontSize: fs(15),
@@ -1759,7 +1893,10 @@ export function SettingsScreen() {
             {/* QC 1: App Appearance */}
             <View style={[styles.quickCard, { width: quickWidth, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.quickHeader}>
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>🌓 {t('Appearance', 'थीम')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SSDSIcon icon={SunMoon} size={14} color="primary" />
+                  <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>{t('Appearance', 'थीम')}</Text>
+                </View>
                 <TouchableOpacity onPress={() => openCategory('appearance')}>
                   <Text style={{ fontSize: fs(11), fontWeight: '600', color: activeAccent[600] }}>{t('More', 'अधिक')}</Text>
                 </TouchableOpacity>
@@ -1782,7 +1919,10 @@ export function SettingsScreen() {
             {/* QC 2: App Language */}
             <View style={[styles.quickCard, { width: quickWidth, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.quickHeader}>
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>🌐 {t('App Language', 'ऐप भाषा')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SSDSIcon icon={Globe} size={14} color="secondary" />
+                  <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>{t('App Language', 'ऐप भाषा')}</Text>
+                </View>
                 <TouchableOpacity onPress={() => openCategory('appearance')}>
                   <Text style={{ fontSize: fs(11), fontWeight: '600', color: activeAccent[600] }}>{t('Owner', 'सेटिंग')}</Text>
                 </TouchableOpacity>
@@ -1810,7 +1950,10 @@ export function SettingsScreen() {
             {/* QC 3: Daily Study Goal */}
             <View style={[styles.quickCard, { width: quickWidth, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.quickHeader}>
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>🎯 {t('Daily Goal', 'दैनिक लक्ष्य')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SSDSIcon icon={Target} size={14} color="success" />
+                  <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>{t('Daily Goal', 'दैनिक लक्ष्य')}</Text>
+                </View>
                 <Text style={{ fontSize: fs(12), fontWeight: '700', color: colors.emerald }}>{p.dailyStudyGoalHours}h</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1818,7 +1961,7 @@ export function SettingsScreen() {
                   onPress={() => updateSetting('planner.dailyStudyGoalHours', Math.max(1, p.dailyStudyGoalHours - 1))}
                   style={[styles.stepBtn, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
                 >
-                  <Text style={{ fontSize: fs(14), fontWeight: '700', color: colors.text }}>−</Text>
+                  <SSDSIcon icon={Minus} size={14} color="textPrimary" />
                 </TouchableOpacity>
                 <Text style={{ fontSize: fs(11), color: colors.textMuted }}>
                   {p.dailyStudyGoalHours * 7}h / {t('wk', 'सप्ताह')}
@@ -1827,7 +1970,7 @@ export function SettingsScreen() {
                   onPress={() => updateSetting('planner.dailyStudyGoalHours', Math.min(16, p.dailyStudyGoalHours + 1))}
                   style={[styles.stepBtn, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
                 >
-                  <Text style={{ fontSize: fs(14), fontWeight: '700', color: colors.text }}>+</Text>
+                  <SSDSIcon icon={Plus} size={14} color="textPrimary" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -1835,7 +1978,10 @@ export function SettingsScreen() {
             {/* QC 4: Focus Lock */}
             <View style={[styles.quickCard, { width: quickWidth, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.quickHeader}>
-                <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>🛡️ {t('Focus Lock', 'फ़ोकस लॉक')}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SSDSIcon icon={Shield} size={14} color="warning" />
+                  <Text style={{ fontSize: fs(12), fontWeight: '600', color: colors.text }}>{t('Focus Lock', 'फ़ोकस लॉक')}</Text>
+                </View>
                 <TouchableOpacity onPress={() => openCategory('focuslock')}>
                   <Text style={{ fontSize: fs(11), fontWeight: '600', color: activeAccent[600] }}>{t('Rules', 'नियम')}</Text>
                 </TouchableOpacity>
@@ -1844,17 +1990,15 @@ export function SettingsScreen() {
                 <Text style={{ fontSize: fs(11), color: colors.textMuted }}>
                   {fl.blockedApps.length} {t('apps blocked', 'ऐप ब्लॉक')}
                 </Text>
-                <Switch
-                  value={fl.masterEnabled}
-                  onValueChange={(next) =>
+                <SSDSSwitch
+                  checked={fl.masterEnabled}
+                  onChange={(next) =>
                     updateSetting(
                       'focuslock.masterEnabled',
                       next,
                       next ? t('Focus Lock armed', 'फ़ोकस लॉक सक्रिय') : t('Focus Lock paused', 'फ़ोकस लॉक बंद')
                     )
                   }
-                  trackColor={{ false: isDark ? '#334155' : '#cbd5e1', true: activeAccent[600] }}
-                  thumbColor="#ffffff"
                 />
               </View>
             </View>
@@ -1882,8 +2026,8 @@ export function SettingsScreen() {
                   },
                 ]}
               >
-                <View style={[styles.catIconBox, { backgroundColor: isDark ? c.bgDark : c.bgLight }]}>
-                  <Text style={{ fontSize: 18 }}>{c.icon}</Text>
+                <View style={[styles.catIconBox, { backgroundColor: isDark ? c.bgDark : c.bgLight, borderColor: tokens.colors.borderSubtle }]}>
+                  <SSDSIcon icon={c.icon} size={20} color={isDark ? c.textDark : c.textLight} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1928,8 +2072,8 @@ export function SettingsScreen() {
                   },
                 ]}
               >
-                <View style={[styles.catIconBox, { width: 34, height: 34, backgroundColor: isDark ? s.bgDark : s.bgLight }]}>
-                  <Text style={{ fontSize: 16 }}>{s.icon}</Text>
+                <View style={[styles.catIconBox, { width: 34, height: 34, backgroundColor: isDark ? s.bgDark : s.bgLight, borderColor: tokens.colors.borderSubtle }]}>
+                  <SSDSIcon icon={s.icon} size={18} color={isDark ? s.textDark : s.textLight} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 10 }}>
                   <Text style={{ fontSize: fs(13), fontWeight: '600', color: colors.text, fontFamily: fontFamilyStyle }}>
@@ -1970,21 +2114,21 @@ export function SettingsScreen() {
                 label={t('Profile Details & Photo', 'प्रोफ़ाइल विवरण और फ़ोटो')}
                 desc={`${acc.name} • ${acc.email}`}
                 valueText={t('Edit', 'संपादित करें')}
-                icon="👤"
+                icon={UserIcon}
                 onPress={() => openDetail('account', 'edit_profile')}
               />
               <NavRow
                 label={t('Joined Date', 'जुड़ने की तिथि')}
                 desc={t('Account creation timestamp', 'खाता बनने की तारीख')}
                 valueText={acc.joinedDate}
-                icon="📅"
+                icon={Calendar}
                 onPress={() => showToast(`Member since ${acc.joinedDate}`)}
               />
               <NavRow
                 label={t('Target Exam & Medium', 'लक्ष्य परीक्षा और माध्यम')}
                 desc={t('Managed primarily in Learning Preferences', 'अध्ययन प्राथमिकताओं में प्रबंधित')}
                 valueText={`${settings.learning.targetExam} • ${settings.learning.preferredMedium}`}
-                icon="🎓"
+                icon={GraduationCap}
                 onPress={() => openCategory('learning')}
                 last
               />
@@ -1994,7 +2138,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Change Password', 'पासवर्ड बदलें')}
                 desc={t('Update your Study Sakha password', 'अपना पासवर्ड अपडेट करें')}
-                icon="🔑"
+                icon={KeyRound}
                 onPress={() => openDetail('account', 'change_password')}
               />
               <ToggleRow
@@ -2008,7 +2152,7 @@ export function SettingsScreen() {
                 label={t('Active Devices and Sessions', 'सक्रिय डिवाइस और सत्र')}
                 desc={t('Review and revoke signed-in devices', 'लॉग-इन डिवाइस प्रबंधित करें')}
                 valueText={`${acc.activeSessions.length} ${t('devices', 'डिवाइस')}`}
-                icon="📱"
+                icon={Smartphone}
                 onPress={() => openDetail('account', 'active_sessions')}
               />
               <ToggleRow
@@ -2031,7 +2175,7 @@ export function SettingsScreen() {
                 label={t('Current Plan & Benefits', 'वर्तमान प्लान और लाभ')}
                 desc={sub.isPremium ? `${t('Expires', 'समाप्ति')}: ${sub.expiryDate}` : t('Free Scholar tier — Upgrade for Pro features', 'मुफ़्त प्लान — प्रो सुविधाओं के लिए अपग्रेड करें')}
                 valueText={sub.planName}
-                icon="👑"
+                icon={Crown}
                 onPress={() => openCategory('special_premium')}
                 last
               />
@@ -2041,13 +2185,13 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Export Personal Account Data', 'व्यक्तिगत खाता डेटा एक्सपोर्ट करें')}
                 desc={t('Download a JSON copy of your profile & metadata', 'प्रोफ़ाइल डेटा की JSON प्रति डाउनलोड करें')}
-                icon="⬇️"
+                icon={Download}
                 onPress={() => simulateExport('study-sakha-account-data.json')}
               />
               <NavRow
                 label={t('Logout', 'लॉग आउट')}
                 desc={t('Sign out of this device', 'इस डिवाइस से साइन आउट करें')}
-                icon="🚪"
+                icon={LogOut}
                 onPress={() =>
                   setModalConfig({
                     visible: true,
@@ -2067,7 +2211,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Delete Account', 'खाता स्थायी रूप से हटाएँ')}
                 desc={t('Permanently erase account, notes and progress', 'खाता, नोट्स और प्रगति स्थायी रूप से मिटाएँ')}
-                icon="🗑️"
+                icon={Trash2}
                 danger
                 last
                 onPress={() =>
@@ -2192,7 +2336,7 @@ export function SettingsScreen() {
                 label={t('Background Library & Custom Upload', 'बैकग्राउंड लाइब्रेरी और अपलोड')}
                 desc={t('Choose preset textures, upload image, adjust opacity & overlay', 'प्रीसेट चुनें, छवि अपलोड करें और अपारदर्शिता समायोजित करें')}
                 valueText={a.customBgLabel || BACKGROUND_LIBRARY.find((b) => b.id === a.backgroundId)?.name || 'Clean Solid'}
-                icon="🖼️"
+                icon={ImageIcon}
                 onPress={() => openDetail('appearance', 'custom_bg')}
                 last
               />
@@ -2244,7 +2388,7 @@ export function SettingsScreen() {
                 label={t('Dashboard Customization & Quick Actions', 'डैशबोर्ड और त्वरित क्रियाएँ')}
                 desc={t('Choose visible dashboard widgets and action order', 'डैशबोर्ड विजेट और क्रम प्रबंधित करें')}
                 valueText={`${Object.values(a.dashboardWidgets).filter(Boolean).length}/5 ${t('active', 'सक्रिय')}`}
-                icon="🧩"
+                icon={LayoutGrid}
                 onPress={() => openDetail('appearance', 'dashboard_layout')}
                 last
               />
@@ -2372,7 +2516,7 @@ export function SettingsScreen() {
                 label={t('Preferred Subjects', 'पसंदीदा विषय')}
                 desc={(Array.isArray(l.preferredSubjects) ? l.preferredSubjects : []).join(', ')}
                 valueText={`${Array.isArray(l.preferredSubjects) ? l.preferredSubjects.length : 0} ${t('selected', 'चयनित')}`}
-                icon="📚"
+                icon={BookOpen}
                 onPress={() => openDetail('learning', 'preferred_subjects')}
               />
               <SelectRow
@@ -2505,7 +2649,7 @@ export function SettingsScreen() {
                 label={t('Study Timetable', 'अध्ययन समय-सारणी')}
                 desc={t('Configure morning, afternoon & evening study blocks', 'सुबह, दोपहर और शाम के अध्ययन ब्लॉक सेट करें')}
                 valueText={p.timetableTemplate}
-                icon="🕒"
+                icon={Clock}
                 onPress={() => openDetail('planner', 'study_timetable')}
               />
               <SliderRow
@@ -2615,7 +2759,7 @@ export function SettingsScreen() {
                 label={t('Browse All 21 Focus Themes', 'सभी 21 फ़ोकस थीम देखें')}
                 desc={t('Nature, Cozy, Celestial & Minimal categories', 'प्रकृति, कोज़ी, ब्रह्मांड और मिनिमल श्रेणियाँ')}
                 valueText={t(activeTheme.name, activeTheme.hi)}
-                icon="✨"
+                icon={Sparkles}
                 onPress={() => openDetail('focus', 'focus_themes')}
               />
               <SegmentRow
@@ -2706,7 +2850,7 @@ export function SettingsScreen() {
                 label={t('Manage Apps, Profiles & Modes in Focus Lock', 'फ़ोकस लॉक में ऐप और प्रोफ़ाइल प्रबंधित करें')}
                 desc={t('Authoritative Focus Lock configuration and native blocking controls', 'नेटिव ब्लॉकिंग और ऐप चयन का मुख्य नियंत्रण')}
                 valueText={`${fl.blockedApps.length} ${t('selected', 'चयनित')}`}
-                icon="📱"
+                icon={Smartphone}
                 onPress={() => navigation.navigate('FocusLock')}
                 last
               />
@@ -2769,7 +2913,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Open Permissions Centre', 'अनुमति केंद्र खोलें')}
                 desc={t('Full OS permission diagnostics and guidance', 'सभी डिवाइस अनुमतियों का निदान और मार्गदर्शन')}
-                icon="🛡️"
+                icon={Shield}
                 onPress={() => openCategory('special_permissions')}
                 last
               />
@@ -2782,11 +2926,11 @@ export function SettingsScreen() {
       /* 07. SAKHA AI */
       case 'ai': {
         const ai = settings.ai;
-        const aiModes = [
-          { id: 'Teacher Mode', icon: '🧑‍🏫', desc: t('Structured concept teaching with checks', 'संरचित अवधारणा शिक्षण') },
-          { id: 'Doubt Solving', icon: '❓', desc: t('Direct, crisp answers to tough doubts', 'संदेहों का सीधा समाधान') },
-          { id: 'PYQ Analysis', icon: '🔎', desc: t('Trend mapping & option elimination', 'पिछले वर्षों के प्रश्नों का विश्लेषण') },
-          { id: 'Exam Preparation', icon: '🏆', desc: t('RAS/UPSC Mains answer structuring', 'मुख्य परीक्षा उत्तर लेखन रणनीति') },
+        const aiModes: { id: string; icon: LucideIcon; desc: string }[] = [
+          { id: 'Teacher Mode', icon: GraduationCap, desc: t('Structured concept teaching with checks', 'संरचित अवधारणा शिक्षण') },
+          { id: 'Doubt Solving', icon: HelpCircle, desc: t('Direct, crisp answers to tough doubts', 'संदेहों का सीधा समाधान') },
+          { id: 'PYQ Analysis', icon: Search, desc: t('Trend mapping & option elimination', 'पिछले वर्षों के प्रश्नों का विश्लेषण') },
+          { id: 'Exam Preparation', icon: Trophy, desc: t('RAS/UPSC Mains answer structuring', 'मुख्य परीक्षा उत्तर लेखन रणनीति') },
         ];
 
         content = (
@@ -2835,7 +2979,9 @@ export function SettingsScreen() {
                         },
                       ]}
                     >
-                      <Text style={{ fontSize: 18, marginRight: 10 }}>{m.icon}</Text>
+                      <View style={[styles.navIconBox, { backgroundColor: active ? (isDark ? '#1e293b' : activeAccent[100]) : tokens.colors.surfaceTertiary, borderColor: tokens.colors.borderSubtle }]}>
+                        <SSDSIcon icon={m.icon} size={17} color={active ? (isDark ? '#ffffff' : activeAccent[600]) : 'textSecondary'} />
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: fs(12.5), fontWeight: '700', color: colors.text }}>{m.id}</Text>
                         <Text style={{ fontSize: fs(11), color: colors.textMuted, marginTop: 2 }}>{m.desc}</Text>
@@ -2876,7 +3022,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Clear All AI Chat History', 'संपूर्ण AI चैट इतिहास मिटाएँ')}
                 desc={t('Permanently delete saved Sakha AI conversations', 'सहेजे गए सभी AI संवाद हटाएँ')}
-                icon="🗑️"
+                icon={Trash2}
                 danger
                 last
                 onPress={() =>
@@ -2919,7 +3065,7 @@ export function SettingsScreen() {
                 label={t('PDF Reader Display & Comfort', 'PDF रीडर डिस्प्ले और आराम')}
                 desc={`${lib.pdfReadingTheme} • ${lib.pdfPageDisplay} • ${lib.pdfTextSize}%`}
                 valueText={t('Configure', 'सेट करें')}
-                icon="📄"
+                icon={FileText}
                 onPress={() => openDetail('library', 'pdf_reader')}
               />
               <SelectRow label={t('Books Page Transition', 'पेज ट्रांज़िशन')} value={lib.booksPageAnimation} path="library.booksPageAnimation" options={['Slide', 'Fade', 'Instant']} />
@@ -2981,7 +3127,7 @@ export function SettingsScreen() {
                 label={t('Daily & Weekly Study Targets', 'दैनिक और साप्ताहिक लक्ष्य')}
                 desc={t('Edit target hours inside Study Planner', 'स्टडी प्लानर में लक्ष्य घंटे बदलें')}
                 valueText={`${settings.planner.dailyStudyGoalHours}h/d • ${settings.planner.weeklyStudyGoalHours}h/w`}
-                icon="📅"
+                icon={Calendar}
                 onPress={() => openCategory('planner')}
               />
               <ToggleRow
@@ -3016,7 +3162,7 @@ export function SettingsScreen() {
               />
               <NavRow
                 label={t('Export Study Analytics (JSON)', 'अध्ययन आँकड़े एक्सपोर्ट करें')}
-                icon="⬇️"
+                icon={Download}
                 onPress={() => simulateExport('study-sakha-analytics.json')}
                 last
               />
@@ -3049,7 +3195,7 @@ export function SettingsScreen() {
                 label={t('Joined Study Groups & Leave Controls', 'जुड़े हुए समूह और प्रबंधन')}
                 desc={`${com.joinedGroups.length} ${t('active groups', 'सक्रिय समूह')}`}
                 valueText={t('Manage', 'प्रबंधित करें')}
-                icon="👥"
+                icon={Users}
                 onPress={() => openDetail('community', 'manage_groups')}
                 last
               />
@@ -3061,13 +3207,13 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Blocked Users', 'ब्लॉक किए गए उपयोगकर्ता')}
                 valueText={`${com.blockedUsers.length} ${t('blocked', 'ब्लॉक')}`}
-                icon="🚫"
+                icon={Ban}
                 onPress={() => openDetail('community', 'blocked_users')}
               />
               <NavRow
                 label={t('Community Notification Settings', 'समुदाय सूचना सेटिंग्स')}
                 desc={t('Managed centrally inside Notifications & Reminders', 'सूचनाएँ और रिमाइंडर श्रेणी में प्रबंधित')}
-                icon="🔔"
+                icon={Bell}
                 onPress={() => openCategory('notifications')}
                 last
               />
@@ -3100,7 +3246,7 @@ export function SettingsScreen() {
                   <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text }}>
                     {t('Open Notification Centre Settings', 'सूचना केंद्र सेटिंग्स खोलें')}
                   </Text>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  <SSDSIcon icon={ChevronRight} size={18} color="textTertiary" />
                 </TouchableOpacity>
                 <ToggleRow
                 label={t('Enable All Notifications', 'सभी सूचनाएँ चालू करें')}
@@ -3172,7 +3318,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Sync & Backup Now', 'अभी सिंक और बैकअप करें')}
                 desc={t('Cloud backup and recovery are not configured in this build.', 'इस बिल्ड में क्लाउड बैकअप और पुनर्स्थापना कॉन्फ़िगर नहीं हैं।')}
-                icon="🔄"
+                icon={RefreshCw}
                 onPress={simulateSyncNow}
                 last
               />
@@ -3183,20 +3329,20 @@ export function SettingsScreen() {
                 label={t('Local Storage Usage & Downloads', 'लोकल स्टोरेज और डाउनलोड')}
                 desc={`${d.storageUsedMB} MB ${t('used', 'उपयोग')} (${d.cacheSizeMB} MB ${t('cache', 'कैश')})`}
                 valueText={t('Manage', 'प्रबंधित करें')}
-                icon="💾"
+                icon={HardDrive}
                 onPress={() => openDetail('data', 'storage_manager')}
                 last
               />
             </Section>
 
             <Section title={t('Data Export & Recovery', 'डेटा एक्सपोर्ट और रिकवरी')}>
-              <NavRow label={t('Export Notes (JSON)', 'नोट्स एक्सपोर्ट करें')} icon="📝" onPress={() => simulateExport('study-sakha-notes.json')} />
-              <NavRow label={t('Export Study Progress', 'अध्ययन प्रगति एक्सपोर्ट करें')} icon="📊" onPress={() => simulateExport('study-sakha-progress.json')} />
-              <NavRow label={t('Export Planner Data', 'प्लानर डेटा एक्सपोर्ट करें')} icon="📅" onPress={() => simulateExport('study-sakha-planner.json')} />
+              <NavRow label={t('Export Notes (JSON)', 'नोट्स एक्सपोर्ट करें')} icon={FileText} onPress={() => simulateExport('study-sakha-notes.json')} />
+              <NavRow label={t('Export Study Progress', 'अध्ययन प्रगति एक्सपोर्ट करें')} icon={BarChart3} onPress={() => simulateExport('study-sakha-progress.json')} />
+              <NavRow label={t('Export Planner Data', 'प्लानर डेटा एक्सपोर्ट करें')} icon={Calendar} onPress={() => simulateExport('study-sakha-planner.json')} />
               <NavRow
                 label={t('Restore Data from Backup', 'बैकअप से डेटा पुनर्स्थापित करें')}
                 desc={t('No supported restore snapshot is available in this client.', 'इस ऐप में समर्थित पुनर्स्थापना स्नैपशॉट उपलब्ध नहीं है।')}
-                icon="↩️"
+                icon={Upload}
                 simulated
                 last
                 onPress={() =>
@@ -3223,7 +3369,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Reset All App Settings to Default', 'सभी सेटिंग्स डिफ़ॉल्ट पर रीसेट करें')}
                 desc={t('Restores entire Settings Control Center to initial state', 'सभी सेटिंग्स को प्रारंभिक स्थिति में वापस लाएँ')}
-                icon="⚠️"
+                icon={AlertTriangle}
                 danger
                 last
                 onPress={() =>
@@ -3275,8 +3421,8 @@ export function SettingsScreen() {
               ]}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                <View style={[styles.catIconBox, { width: 46, height: 46, backgroundColor: sub.isPremium ? '#f59e0b' : colors.surfaceAlt }]}>
-                  <Text style={{ fontSize: 22 }}>👑</Text>
+                <View style={[styles.catIconBox, { width: 46, height: 46, backgroundColor: sub.isPremium ? '#f59e0b' : tokens.colors.surfaceTertiary, borderColor: sub.isPremium ? '#f59e0b' : tokens.colors.borderSubtle }]}>
+                  <SSDSIcon icon={Crown} size={22} color={sub.isPremium ? '#ffffff' : 'warning'} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ fontSize: fs(10.5), fontWeight: '700', color: colors.textMuted, letterSpacing: 0.6 }}>
@@ -3310,7 +3456,7 @@ export function SettingsScreen() {
                       { width: isTablet ? '48.5%' : '100%', backgroundColor: colors.surfaceAlt, borderColor: colors.border },
                     ]}
                   >
-                    <Text style={{ fontSize: 15, marginRight: 8 }}>✅</Text>
+                    <SSDSIcon icon={CheckCircle2} size={16} color="success" style={{ marginRight: 8, marginTop: 2 }} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: fs(12.5), fontWeight: '700', color: colors.text }}>{title}</Text>
                       <Text style={{ fontSize: fs(11.5), color: colors.textMuted, marginTop: 2 }}>{desc}</Text>
@@ -3324,13 +3470,13 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Billing Email', 'बिलिंग ईमेल')}
                 valueText={sub.billingEmail}
-                icon="✉️"
+                icon={Mail}
                 onPress={() => showToast(`Billing receipts sent to ${sub.billingEmail}`)}
               />
               <NavRow
                 label={t('Renewal Cycle', 'नवीनीकरण चक्र')}
                 valueText={sub.isPremium ? sub.renewalCycle : t('No active billing', 'कोई सक्रिय बिलिंग नहीं')}
-                icon="💳"
+                icon={CreditCard}
                 onPress={() => showToast('Managed via Google Play / Razorpay in production')}
                 last
               />
@@ -3344,10 +3490,10 @@ export function SettingsScreen() {
       case 'special_permissions': {
         const pm = settings.permissions;
         const permList = [
-          { key: 'androidNotifications', icon: '🔔', label: t('Android Notifications', 'एंड्रॉइड सूचनाएँ'), desc: t('Required for study reminders, focus bells and exam alerts', 'रिमाइंडर और फ़ोकस अलर्ट के लिए आवश्यक') },
-          { key: 'audioAccess', icon: '🔊', label: t('Audio & Media Playback', 'ऑडियो एक्सेस'), desc: t('Required for ambient focus tracks and meditation chimes', 'फ़ोकस संगीत और ध्यान ध्वनि के लिए') },
-          { key: 'nativeAppBlocking', icon: '🛡️', label: t('Native App Blocking (Accessibility)', 'नेटिव ऐप ब्लॉकिंग'), desc: t('Required for Focus Lock to shield distracting apps', 'फ़ोकस लॉक द्वारा ऐप ब्लॉक करने के लिए') },
-          { key: 'fileAccess', icon: '📁', label: t('Local File & PDF Access', 'फ़ाइल और PDF एक्सेस'), desc: t('Required for offline books, PDF reader and local backup', 'ऑफ़लाइन पुस्तकें और बैकअप के लिए') },
+          { key: 'androidNotifications', icon: Bell, label: t('Android Notifications', 'एंड्रॉइड सूचनाएँ'), desc: t('Required for study reminders, focus bells and exam alerts', 'रिमाइंडर और फ़ोकस अलर्ट के लिए आवश्यक') },
+          { key: 'audioAccess', icon: Volume2, label: t('Audio & Media Playback', 'ऑडियो एक्सेस'), desc: t('Required for ambient focus tracks and meditation chimes', 'फ़ोकस संगीत और ध्यान ध्वनि के लिए') },
+          { key: 'nativeAppBlocking', icon: Shield, label: t('Native App Blocking (Accessibility)', 'नेटिव ऐप ब्लॉकिंग'), desc: t('Required for Focus Lock to shield distracting apps', 'फ़ोकस लॉक द्वारा ऐप ब्लॉक करने के लिए') },
+          { key: 'fileAccess', icon: Folder, label: t('Local File & PDF Access', 'फ़ाइल और PDF एक्सेस'), desc: t('Required for offline books, PDF reader and local backup', 'ऑफ़लाइन पुस्तकें और बैकअप के लिए') },
         ] as const;
 
         content = (
@@ -3368,8 +3514,8 @@ export function SettingsScreen() {
                     style={[styles.rowColumn, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider }]}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 }}>
-                      <View style={[styles.navIconBox, { backgroundColor: colors.surfaceAlt }]}>
-                        <Text style={{ fontSize: 15 }}>{item.icon}</Text>
+                      <View style={[styles.navIconBox, { backgroundColor: tokens.colors.surfaceTertiary, borderColor: tokens.colors.borderSubtle }]}>
+                        <SSDSIcon icon={item.icon} size={17} color="primary" />
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.badgeWrap}>
@@ -3409,7 +3555,7 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Open Device Settings', 'डिवाइस सेटिंग्स खोलें')}
                 desc={t('Launches Android App Info screen on mobile devices', 'मोबाइल डिवाइस पर Android ऐप जानकारी खोलता है')}
-                icon="↗️"
+                icon={ExternalLink}
                 last
                 onPress={() => void Linking.openSettings().catch(() => showToast(t('Device settings are unavailable on this platform', 'इस प्लेटफ़ॉर्म पर डिवाइस सेटिंग्स उपलब्ध नहीं हैं'), 'error'))}
               />
@@ -3480,19 +3626,19 @@ export function SettingsScreen() {
               <NavRow
                 label={t('Submit Feedback', 'फ़ीडबैक भेजें')}
                 desc={t('Share feature ideas for RAS/UPSC preparation', 'नई सुविधाओं के सुझाव भेजें')}
-                icon="💬"
+                icon={MessageSquare}
                 onPress={() => setFeedbackModal({ visible: true, kind: 'feedback', text: '' })}
               />
               <NavRow
                 label={t('Report a Bug', 'बग रिपोर्ट करें')}
                 desc={t('Send diagnostics & issue details to engineering', 'तकनीकी समस्या की रिपोर्ट करें')}
-                icon="🐛"
+                icon={Bug}
                 onPress={() => setFeedbackModal({ visible: true, kind: 'bug', text: '' })}
               />
               <NavRow
                 label={t('Contact Support', 'सहायता टीम से संपर्क करें')}
                 desc="support@studysakha.in • Mon–Sat, 9 AM – 7 PM IST"
-                icon="🎧"
+                icon={Headphones}
                 onPress={() => showToast('Support email: support@studysakha.in')}
                 last
               />
@@ -3508,7 +3654,7 @@ export function SettingsScreen() {
           <>
             <View style={[styles.card, { padding: 24, alignItems: 'center', marginBottom: 20, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={[styles.avatarBox, { backgroundColor: activeAccent[600], marginBottom: 10 }]}>
-                <Text style={{ fontSize: 24 }}>📘</Text>
+                <SSDSIcon icon={BookOpen} size={24} color="#ffffff" />
               </View>
               <Text style={{ fontSize: fs(18), fontWeight: '700', color: colors.text }}>Study Sakha</Text>
               <Text style={{ fontSize: fs(11.5), color: colors.textMuted, textAlign: 'center', marginTop: 4 }}>
@@ -3517,10 +3663,10 @@ export function SettingsScreen() {
             </View>
 
             <Section title={t('Release & Legal Information', 'रिलीज़ और कानूनी जानकारी')}>
-              <NavRow label={t("What's New & Changelog", 'नया क्या है और चेंजलॉग')} valueText={APP_VERSION} icon="✨" onPress={() => openLegalModal('changelog')} />
-              <NavRow label={t('Credits & Open Source', 'क्रेडिट और ओपन सोर्स')} icon="❤️" onPress={() => openLegalModal('credits')} />
-              <NavRow label={t('Privacy Policy', 'गोपनीयता नीति')} icon="🛡️" onPress={() => openLegalModal('privacy')} />
-              <NavRow label={t('Terms of Service', 'सेवा की शर्तें')} icon="📄" onPress={() => openLegalModal('terms')} last />
+              <NavRow label={t("What's New & Changelog", 'नया क्या है और चेंजलॉग')} valueText={APP_VERSION} icon={Sparkles} onPress={() => openLegalModal('changelog')} />
+              <NavRow label={t('Credits & Open Source', 'क्रेडिट और ओपन सोर्स')} icon={Heart} onPress={() => openLegalModal('credits')} />
+              <NavRow label={t('Privacy Policy', 'गोपनीयता नीति')} icon={ShieldCheck} onPress={() => openLegalModal('privacy')} />
+              <NavRow label={t('Terms of Service', 'सेवा की शर्तें')} icon={FileText} onPress={() => openLegalModal('terms')} last />
             </Section>
           </>
         );
@@ -3531,10 +3677,15 @@ export function SettingsScreen() {
     return (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        contentOffset={{ x: 0, y: scrollOffsetsRef.current[`category:${categoryId}`] ?? 0 }}
-        onScroll={(event) => {
-          scrollOffsetsRef.current[`category:${categoryId}`] = event.nativeEvent.contentOffset.y;
-        }}
+        contentOffset={{ x: 0, y: scrollOffsets[`category:${categoryId}`] ?? 0 }}
+        onScrollEndDrag={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          [`category:${categoryId}`]: event.nativeEvent.contentOffset.y,
+        }))}
+        onMomentumScrollEnd={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          [`category:${categoryId}`]: event.nativeEvent.contentOffset.y,
+        }))}
         scrollEventThrottle={16}
       >
         {/* Category Header with Breadcrumb & Reset Defaults */}
@@ -3544,10 +3695,10 @@ export function SettingsScreen() {
               onPress={goHome}
               style={[styles.backBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
-              <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>←</Text>
+              <SSDSIcon icon={ArrowLeft} size={18} color="textPrimary" />
             </TouchableOpacity>
-            <View style={[styles.catIconBox, { width: 38, height: 38, marginLeft: 10, backgroundColor: isDark ? meta.bgDark : meta.bgLight }]}>
-              <Text style={{ fontSize: 17 }}>{meta.icon}</Text>
+            <View style={[styles.catIconBox, { width: 38, height: 38, marginLeft: 10, backgroundColor: isDark ? meta.bgDark : meta.bgLight, borderColor: tokens.colors.borderSubtle }]}>
+              <SSDSIcon icon={meta.icon} size={19} color={isDark ? meta.textDark : meta.textLight} />
             </View>
             <View style={{ flex: 1, marginLeft: 10 }}>
               <Text style={{ fontSize: fs(10.5), color: colors.textMuted }}>
@@ -3563,7 +3714,10 @@ export function SettingsScreen() {
               onPress={() => resetCategory(categoryId as keyof SettingsState)}
               style={[styles.resetBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
-              <Text style={{ fontSize: fs(11), fontWeight: '600', color: colors.textSecondary }}>↺ {t('Reset', 'रीसेट')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <SSDSIcon icon={RotateCcw} size={13} color="textSecondary" />
+                <Text style={{ fontSize: fs(11), fontWeight: '600', color: colors.textSecondary }}>{t('Reset', 'रीसेट')}</Text>
+              </View>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -3732,8 +3886,8 @@ export function SettingsScreen() {
               ]}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                <View style={[styles.navIconBox, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={{ fontSize: 15 }}>📱</Text>
+                <View style={[styles.navIconBox, { backgroundColor: tokens.colors.surfaceTertiary, borderColor: tokens.colors.borderSubtle }]}>
+                  <SSDSIcon icon={Smartphone} size={17} color="primary" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={styles.badgeWrap}>
@@ -3804,7 +3958,7 @@ export function SettingsScreen() {
                     ]}
                   >
                     <View style={[styles.bgPreviewSwatch, { backgroundColor: isDark ? bg.darkBg : bg.previewBg, borderColor: colors.border }]}>
-                      {locked ? <Text style={{ fontSize: 16 }}>🔒</Text> : active ? <Text style={{ fontSize: 15 }}>✓</Text> : null}
+                      {locked ? <SSDSIcon icon={Lock} size={16} color="textSecondary" /> : active ? <SSDSIcon icon={Check} size={16} color="primary" /> : null}
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                       <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: colors.text, flex: 1 }} numberOfLines={1}>
@@ -3927,7 +4081,7 @@ export function SettingsScreen() {
                   <Text style={{ fontSize: fs(13.5), fontWeight: '600', color: colors.text }}>{tp.name}</Text>
                   <Text style={{ fontSize: fs(11.5), color: colors.textMuted, marginTop: 3 }}>{tp.blocks}</Text>
                 </View>
-                {active ? <Text style={{ fontSize: 16, fontWeight: '700', color: activeAccent[600] }}>✓</Text> : null}
+                {active ? <SSDSIcon icon={Check} size={16} color="primary" /> : null}
               </TouchableOpacity>
             );
           })}
@@ -3988,11 +4142,11 @@ export function SettingsScreen() {
                     </View>
                     {active ? (
                       <View style={styles.themeStatusCircle}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: activeAccent[600] }}>✓</Text>
+                        <SSDSIcon icon={Check} size={12} color="primary" />
                       </View>
                     ) : locked ? (
                       <View style={[styles.themeStatusCircle, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
-                        <Text style={{ fontSize: 10 }}>🔒</Text>
+                        <SSDSIcon icon={Lock} size={11} color="#ffffff" />
                       </View>
                     ) : null}
                   </View>
@@ -4032,9 +4186,12 @@ export function SettingsScreen() {
                       },
                     ]}
                   >
-                    <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: blocked ? '#fff' : colors.text }}>
-                      {blocked ? `🚫 ${app}` : `+ ${app}`}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <SSDSIcon icon={blocked ? Ban : Plus} size={12} color={blocked ? '#ffffff' : 'textPrimary'} />
+                      <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: blocked ? '#fff' : colors.text }}>
+                        {app}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -4063,9 +4220,12 @@ export function SettingsScreen() {
                       },
                     ]}
                   >
-                    <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: allowed ? '#fff' : colors.text }}>
-                      {allowed ? `✓ ${app}` : `+ ${app}`}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <SSDSIcon icon={allowed ? Check : Plus} size={12} color={allowed ? '#ffffff' : 'textPrimary'} />
+                      <Text style={{ fontSize: fs(11.5), fontWeight: '600', color: allowed ? '#fff' : colors.text }}>
+                        {app}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -4249,10 +4409,15 @@ export function SettingsScreen() {
     return (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        contentOffset={{ x: 0, y: scrollOffsetsRef.current[`detail:${categoryId}:${detailId}`] ?? 0 }}
-        onScroll={(event) => {
-          scrollOffsetsRef.current[`detail:${categoryId}:${detailId}`] = event.nativeEvent.contentOffset.y;
-        }}
+        contentOffset={{ x: 0, y: scrollOffsets[`detail:${categoryId}:${detailId}`] ?? 0 }}
+        onScrollEndDrag={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          [`detail:${categoryId}:${detailId}`]: event.nativeEvent.contentOffset.y,
+        }))}
+        onMomentumScrollEnd={(event) => setScrollOffsets((previous) => ({
+          ...previous,
+          [`detail:${categoryId}:${detailId}`]: event.nativeEvent.contentOffset.y,
+        }))}
         scrollEventThrottle={16}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
@@ -4288,7 +4453,9 @@ export function SettingsScreen() {
       return (
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, padding: 32, alignItems: 'center' }]}>
-            <Text style={{ fontSize: 28, marginBottom: 8 }}>🔍</Text>
+            <View style={[styles.catIconBox, { width: 48, height: 48, borderRadius: tokens.radius.lg, backgroundColor: tokens.colors.surfaceTertiary, borderColor: tokens.colors.borderSubtle, marginBottom: 12 }]}>
+              <SSDSIcon icon={Search} size={24} color="primary" />
+            </View>
             <Text style={{ fontSize: fs(14), fontWeight: '700', color: colors.text }}>
               {t('No matching settings found', 'कोई मिलती-जुलती सेटिंग नहीं मिली')}
             </Text>
@@ -4322,8 +4489,8 @@ export function SettingsScreen() {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
                   {meta ? (
-                    <View style={[styles.navIconBox, { backgroundColor: isDark ? meta.bgDark : meta.bgLight }]}>
-                      <Text style={{ fontSize: 15 }}>{meta.icon}</Text>
+                    <View style={[styles.navIconBox, { backgroundColor: isDark ? meta.bgDark : meta.bgLight, borderColor: tokens.colors.borderSubtle }]}>
+                      <SSDSIcon icon={meta.icon} size={17} color={isDark ? meta.textDark : meta.textLight} />
                     </View>
                   ) : null}
                   <View style={{ flex: 1 }}>
@@ -4335,7 +4502,7 @@ export function SettingsScreen() {
                     </Text>
                   </View>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.textMuted }}>↗</Text>
+                <SSDSIcon icon={ArrowUpRight} size={16} color="textTertiary" />
               </TouchableOpacity>
             );
           })}
@@ -4362,12 +4529,12 @@ export function SettingsScreen() {
             hitSlop={8}
             style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 2 }}
           >
-            <Ionicons name="chevron-back" size={20} color={colors.text} />
+            <SSDSIcon icon={ChevronLeft} size={20} color="textPrimary" />
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity onPress={goHome} style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
           <View style={[styles.brandIcon, { backgroundColor: activeAccent[600] }]}>
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>⚙</Text>
+            <SSDSIcon icon={Settings} size={18} color="#ffffff" />
           </View>
           {isTablet ? (
             <View style={{ marginLeft: 10 }}>
@@ -4381,7 +4548,7 @@ export function SettingsScreen() {
 
         {/* Bilingual Global Search Bar */}
         <View style={[styles.searchBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-          <Text style={{ fontSize: 13, marginRight: 6 }}>🔍</Text>
+          <SSDSIcon icon={Search} size={15} color="textTertiary" style={{ marginRight: 6 }} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -4391,7 +4558,7 @@ export function SettingsScreen() {
           />
           {searchQuery.length > 0 ? (
             <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
-              <Text style={{ fontSize: 12, color: colors.textMuted }}>✕</Text>
+              <SSDSIcon icon={X} size={14} color="textTertiary" />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -4425,7 +4592,12 @@ export function SettingsScreen() {
                 navLevel === 1 && !searchQuery && { backgroundColor: isDark ? '#1e293b' : activeAccent[50] },
               ]}
             >
-              <Text style={{ fontSize: 14, marginRight: 8 }}>🏠</Text>
+              <SSDSIcon
+                icon={Home}
+                size={16}
+                color={navLevel === 1 && !searchQuery ? (isDark ? '#ffffff' : activeAccent[700]) : 'textSecondary'}
+                style={{ marginRight: 8 }}
+              />
               <Text
                 style={{
                   fontSize: fs(12),
@@ -4446,7 +4618,12 @@ export function SettingsScreen() {
                   onPress={() => openCategory(c.id)}
                   style={[styles.railItem, active && { backgroundColor: isDark ? '#1e293b' : activeAccent[50] }]}
                 >
-                  <Text style={{ fontSize: 14, marginRight: 8 }}>{c.icon}</Text>
+                  <SSDSIcon
+                    icon={c.icon}
+                    size={16}
+                    color={active ? (isDark ? '#ffffff' : activeAccent[700]) : isDark ? c.textDark : c.textLight}
+                    style={{ marginRight: 8 }}
+                  />
                   <Text
                     style={{
                       fontSize: fs(12),
@@ -4471,7 +4648,12 @@ export function SettingsScreen() {
                   onPress={() => openCategory(s.id)}
                   style={[styles.railItem, active && { backgroundColor: isDark ? '#1e293b' : activeAccent[50] }]}
                 >
-                  <Text style={{ fontSize: 14, marginRight: 8 }}>{s.icon}</Text>
+                  <SSDSIcon
+                    icon={s.icon}
+                    size={16}
+                    color={active ? (isDark ? '#ffffff' : activeAccent[700]) : isDark ? s.textDark : s.textLight}
+                    style={{ marginRight: 8 }}
+                  />
                   <Text
                     style={{
                       fontSize: fs(12),
@@ -4511,16 +4693,22 @@ export function SettingsScreen() {
             },
           ]}
         >
-          <Text
-            style={{
-              fontSize: fs(12.5),
-              fontWeight: '600',
-              color: toast.type === 'error' ? '#ffffff' : isDark ? '#0f172a' : '#ffffff',
-            }}
-          >
-            {toast.type === 'success' ? '✓ ' : toast.type === 'error' ? '⚠ ' : 'ℹ '}
-            {toast.msg}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <SSDSIcon
+              icon={toast.type === 'success' ? CheckCircle2 : toast.type === 'error' ? AlertTriangle : Info}
+              size={15}
+              color={toast.type === 'error' ? '#ffffff' : isDark ? '#0f172a' : '#ffffff'}
+            />
+            <Text
+              style={{
+                fontSize: fs(12.5),
+                fontWeight: '600',
+                color: toast.type === 'error' ? '#ffffff' : isDark ? '#0f172a' : '#ffffff',
+              }}
+            >
+              {toast.msg}
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -4554,7 +4742,7 @@ export function SettingsScreen() {
                     <Text style={{ fontSize: fs(13.5), fontWeight: active ? '700' : '500', color: active ? (isDark ? '#fff' : activeAccent[700]) : colors.text }}>
                       {opt.label}
                     </Text>
-                    {active ? <Text style={{ color: activeAccent[600], fontWeight: '800' }}>✓</Text> : null}
+                    {active ? <SSDSIcon icon={Check} size={16} color="primary" /> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -4582,9 +4770,12 @@ export function SettingsScreen() {
               {modalConfig.bullets ? (
                 <View style={{ marginTop: 12, gap: 6 }}>
                   {modalConfig.bullets.map((b, i) => (
-                    <Text key={i} style={{ fontSize: fs(11.5), color: colors.textSecondary }}>
-                      ✓ {b}
-                    </Text>
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+                      <SSDSIcon icon={Check} size={13} color="success" style={{ marginTop: 2 }} />
+                      <Text style={{ fontSize: fs(11.5), color: colors.textSecondary, flex: 1 }}>
+                        {b}
+                      </Text>
+                    </View>
                   ))}
                 </View>
               ) : null}
@@ -4755,8 +4946,10 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   row: {
     flexDirection: 'row',
@@ -4835,9 +5028,11 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 11,
+    flexShrink: 0,
   },
   backBtn: {
     width: 36,

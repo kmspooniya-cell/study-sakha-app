@@ -33,6 +33,7 @@ import {
 } from '../lib/smartStudyRoom';
 import type { AppNavigation } from '../lib/navigation';
 import { getDisplayedFocusElapsedSeconds } from '../lib/groupFocusTimer';
+import { SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
 
 function getDisplayedMember(member: StudyMember, now: number): StudyMember {
   return {
@@ -54,6 +55,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
   navigation,
 }) => {
   const metrics = useResponsiveMetrics();
+  const { tokens } = useSSDSTheme();
   const insets = useSafeAreaInsets();
   const nav = useNavigation<AppNavigation>();
 
@@ -189,23 +191,24 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
         ]}
       >
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-        <View
+        <SSDSSurface
+          variant="elevated"
           style={[
             styles.lobbyCard,
             {
-              backgroundColor: isDark ? '#131924' : '#FFFFFF',
-              borderColor: isDark ? '#1E293B' : '#E2E8F0',
+              backgroundColor: tokens.colors.surface,
+              borderColor: tokens.colors.border,
             },
           ]}
         >
           <View style={styles.lobbyHeader}>
             <View>
-              <Text style={[styles.lobbyBrand, { color: isDark ? '#60A5FA' : '#2563EB' }]}>
+              <SSDSText variant="Overline" style={[styles.lobbyBrand, { color: tokens.colors.primary }]}>
                 STUDY SAKHA
-              </Text>
-              <Text style={[styles.lobbyTitle, { color: isDark ? '#F1F5F9' : '#0F172A' }]}>
+              </SSDSText>
+              <SSDSText variant="ScreenTitle" style={[styles.lobbyTitle, { color: tokens.colors.textPrimary }]}>
                 Smart Study Rooms
-              </Text>
+              </SSDSText>
             </View>
             <Pressable
               onPress={handleToggleTheme}
@@ -251,7 +254,7 @@ export const SmartStudyRoomScreen: React.FC<SmartStudyRoomScreenProps> = ({
               <ChevronRight size={20} strokeWidth={2} color="#FFFFFF" />
             </View>
           </Pressable>
-        </View>
+        </SSDSSurface>
       </SafeAreaView>
     );
   }

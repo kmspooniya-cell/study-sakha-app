@@ -224,4 +224,53 @@ describe('Focus & Visual Settings tabbed bottom sheet', () => {
     });
     expect(view.queryByText('Focus & Visual Settings')).toBeNull();
   });
+
+  it('keeps popup height and bottom position fixed across all 5 categories', async () => {
+    const { view } = renderTimer();
+    await act(async () => {});
+
+    fireEvent.press(view.getByLabelText('Options'));
+
+    const flattenStyle = (styleProp: unknown) => {
+      const list = Array.isArray(styleProp) ? styleProp : [styleProp];
+      return Object.assign({}, ...list.filter(Boolean));
+    };
+
+    const initialSheetStyle = flattenStyle(view.getByTestId('focus-settings-sheet').props.style);
+    expect(typeof initialSheetStyle.height).toBe('number');
+    expect(initialSheetStyle.height).toBeGreaterThanOrEqual(280);
+
+    const scrollStyle = flattenStyle(view.getByTestId('focus-settings-content-scroll').props.style);
+    expect(scrollStyle.flex).toBe(1);
+
+    for (const tabId of ['audio', 'visual', 'timer', 'apps', 'theme'] as const) {
+      fireEvent.press(view.getByTestId(`focus-settings-tab-${tabId}`));
+      const nextSheetStyle = flattenStyle(view.getByTestId('focus-settings-sheet').props.style);
+      expect(nextSheetStyle.height).toBe(initialSheetStyle.height);
+      expect(nextSheetStyle.marginBottom).toBe(initialSheetStyle.marginBottom);
+      expect(nextSheetStyle.width).toBe(initialSheetStyle.width);
+    }
+  });
+
+  it('handles rapid switching across all themes including Enchanted Garden without crashing', async () => {
+    const { view } = renderTimer();
+    await act(async () => {});
+
+    fireEvent.press(view.getByLabelText('Options'));
+
+    const allThemeIds = Object.keys(themeById);
+    for (const id of allThemeIds) {
+      fireEvent.press(view.getByTestId(`focus-theme-option-${id}`));
+    }
+    // Rapidly switch back to Enchanted Garden
+    fireEvent.press(view.getByTestId('focus-theme-option-enchanted-garden'));
+
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(view.getByTestId('focus-theme-option-enchanted-garden').props.accessibilityState).toEqual({ selected: true });
+    // Timer remains running and uninterrupted
+    expect(view.getByText('25:00')).toBeTruthy();
+  });
 });

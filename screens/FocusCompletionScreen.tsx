@@ -36,6 +36,7 @@ import { PREDEFINED_FOCUS_ACTIVITIES } from '../lib/focusSetup';
 import { getPreferredSubjectOptions, normalizeSubjectList } from '../lib/subjectRegistry';
 import { dayKey, getUserScopedStorageKey, useStore } from '../lib/store';
 import { useTheme } from '../lib/theme';
+import { SSDSSurface, SSDSButton, SSDSText, useSSDSTheme } from '../lib/ssds';
 import {
   Award,
   BadgeCheck,
@@ -243,14 +244,15 @@ function isValidCompletionSession(value: unknown): value is CompletionSession {
 }
 
 function InvalidCompletionSession({ onBack }: { onBack: () => void }) {
+  const { tokens } = useSSDSTheme();
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <Text style={{ fontSize: 18, fontWeight: '700', textAlign: 'center' }}>This focus session could not be opened.</Text>
-      <Text style={{ marginTop: 8, textAlign: 'center' }}>The saved session data is incomplete or invalid.</Text>
-      <Pressable accessibilityRole="button" onPress={onBack} style={{ minHeight: 48, marginTop: 20, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontWeight: '700' }}>Return to Dashboard</Text>
-      </Pressable>
-    </View>
+    <SSDSSurface variant="flat" style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: tokens.colors.background }}>
+      <SSDSText variant="ScreenTitle" align="center">This focus session could not be opened.</SSDSText>
+      <SSDSText variant="BodySecondary" align="center" style={{ marginTop: 8 }}>The saved session data is incomplete or invalid.</SSDSText>
+      <SSDSButton variant="primary" onPress={onBack} style={{ minHeight: 48, marginTop: 20 }}>
+        Return to Dashboard
+      </SSDSButton>
+    </SSDSSurface>
   );
 }
 

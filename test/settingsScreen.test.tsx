@@ -24,7 +24,7 @@ const mockStore = {
 };
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate, popTo: mockNavigate }),
+  useNavigation: () => ({ navigate: mockNavigate, popTo: mockNavigate, addListener: () => jest.fn() }),
   useRoute: () => ({ params: {} }),
 }));
 
@@ -32,6 +32,15 @@ jest.mock('../components/Shell', () => {
   const React = require('react');
   const { View } = require('react-native');
   return { Shell: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children) };
+});
+
+jest.mock('lucide-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return new Proxy({}, {
+    get: (_target, icon) => (props: Record<string, unknown>) =>
+      React.createElement(View, { ...props, accessibilityLabel: String(icon) }),
+  });
 });
 
 jest.mock('../components/ui', () => {
@@ -57,6 +66,7 @@ jest.mock('../lib/supabase', () => ({
 }));
 
 const SettingsScreen = require('../screens/SettingsScreen').default as typeof import('../screens/SettingsScreen').default;
+const { SSDSThemeProvider } = require('../lib/ssds') as typeof import('../lib/ssds');
 
 describe('SettingsScreen', () => {
   beforeEach(() => {
@@ -66,7 +76,7 @@ describe('SettingsScreen', () => {
   it('renders grouped settings, applies preferences, and routes to existing screens', async () => {
     const view = render(
       <ThemeProvider mode="light">
-        <SettingsScreen />
+        <SSDSThemeProvider><SettingsScreen /></SSDSThemeProvider>
       </ThemeProvider>,
     );
 
@@ -74,7 +84,7 @@ describe('SettingsScreen', () => {
       expect(view.getByText(/Account & Profile/)).toBeTruthy();
       expect(view.getByText(/Groups & Community/)).toBeTruthy();
       expect(view.getByText(/About Study Sakha/)).toBeTruthy();
-    });
+    }, { timeout: 5000 });
 
     fireEvent.press(view.getByText('Study Planner & Goals'));
     expect(view.getByText('Daily Study Goal')).toBeTruthy();

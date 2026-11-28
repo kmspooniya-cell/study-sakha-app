@@ -200,6 +200,7 @@ export default function GeminiFocusTimer({
   const [toast, setToast] = useState('');
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transitionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingThemeRef = useRef<ThemeId | null>(null);
   const blurTarget = useRef<View | null>(null);
   const fade = useRef(new Animated.Value(0)).current;
   const theme = themeById[themeId];
@@ -221,11 +222,21 @@ export default function GeminiFocusTimer({
   }, []);
 
   const applyTheme = (nextTheme: ThemeId) => {
-    if (nextTheme === themeId) return;
-    Animated.timing(fade, { toValue: 0.58, duration: 140, useNativeDriver: true }).start(() => {
+    if (nextTheme === themeId && pendingThemeRef.current === null) return;
+    if (pendingThemeRef.current === nextTheme) return;
+    pendingThemeRef.current = nextTheme;
+    if (transitionTimeout.current) {
+      clearTimeout(transitionTimeout.current);
+      transitionTimeout.current = null;
+    }
+    fade.stopAnimation();
+    Animated.timing(fade, { toValue: 0.58, duration: 120, useNativeDriver: true }).start(({ finished }) => {
+      if (!finished || pendingThemeRef.current !== nextTheme) return;
+      pendingThemeRef.current = null;
       dispatch({ type: 'settings', patch: { focusThemeId: nextTheme } });
       transitionTimeout.current = setTimeout(() => {
-        Animated.timing(fade, { toValue: 0, duration: 340, useNativeDriver: true }).start();
+        transitionTimeout.current = null;
+        Animated.timing(fade, { toValue: 0, duration: 280, useNativeDriver: true }).start();
       }, 30);
     });
     showToast(`Theme changed to ${themeById[nextTheme].name}`);

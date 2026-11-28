@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { renderWithSSDS } from './ssdsTestUtils';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Platform } from 'react-native';
 
@@ -179,7 +180,7 @@ describe('Focus Lock P2 Feature Completion', () => {
   });
 
   it('activates predefined profiles and supports saving a custom profile', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(view.getByText('Social Media Shield')).toBeTruthy());
 
     fireEvent.press(view.getByText('Social Media Shield'));
@@ -193,7 +194,7 @@ describe('Focus Lock P2 Feature Completion', () => {
   });
 
   it('shows honest unsupported status for Custom Blocking and enables DND on Deep Focus', async () => {
-    const view = render(<FocusLockScreen />);
+    const view = renderWithSSDS(<FocusLockScreen />);
     await waitFor(() => expect(view.getByText('Blocking Modes')).toBeTruthy());
 
     fireEvent.press(view.getByText('Blocking Modes'));

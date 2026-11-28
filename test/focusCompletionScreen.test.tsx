@@ -34,6 +34,7 @@ const mockRoute: { params: AppStackParamList['FocusCompletion'] } = {
 let mockScheme: 'light' | 'dark' = 'light';
 let mockMode: 'light' | 'dark' | 'system' = 'light';
 
+jest.mock('../lib/ssds', () => require('./ssdsScreenMocks'));
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,

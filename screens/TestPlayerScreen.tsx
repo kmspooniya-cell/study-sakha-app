@@ -1,4 +1,3 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +9,8 @@ import { Button, Card, ProgressBar, Tag, Txt } from '../components/ui';
 import { getTests } from '../lib/data';
 import { getUserScopedStorageKey, useStore } from '../lib/store';
 import { radii, useTheme } from '../lib/theme';
+import { SSDSIcon, SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
+import { CheckCheck, Clock3, Grid2X2, X } from 'lucide-react-native';
 import { TestResult } from '../lib/types';
 
 const fmt = (sec: number) => {
@@ -75,6 +76,7 @@ function parseSavedAttempt(value: unknown, testId: string, questionCount: number
 
 export default function TestPlayerScreen() {
   const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'TestPlayer'>>();
   const { state, dispatch } = useStore();
@@ -397,14 +399,15 @@ export default function TestPlayerScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
       <AppHeader safeAreaTop={false} />
-      <View
+      <SSDSSurface
+        variant="flat"
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           gap: 10,
           paddingHorizontal: 16,
           paddingVertical: 12,
-          backgroundColor: colors.surface,
+          backgroundColor: tokens.colors.surface,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         }}
@@ -416,15 +419,15 @@ export default function TestPlayerScreen() {
           }}
           style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border }}
         >
-          <Ionicons name="close" size={19} color={colors.text} />
+          <SSDSIcon icon={X} size="md" color="textPrimary" />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Txt size={isMobile ? 13.5 : 15} weight="800" display numberOfLines={1}>
+          <SSDSText variant="CardTitle" style={{ fontSize: isMobile ? 13.5 : 15, fontWeight: '800' }} numberOfLines={1}>
             {test.title}
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
+          </SSDSText>
+          <SSDSText variant="Caption" color="textTertiary">
             {q.section} · Question {index + 1} of {test.questions.length}
-          </Txt>
+          </SSDSText>
         </View>
         <View
           style={{
@@ -437,7 +440,7 @@ export default function TestPlayerScreen() {
             backgroundColor: timeLow ? `${colors.danger}1A` : colors.surfaceAlt,
           }}
         >
-          <Ionicons name="time-outline" size={16} color={timeLow ? colors.danger : colors.textMuted} />
+            <SSDSIcon icon={Clock3} size="sm" color={timeLow ? 'danger' : 'textSecondary'} />
           <Txt size={14} weight="800" color={timeLow ? colors.danger : colors.text}>
             {fmt(left)}
           </Txt>
@@ -447,10 +450,10 @@ export default function TestPlayerScreen() {
             onPress={() => setPaletteOpen(true)}
             style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border }}
           >
-            <Ionicons name="grid-outline" size={18} color={colors.text} />
+              <SSDSIcon icon={Grid2X2} size="md" color="textPrimary" />
           </Pressable>
         ) : null}
-      </View>
+      </SSDSSurface>
 
       <ProgressBar value={((index + 1) / test.questions.length) * 100} height={3} color={colors.teal} />
       {attemptError ? (
@@ -557,7 +560,7 @@ export default function TestPlayerScreen() {
         <View style={{ flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <Card style={{ width: '100%', maxWidth: 420, gap: 14 }} level={3}>
             <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="checkmark-done-outline" size={24} color={colors.blue} />
+              <SSDSIcon icon={CheckCheck} size="lg" color="primary" />
             </View>
             <Txt size={18} weight="800" display>
               {confirmMode === 'exit' ? 'Leave this test?' : 'Submit this test?'}

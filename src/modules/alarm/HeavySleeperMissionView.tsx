@@ -27,6 +27,7 @@ import {
   clampStepsTarget,
   defaultShakeTargetForDifficulty,
   defaultStepsTargetForDifficulty,
+  formatMissionFailure,
   generateMathProblem,
   generateMemorySequence,
   getMemorySequenceConfig,
@@ -78,27 +79,6 @@ const MISSION_META: Record<MissionId, { name: string; icon: React.ComponentType<
   photo: { name: 'Photo Match', icon: Camera },
   steps: { name: 'Step Counter', icon: Footprints },
 };
-
-function formatNativeFailure(reason?: string): string {
-  switch (reason) {
-    case 'permission_denied':
-      return 'Permission denied. Please allow access in Android settings and retry.';
-    case 'sensor_unavailable':
-      return 'Required hardware sensor is unavailable on this device.';
-    case 'no_barcode_found':
-      return 'No QR or barcode detected in the captured image. Try again with clearer focus.';
-    case 'no_reference_photo':
-      return 'No reference photo was registered for this alarm.';
-    case 'cancelled':
-      return 'Camera capture cancelled.';
-    case 'camera_unavailable':
-      return 'Camera app is unavailable on this device.';
-    case 'native_module_unavailable':
-      return 'Native Android sensor/camera module is only available in an Android build.';
-    default:
-      return reason ? `Verification failed (${reason}).` : 'Verification failed. Try again.';
-  }
-}
 
 export function HeavySleeperMissionView({
   alarm,
@@ -172,7 +152,11 @@ export function HeavySleeperMissionView({
   const shakeTarget = clampShakeTarget(
     alarm.perMission?.shakeTarget ?? defaultShakeTargetForDifficulty(difficulty)
   );
-  const [shakes, setShakes] = useState(0);
+  const [shakes, setShakes] = useState(() =>
+    session.sensorProgress?.stepIndex === session.currentIndex && session.sensorProgress?.missionId === 'shake'
+      ? session.sensorProgress.count
+      : 0
+  );
   const [sensorStatus, setSensorStatus] = useState<string | null>(null);
 
   // Mission 4: Typing
@@ -188,6 +172,7 @@ export function HeavySleeperMissionView({
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
 
   // Mission 6: Photo
+  const referencePhotoUri = alarm.perMission?.referencePhotoUri?.trim() || '';
   const photoThreshold = clampPhotoThreshold(alarm.perMission?.photoSimilarityThreshold ?? 80);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [lastPhotoSimilarity, setLastPhotoSimilarity] = useState<number | null>(null);
@@ -196,10 +181,18 @@ export function HeavySleeperMissionView({
   const stepsTarget = clampStepsTarget(
     alarm.perMission?.stepsTarget ?? defaultStepsTargetForDifficulty(difficulty)
   );
-  const [walkedSteps, setWalkedSteps] = useState(0);
+  const [walkedSteps, setWalkedSteps] = useState(() =>
+    session.sensorProgress?.stepIndex === session.currentIndex && session.sensorProgress?.missionId === 'steps'
+      ? session.sensorProgress.count
+      : 0
+  );
   const [sensorRetryNonce, setSensorRetryNonce] = useState(0);
 
   const advancingRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   // Persist active mission session across restarts/screen lock
   useEffect(() => {
@@ -229,6 +222,7 @@ export function HeavySleeperMissionView({
         retriesUsed: 0,
         stepStartedAtMs: nowMs,
         results: nextResults,
+        sensorProgress: undefined,
       }));
       setStatusError(null);
       setSensorStatus(null);
@@ -256,9 +250,14 @@ export function HeavySleeperMissionView({
         results: nextResults,
       });
       void saveActiveMissionSession(null);
-      onComplete(completedNames || MISSION_META[currentMissionId].name, nextResults);
+      onCompleteRef.current(completedNames || MISSION_META[currentMissionId].name, nextResults);
     }
-  }, [alarm.id, currentMissionId, difficulty, onComplete, session.currentIndex, session.mode, session.queue.length, session.results, session.retriesUsed, session.sessionId, session.stepStartedAtMs, timeoutSeconds]);
+  }, [alarm.id, currentMissionId, difficulty, session.currentIndex, session.mode, session.queue.length, session.results, session.retriesUsed, session.sessionId, session.stepStartedAtMs, timeoutSeconds]);
+
+  const advanceMissionRef = useRef(advanceMission);
+  useEffect(() => {
+    advanceMissionRef.current = advanceMission;
+  }, [advanceMission]);
 
   const recordFailure = useCallback((message: string, onRetryExhausted?: () => void) => {
     Vibration.vibrate(140);
@@ -333,28 +332,50 @@ export function HeavySleeperMissionView({
     };
   }, [currentMissionId, difficulty, stepIndex, memReplayNonce]);
 
-  // Native Shake & Step sensor lifecycle
+  // Native Shake & Step sensor lifecycle (isolated from parent re-renders & advanceMission identity)
+  const sensorSessionId = `${session.sessionId}-step-${stepIndex}`;
   useEffect(() => {
     if (currentMissionId !== 'shake' && currentMissionId !== 'steps') {
-      void stopNativeSensorMission(session.sessionId);
+      void stopNativeSensorMission(sensorSessionId);
       return undefined;
     }
 
     let cancelled = false;
-    const sensorSessionId = `${session.sessionId}-step-${stepIndex}`;
+
+    const handleSensorCount = (missionId: 'shake' | 'steps', count: number) => {
+      if (missionId === 'shake') {
+        setShakes((prev) => Math.max(prev, count));
+        setSession((prev) => (
+          prev.sensorProgress?.stepIndex === stepIndex &&
+          prev.sensorProgress?.missionId === 'shake' &&
+          prev.sensorProgress.count >= count
+            ? prev
+            : { ...prev, sensorProgress: { stepIndex, missionId: 'shake', count } }
+        ));
+        if (count >= shakeTarget) {
+          advanceMissionRef.current(`${count} shakes`);
+        }
+      } else {
+        setWalkedSteps((prev) => Math.max(prev, count));
+        setSession((prev) => (
+          prev.sensorProgress?.stepIndex === stepIndex &&
+          prev.sensorProgress?.missionId === 'steps' &&
+          prev.sensorProgress.count >= count
+            ? prev
+            : { ...prev, sensorProgress: { stepIndex, missionId: 'steps', count } }
+        ));
+        if (count >= stepsTarget) {
+          advanceMissionRef.current(`${count} steps`);
+        }
+      }
+    };
 
     const unsubscribe = subscribeToMissionSensor((event) => {
       if (cancelled || event.sessionId !== sensorSessionId) return;
       if (event.type === 'shake' && currentMissionId === 'shake') {
-        setShakes(event.count);
-        if (event.count >= shakeTarget) {
-          advanceMission(`${event.count} shakes`);
-        }
+        handleSensorCount('shake', event.count);
       } else if (event.type === 'steps' && currentMissionId === 'steps') {
-        setWalkedSteps(event.count);
-        if (event.count >= stepsTarget) {
-          advanceMission(`${event.count} steps`);
-        }
+        handleSensorCount('steps', event.count);
       }
     });
 
@@ -363,7 +384,10 @@ export function HeavySleeperMissionView({
         ? await startNativeShakeMission(sensorSessionId, shakeTarget, difficulty === 'Expert' ? 2.35 : 2.05)
         : await startNativeStepMission(sensorSessionId, stepsTarget);
       if (!cancelled) {
-        setSensorStatus(res.ok ? null : formatNativeFailure(res.reason));
+        setSensorStatus(res.ok ? null : formatMissionFailure(res.reason));
+        if (res.ok && typeof res.count === 'number' && res.count > 0) {
+          handleSensorCount(currentMissionId, res.count);
+        }
       }
     };
     void startSensor();
@@ -373,7 +397,7 @@ export function HeavySleeperMissionView({
       unsubscribe();
       void stopNativeSensorMission(sensorSessionId);
     };
-  }, [advanceMission, currentMissionId, difficulty, sensorRetryNonce, session.sessionId, shakeTarget, stepIndex, stepsTarget]);
+  }, [currentMissionId, difficulty, sensorRetryNonce, sensorSessionId, shakeTarget, stepIndex, stepsTarget]);
 
   const handleMathVerify = () => {
     if (validateMathAnswer(mathInput, mathProblem)) {
@@ -425,7 +449,7 @@ export function HeavySleeperMissionView({
     try {
       const res = await captureNativeBarcode();
       if (!res.ok) {
-        setStatusError(formatNativeFailure(res.reason));
+        setStatusError(formatMissionFailure(res.reason));
         return;
       }
       setLastScannedCode(res.code);
@@ -441,12 +465,16 @@ export function HeavySleeperMissionView({
 
   const handlePhotoCaptureVerify = async () => {
     if (photoBusy) return;
+    if (!referencePhotoUri) {
+      setStatusError('No reference photo registered for this alarm.');
+      return;
+    }
     setPhotoBusy(true);
     setStatusError(null);
     try {
       const res = await verifyNativePhotoAgainstReference(alarm.id, photoThreshold);
       if (!res.ok) {
-        setStatusError(formatNativeFailure(res.reason));
+        setStatusError(formatMissionFailure(res.reason));
         return;
       }
       setLastPhotoSimilarity(res.similarity);
@@ -632,8 +660,8 @@ export function HeavySleeperMissionView({
                 <View style={[styles.rowBetween, styles.mathBox, { paddingHorizontal: 14 }]}>
                   <View>
                     <Text style={styles.whiteMuted12}>Reference Photo</Text>
-                    <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>
-                      {alarm.perMission?.referencePhotoUri ? 'Registered' : 'Not Registered'}
+                    <Text style={{ color: referencePhotoUri ? '#99F6E4' : '#FCA5A5', fontSize: 13, fontWeight: '800' }}>
+                      {referencePhotoUri ? 'Registered' : 'No reference photo registered'}
                     </Text>
                   </View>
                   <View style={[styles.glassPill, { backgroundColor: 'rgba(20,184,166,0.3)' }]}>
@@ -728,7 +756,7 @@ export function HeavySleeperMissionView({
                 </Pressable>
                 <Pressable
                   onPress={() => {
-                    void stopNativeSensorMission(session.sessionId);
+                    void stopNativeSensorMission(sensorSessionId);
                     void saveActiveMissionSession(null);
                     onEmergencyExit();
                   }}

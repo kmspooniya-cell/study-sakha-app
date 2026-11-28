@@ -52,6 +52,11 @@ export interface ActiveMissionSession {
   startedAtMs: number;
   stepStartedAtMs: number;
   results: MissionStepResult[];
+  sensorProgress?: {
+    stepIndex: number;
+    missionId: 'shake' | 'steps';
+    count: number;
+  };
 }
 
 export interface CompletedMissionSessionRecord {
@@ -262,9 +267,49 @@ export async function loadActiveMissionSession(): Promise<ActiveMissionSession |
       startedAtMs: typeof parsed.startedAtMs === 'number' ? parsed.startedAtMs : Date.now(),
       stepStartedAtMs: typeof parsed.stepStartedAtMs === 'number' ? parsed.stepStartedAtMs : Date.now(),
       results: Array.isArray(parsed.results) ? parsed.results : [],
+      sensorProgress:
+        parsed.sensorProgress &&
+        typeof parsed.sensorProgress.stepIndex === 'number' &&
+        (parsed.sensorProgress.missionId === 'shake' || parsed.sensorProgress.missionId === 'steps') &&
+        typeof parsed.sensorProgress.count === 'number'
+          ? {
+              stepIndex: parsed.sensorProgress.stepIndex,
+              missionId: parsed.sensorProgress.missionId,
+              count: Math.max(0, Math.round(parsed.sensorProgress.count)),
+            }
+          : undefined,
     };
   } catch {
     return null;
+  }
+}
+
+export function formatMissionFailure(reason?: string): string {
+  switch (reason) {
+    case 'permission_denied':
+      return 'Permission denied. Please allow access in Android settings and retry.';
+    case 'sensor_unavailable':
+      return 'Required hardware sensor is unavailable on this device.';
+    case 'sensor_register_failed':
+      return 'Could not register device sensor listener. Please retry.';
+    case 'no_barcode_found':
+      return 'No QR or barcode detected in the captured image. Try again with clearer focus.';
+    case 'no_reference_photo':
+      return 'No reference photo was registered for this alarm.';
+    case 'cancelled':
+      return 'Camera capture cancelled.';
+    case 'camera_unavailable':
+      return 'Camera app is unavailable on this device.';
+    case 'camera_busy':
+      return 'Camera is already open. Finish or cancel the active capture first.';
+    case 'capture_decode_failed':
+      return 'Could not read the captured photo. Please try again.';
+    case 'reference_save_failed':
+      return 'Failed to save reference photo on device storage.';
+    case 'native_module_unavailable':
+      return 'Native Android sensor/camera module is only available in an Android build.';
+    default:
+      return reason ? `Verification failed (${reason}).` : 'Verification failed. Try again.';
   }
 }
 

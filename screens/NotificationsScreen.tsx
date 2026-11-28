@@ -1,4 +1,3 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -23,7 +22,8 @@ import { NotificationHeader } from '../components/notifications/NotificationHead
 import { NotificationRow } from '../components/notifications/NotificationRow';
 import { NotificationSkeleton } from '../components/notifications/NotificationSkeleton';
 import { UndoSnackbar } from '../components/notifications/UndoSnackbar';
-import { Button, Txt } from '../components/ui';
+import { SSDSButton, SSDSIcon, SSDSSurface, SSDSText } from '../lib/ssds';
+import { ArrowLeft, Megaphone, X } from 'lucide-react-native';
 import {
   getSavedFeedScrollOffset,
   saveFeedScrollOffset,
@@ -51,7 +51,6 @@ export default function NotificationsScreen() {
     setSelectedFilter,
     selectionMode,
     selectedIds,
-    toggleSelection,
     enterSelectionMode,
     exitSelectionMode,
     selectAllVisible,
@@ -176,14 +175,9 @@ export default function NotificationsScreen() {
             backgroundColor: colors.bg,
           }}
         >
-          <Txt
-            size={11}
-            weight="700"
-            color={colors.textFaint}
-            style={{ letterSpacing: 0.8 }}
-          >
+          <SSDSText variant="Overline" style={{ color: colors.textFaint, letterSpacing: 0.8 }}>
             {item.title.toUpperCase()}
-          </Txt>
+          </SSDSText>
         </View>
       );
     }
@@ -299,25 +293,14 @@ export default function NotificationsScreen() {
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Txt size={14} weight="800" display>
+                <SSDSText variant="SectionTitle">
                   Activity
-                </Txt>
-                <View
-                  style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: radii.pill,
-                    backgroundColor: colors.surfaceAlt,
-                  }}
-                >
-                  <Txt
-                    size={11}
-                    weight="600"
-                    color={unreadCount > 0 ? colors.blue : colors.textMuted}
-                  >
+                </SSDSText>
+                <SSDSSurface variant="filled" radius="full" padding={8} style={{ paddingVertical: 2 }}>
+                  <SSDSText variant="Caption" style={{ color: unreadCount > 0 ? colors.blue : colors.textMuted }}>
                     {unreadCount} unread
-                  </Txt>
-                </View>
+                  </SSDSText>
+                </SSDSSurface>
               </View>
 
               {unreadCount > 0 ? (
@@ -327,9 +310,9 @@ export default function NotificationsScreen() {
                   accessibilityLabel="Mark all as read"
                   style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 }}
                 >
-                  <Txt size={12.5} weight="700" color={colors.blue}>
+                  <SSDSText variant="ButtonLabel" style={{ color: colors.blue }}>
                     Mark all read
-                  </Txt>
+                  </SSDSText>
                 </Pressable>
               ) : null}
             </View>
@@ -408,10 +391,10 @@ export default function NotificationsScreen() {
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="megaphone-outline" size={20} color={colors.teal} />
-                <Txt size={12} weight="800" color={colors.teal}>
+                <SSDSIcon icon={Megaphone} size="md" color="secondary" />
+                <SSDSText variant="Overline" style={{ color: colors.teal }}>
                   ANNOUNCEMENT
-                </Txt>
+                </SSDSText>
               </View>
               <Pressable
                 onPress={() => setSelectedAnnouncement(null)}
@@ -419,23 +402,23 @@ export default function NotificationsScreen() {
                 accessibilityLabel="Close announcement"
                 style={{ minWidth: 40, minHeight: 40, alignItems: 'center', justifyContent: 'center' }}
               >
-                <Ionicons name="close" size={20} color={colors.textMuted} />
+              <SSDSIcon icon={X} size="md" color="textSecondary" />
               </Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Txt size={18} weight="800" display style={{ marginBottom: 8 }}>
+              <SSDSText variant="SectionTitle" style={{ marginBottom: 8 }}>
                 {selectedAnnouncement?.title}
-              </Txt>
-              <Txt size={14} color={colors.textMuted} style={{ lineHeight: 21 }}>
+              </SSDSText>
+              <SSDSText variant="BodySecondary" style={{ color: colors.textMuted, lineHeight: 21 }}>
                 {selectedAnnouncement?.body}
-              </Txt>
+              </SSDSText>
               {selectedAnnouncement?.audience ? (
-                <Txt size={12} color={colors.textFaint} style={{ marginTop: 12 }}>
+                <SSDSText variant="Caption" style={{ color: colors.textFaint, marginTop: 12 }}>
                   Audience: {selectedAnnouncement.audience}
-                </Txt>
+                </SSDSText>
               ) : null}
             </ScrollView>
-            <Button label="Close" variant="outline" onPress={() => setSelectedAnnouncement(null)} />
+            <SSDSButton variant="outline" onPress={() => setSelectedAnnouncement(null)}>Close</SSDSButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -467,11 +450,11 @@ export default function NotificationsScreen() {
               accessibilityLabel="Close all announcements"
               style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Ionicons name="arrow-back" size={22} color={colors.text} />
+              <SSDSIcon icon={ArrowLeft} size="lg" color="textPrimary" />
             </Pressable>
-            <Txt size={18} weight="800" display>
+            <SSDSText variant="ScreenTitle">
               All Announcements
-            </Txt>
+            </SSDSText>
           </View>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
             {activeAnnouncements.map((item) => (
@@ -490,15 +473,15 @@ export default function NotificationsScreen() {
                   gap: 6,
                 }}
               >
-                <Txt size={15.5} weight="800" display>
+                <SSDSText variant="CardTitle">
                   {item.title}
-                </Txt>
-                <Txt size={13.5} color={colors.textMuted} numberOfLines={3}>
+                </SSDSText>
+                <SSDSText variant="BodySecondary" style={{ color: colors.textMuted }} maxLines={3}>
                   {item.body}
-                </Txt>
-                <Txt size={11.5} color={colors.textFaint}>
+                </SSDSText>
+                <SSDSText variant="Caption" style={{ color: colors.textFaint }}>
                   {item.audience}
-                </Txt>
+                </SSDSText>
               </Pressable>
             ))}
           </ScrollView>

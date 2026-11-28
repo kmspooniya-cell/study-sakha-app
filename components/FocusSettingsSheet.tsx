@@ -119,9 +119,13 @@ export function FocusSettingsSheet({
     contentScrollRef.current?.scrollTo({ y: 0, animated: false });
   };
 
-  const sheetMaxHeight = Math.max(
-    260,
+  const availableHeight = Math.max(
+    280,
     height - Math.max(insets.top, 16) - Math.max(insets.bottom, 12) - 24,
+  );
+  const sheetHeight = Math.min(
+    availableHeight,
+    Math.min(560, Math.max(360, Math.round(height * 0.66))),
   );
 
   return (
@@ -144,7 +148,8 @@ export function FocusSettingsSheet({
             styles.settingsSheet,
             {
               width: Math.min(width - 24, 420),
-              maxHeight: sheetMaxHeight,
+              height: sheetHeight,
+              maxHeight: availableHeight,
               marginBottom: Math.max(insets.bottom, 12),
               transform: [{ translateY }],
             },
@@ -464,7 +469,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
   },
   contentScroll: {
-    flexShrink: 1,
+    flex: 1,
   },
   contentContainer: {
     paddingTop: 12,

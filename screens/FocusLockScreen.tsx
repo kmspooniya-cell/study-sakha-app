@@ -105,6 +105,10 @@ import {
 import { clearExitPin, isValidExitPin, loadExitPin, saveExitPin, verifyExitPin } from '../lib/focusLockPin';
 import { FOCUS_LOCK_STORAGE_KEY } from '../lib/focusLockSnapshot';
 import { useTheme, type Palette } from '../lib/theme';
+import { SSDSSurface, SSDSText, useSSDSTheme } from '../lib/ssds';
+
+const createFocusLockSessionId = (startedAt: number) =>
+  `focus-lock-${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
 
 /* ============================================================================
  * MODULE 1: TYPES (types/index.ts)
@@ -1387,14 +1391,13 @@ export function EmergencyAccessModal({
 
   const pinRequired = strictLevel >= 2 && strictConfig.pinProtection && hasConfiguredPin;
 
-  useEffect(() => {
-    if (!open) {
-      setPinInput('');
-      setErrorMsg('');
-      setRecoveryWaitSecs(null);
-      setVerifying(false);
-    }
-  }, [open]);
+  const handleClose = () => {
+    setPinInput('');
+    setErrorMsg('');
+    setRecoveryWaitSecs(null);
+    setVerifying(false);
+    onClose();
+  };
 
   useEffect(() => {
     if (!open || lockoutSecs <= 0) return;
@@ -1462,7 +1465,7 @@ export function EmergencyAccessModal({
               <ShieldAlert size={20} color="#F59E0B" />
               <Text style={[styles.textSmExtraBold, { color: theme.textPrimary }]}>Emergency Access Protocol</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={[styles.closeCircle, { backgroundColor: theme.surfaceElevated }]}>
+            <TouchableOpacity onPress={handleClose} style={[styles.closeCircle, { backgroundColor: theme.surfaceElevated }]}>
               <X size={16} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -1621,9 +1624,29 @@ export function SessionCompletionModal({
 export default function FocusLockScreen() {
   const { state, dispatch } = useStore();
   const { scheme, colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   // Theme & Navigation State (React Navigation compatible)
   const isDark = scheme === 'dark';
-  const theme = useMemo(() => getTheme(colors, isDark), [colors, isDark]);
+  const theme = useMemo(() => ({
+    ...getTheme(colors, isDark),
+    screenBg: tokens.colors.background,
+    headerBg: tokens.colors.surface,
+    cardBg: tokens.colors.surface,
+    surfaceBg: tokens.colors.surfaceSecondary,
+    surfaceElevated: tokens.colors.surfaceElevated,
+    border: tokens.colors.border,
+    textPrimary: tokens.colors.textPrimary,
+    textSecondary: tokens.colors.textSecondary,
+    textMuted: tokens.colors.textTertiary,
+    navBg: tokens.colors.surface,
+    indigo: tokens.colors.primary,
+    indigoLight: tokens.colors.primary,
+    indigoSoft: tokens.colors.primaryLight,
+    emerald: tokens.colors.success,
+    rose: tokens.colors.danger,
+    amber: tokens.colors.warning,
+    teal: tokens.colors.secondary,
+  }), [colors, isDark, tokens]);
   const [screen, setScreen] = useState<ScreenName>('home');
   const [showStateLab, setShowStateLab] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string>('');
@@ -1632,6 +1655,7 @@ export default function FocusLockScreen() {
   const [sessionState, setSessionState] = useState<SessionState>('ready');
   const [totalSessionSecs, setTotalSessionSecs] = useState<number>(50 * 60);
   const [remainingSecs, setRemainingSecs] = useState<number>(50 * 60);
+  const [screenNowMs] = useState(() => Date.now());
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -1661,6 +1685,7 @@ export default function FocusLockScreen() {
   );
   const [activeProfileId, setActiveProfileId] = useState<string>('');
   const [appLimits, setAppLimits] = useState<Record<string, number>>({});
+  const [nativeLimitsHydrated, setNativeLimitsHydrated] = useState(Platform.OS !== 'android');
   const [reminderSuspensions, setReminderSuspensions] = useState<Record<string, ReminderSuspensionInfo>>({});
   const [emergencyState, setEmergencyState] = useState<EmergencyAccessState | null>(null);
   const [suspendTargetApp, setSuspendTargetApp] = useState<InstalledApp | null>(null);
@@ -1724,7 +1749,7 @@ export default function FocusLockScreen() {
   const [showEmptyAnalytics, setShowEmptyAnalytics] = useState<boolean>(false);
 
   // Permissions & Device Controls State
-  const [permissions, setPermissions] = useState<PermissionItem[]>(() => PermissionService.getInitialPermissions());
+  const [permissions] = useState<PermissionItem[]>(() => PermissionService.getInitialPermissions());
   const [notifSettings, setNotifSettings] = useState<NotifSettings>(() => NotificationService.getInitialSettings());
 
   // Study Sakha Focus Points & Partner State
@@ -1845,159 +1870,6 @@ export default function FocusLockScreen() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Discover real Android launchable applications and refresh permission state when returning from Settings.
-  const refreshNativeState = useCallback(async () => {
-    if (Platform.OS !== 'android' || !focusLockNative) return;
-    try {
-      const [apps, status, usage, nativeLimits, nativeSuspensions, nativeEmergency] = await Promise.all([
-        focusLockNative.getInstalledApps(),
-        focusLockNative.getBlockingStatus(),
-        focusLockNative.getUsageStats().catch(() => []),
-        focusLockNative.getAppUsageLimits?.().catch(() => null) ?? Promise.resolve(null),
-        focusLockNative.getReminderSuspensions?.().catch(() => null) ?? Promise.resolve(null),
-        focusLockNative.getEmergencyAccessState?.().catch(() => null) ?? Promise.resolve(null),
-      ]);
-      if (!mountedRef.current) return;
-      const usageByPackage = new Map(usage.map((item) => [item.packageId, item]));
-      const discoveredApps = apps.map((app) => {
-        const u = usageByPackage.get(app.packageId);
-        return {
-          id: app.packageId,
-          name: app.name,
-          pkg: app.packageId,
-          category: 'Installed Apps',
-          dailyMins: u?.dailyMins ?? 0,
-          usedMs: u?.usedMs ?? Math.round((u?.dailyMins ?? 0) * 60_000),
-          limitMins: u?.limitMins ?? 0,
-          suspendedUntilMs: u?.suspendedUntilMs ?? 0,
-          suspensionDuration: u?.suspensionDuration,
-          launches: u?.launches ?? 0,
-          recent: Boolean(u?.dailyMins),
-          distracting: (u?.dailyMins ?? 0) >= 30,
-          gradientColors: ['#4F46E5', '#0EA5E9'] as [string, string],
-          short: app.name.slice(0, 2).toUpperCase(),
-        };
-      });
-      setNativeApps(discoveredApps);
-      if (nativeLimits && typeof nativeLimits === 'object') {
-        setAppLimits((prev) => ({ ...prev, ...nativeLimits }));
-      }
-      if (nativeSuspensions && typeof nativeSuspensions === 'object') {
-        setReminderSuspensions(nativeSuspensions);
-      }
-      if (nativeEmergency) {
-        setEmergencyState(nativeEmergency);
-      }
-      setSelectedAppIds((current) => current.filter((id) => discoveredApps.some((app) => app.id === id)));
-      setNativeStatus({
-        accessibilityEnabled: status.accessibilityEnabled,
-        usageAccessEnabled: status.usageAccessEnabled,
-        exactAlarmEnabled: Boolean(status.exactAlarmEnabled),
-        notificationsEnabled: Boolean(status.notificationsEnabled),
-        batteryOptimizationIgnored: Boolean(status.batteryOptimizationIgnored),
-        dndAccessEnabled: Boolean(status.dndAccessEnabled),
-      });
-      if (typeof status.blockedAttemptsToday === 'number') setBlockedAttemptsToday(status.blockedAttemptsToday);
-      if (status.activeSession?.status === 'active' || status.activeSession?.status === 'paused') {
-        const startedAt = status.activeSession.startedAt;
-        const endsAt = status.activeSession.endsAt;
-        const isNativePaused = status.activeSession.status === 'paused';
-        const sessionStrategy: AppStrategy = status.activeSession.strategy === 'allow' ? 'allow' : 'block';
-        const blockedSet = new Set(status.activeSession.packageIds);
-        setAppStrategy(sessionStrategy);
-        setSessionId(status.activeSession.id);
-        setSessionStartTime(new Date(startedAt));
-        setTotalSessionSecs(Math.max(1, Math.ceil((endsAt - startedAt) / 1000)));
-        if (isNativePaused) {
-          const pausedSecs = Math.max(0, Math.ceil((status.activeSession.pausedRemainingMs ?? 0) / 1000));
-          setRemainingSecs(pausedSecs);
-          setIsPaused(true);
-          sessionEndMs.current = null;
-        } else {
-          setRemainingSecs(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
-          setIsPaused(false);
-          sessionEndMs.current = endsAt;
-        }
-        setSessionState((prev) => (prev === 'active_strict' ? 'active_strict' : 'active_focus'));
-        setScreen('active_session');
-        setSelectedAppIds(
-          sessionStrategy === 'allow'
-            ? discoveredApps.filter((app) => !blockedSet.has(app.id)).map((app) => app.id)
-            : status.activeSession.packageIds,
-        );
-      }
-      const pending = focusLockNative.peekPendingCompletions
-        ? await focusLockNative.peekPendingCompletions().catch(() => [])
-        : await (focusLockNative.consumePendingCompletions?.().catch(() => []) ?? Promise.resolve([]));
-      if (mountedRef.current && Array.isArray(pending) && pending.length > 0) {
-        const ackIds: string[] = [];
-        pending.forEach((item) => {
-          completeSession(item.completedAt, 'completed', {
-            id: item.id,
-            startedAt: item.startedAt,
-            totalSecs: Math.max(1, Math.round((item.endsAt - item.startedAt) / 1000)),
-            packageIds: item.packageIds,
-            awardPoints: 45,
-          });
-          if (item.id) ackIds.push(item.id);
-        });
-        if (ackIds.length > 0 && focusLockNative.acknowledgePendingCompletions) {
-          await focusLockNative.acknowledgePendingCompletions(ackIds).catch(() => undefined);
-        }
-        if (!status.activeSession) {
-          setSessionState('completed');
-          setRemainingSecs(0);
-          setShowCompletionModal(true);
-        }
-      }
-    } catch { if (mountedRef.current) setNativeStatus(null); }
-  }, []);
-
-  useEffect(() => { void refreshNativeState(); }, [refreshNativeState]);
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (next) => { if (next === 'active') void refreshNativeState(); });
-    return () => subscription.remove();
-  }, [refreshNativeState]);
-
-  useEffect(() => {
-    if (!hydrated || Platform.OS !== 'android' || !focusLockNative?.setAppUsageLimits) return;
-    void focusLockNative.setAppUsageLimits(appLimits).catch(() => undefined);
-  }, [hydrated, appLimits]);
-
-  useEffect(() => {
-    if (!hydrated || Platform.OS !== 'android' || !focusLockNative?.setStrictModePolicy) return;
-    void focusLockNative.setStrictModePolicy({
-      strictLevel,
-      pinProtection: strictConfig.pinProtection,
-      hasConfiguredPin,
-      limitEmergencyExits: strictConfig.limitEmergencyExits,
-    }).catch(() => undefined);
-  }, [hydrated, strictLevel, strictConfig.pinProtection, strictConfig.limitEmergencyExits, hasConfiguredPin]);
-
-  // Toast helper
-  const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = useCallback((msg: string) => {
-    setToastMsg(msg);
-    if (toastRef.current) clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => setToastMsg(''), 2600);
-  }, []);
-
-  useEffect(() => {
-    const unsub = subscribeFocusLockEvent('onEmergencyAccessExpired', () => {
-      void refreshNativeState();
-      showToast('Emergency Pass expired — blocking restored');
-    });
-    return unsub;
-  }, [refreshNativeState, showToast]);
-
-  useEffect(() => {
-    return () => {
-      if (toastRef.current) clearTimeout(toastRef.current);
-    };
-  }, []);
-
-  const computedDurationMins = useMemo(() => Math.max(1, Math.round(totalSessionSecs / 60)), [totalSessionSecs]);
-
   const completeSession = useCallback((
     endedAt: number,
     status: 'completed' | 'interrupted' = 'completed',
@@ -2057,6 +1929,168 @@ export default function FocusLockScreen() {
       void focusLockNative.setDndEnabled(false).catch(() => undefined);
     }
   }, [dispatch, historyKey, notifSettings.sessionCompleteNotif, selectedAppIds, sessionId, sessionStartTime, totalSessionSecs]);
+
+  const completeSessionRef = useRef(completeSession);
+  useEffect(() => {
+    completeSessionRef.current = completeSession;
+  }, [completeSession]);
+
+  // Discover real Android launchable applications and refresh permission state when returning from Settings.
+  const refreshNativeState = useCallback(async () => {
+    if (Platform.OS !== 'android' || !focusLockNative) return;
+    try {
+      const [apps, status, usage, nativeLimits, nativeSuspensions, nativeEmergency] = await Promise.all([
+        focusLockNative.getInstalledApps(),
+        focusLockNative.getBlockingStatus(),
+        focusLockNative.getUsageStats().catch(() => []),
+        focusLockNative.getAppUsageLimits?.().catch(() => null) ?? Promise.resolve(null),
+        focusLockNative.getReminderSuspensions?.().catch(() => null) ?? Promise.resolve(null),
+        focusLockNative.getEmergencyAccessState?.().catch(() => null) ?? Promise.resolve(null),
+      ]);
+      if (!mountedRef.current) return;
+      const usageByPackage = new Map(usage.map((item) => [item.packageId, item]));
+      const discoveredApps = apps.map((app) => {
+        const u = usageByPackage.get(app.packageId);
+        return {
+          id: app.packageId,
+          name: app.name,
+          pkg: app.packageId,
+          category: 'Installed Apps',
+          dailyMins: u?.dailyMins ?? 0,
+          usedMs: u?.usedMs ?? Math.round((u?.dailyMins ?? 0) * 60_000),
+          limitMins: u?.limitMins ?? 0,
+          suspendedUntilMs: u?.suspendedUntilMs ?? 0,
+          suspensionDuration: u?.suspensionDuration,
+          launches: u?.launches ?? 0,
+          recent: Boolean(u?.dailyMins),
+          distracting: (u?.dailyMins ?? 0) >= 30,
+          gradientColors: ['#4F46E5', '#0EA5E9'] as [string, string],
+          short: app.name.slice(0, 2).toUpperCase(),
+        };
+      });
+      setNativeApps(discoveredApps);
+      if (nativeLimits && typeof nativeLimits === 'object') {
+        setAppLimits((prev) => ({ ...nativeLimits, ...prev }));
+      }
+      setNativeLimitsHydrated(true);
+      if (nativeSuspensions && typeof nativeSuspensions === 'object') {
+        setReminderSuspensions(nativeSuspensions);
+      }
+      if (nativeEmergency) {
+        setEmergencyState(nativeEmergency);
+      }
+      setSelectedAppIds((current) => current.filter((id) => discoveredApps.some((app) => app.id === id)));
+      setNativeStatus({
+        accessibilityEnabled: status.accessibilityEnabled,
+        usageAccessEnabled: status.usageAccessEnabled,
+        exactAlarmEnabled: Boolean(status.exactAlarmEnabled),
+        notificationsEnabled: Boolean(status.notificationsEnabled),
+        batteryOptimizationIgnored: Boolean(status.batteryOptimizationIgnored),
+        dndAccessEnabled: Boolean(status.dndAccessEnabled),
+      });
+      if (typeof status.blockedAttemptsToday === 'number') setBlockedAttemptsToday(status.blockedAttemptsToday);
+      if (status.activeSession?.status === 'active' || status.activeSession?.status === 'paused') {
+        const startedAt = status.activeSession.startedAt;
+        const endsAt = status.activeSession.endsAt;
+        const isNativePaused = status.activeSession.status === 'paused';
+        const sessionStrategy: AppStrategy = status.activeSession.strategy === 'allow' ? 'allow' : 'block';
+        const blockedSet = new Set(status.activeSession.packageIds);
+        setAppStrategy(sessionStrategy);
+        setSessionId(status.activeSession.id);
+        setSessionStartTime(new Date(startedAt));
+        setTotalSessionSecs(Math.max(1, Math.ceil((endsAt - startedAt) / 1000)));
+        if (isNativePaused) {
+          const pausedSecs = Math.max(0, Math.ceil((status.activeSession.pausedRemainingMs ?? 0) / 1000));
+          setRemainingSecs(pausedSecs);
+          setIsPaused(true);
+          sessionEndMs.current = null;
+        } else {
+          setRemainingSecs(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+          setIsPaused(false);
+          sessionEndMs.current = endsAt;
+        }
+        setSessionState((prev) => (prev === 'active_strict' ? 'active_strict' : 'active_focus'));
+        setScreen('active_session');
+        setSelectedAppIds(
+          sessionStrategy === 'allow'
+            ? discoveredApps.filter((app) => !blockedSet.has(app.id)).map((app) => app.id)
+            : status.activeSession.packageIds,
+        );
+      }
+      const pending = focusLockNative.peekPendingCompletions
+        ? await focusLockNative.peekPendingCompletions().catch(() => [])
+        : await (focusLockNative.consumePendingCompletions?.().catch(() => []) ?? Promise.resolve([]));
+      if (mountedRef.current && Array.isArray(pending) && pending.length > 0) {
+        const ackIds: string[] = [];
+        pending.forEach((item) => {
+          completeSessionRef.current(item.completedAt, 'completed', {
+            id: item.id,
+            startedAt: item.startedAt,
+            totalSecs: Math.max(1, Math.round((item.endsAt - item.startedAt) / 1000)),
+            packageIds: item.packageIds,
+            awardPoints: 45,
+          });
+          if (item.id) ackIds.push(item.id);
+        });
+        if (ackIds.length > 0 && focusLockNative.acknowledgePendingCompletions) {
+          await focusLockNative.acknowledgePendingCompletions(ackIds).catch(() => undefined);
+        }
+        if (!status.activeSession) {
+          setSessionState('completed');
+          setRemainingSecs(0);
+          setShowCompletionModal(true);
+        }
+      }
+    } catch { if (mountedRef.current) setNativeStatus(null); }
+  }, []);
+
+  useEffect(() => {
+    const refreshTimer = setTimeout(() => { void refreshNativeState(); }, 0);
+    return () => clearTimeout(refreshTimer);
+  }, [refreshNativeState]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => { if (next === 'active') void refreshNativeState(); });
+    return () => subscription.remove();
+  }, [refreshNativeState]);
+
+  useEffect(() => {
+    if (!hydrated || !nativeLimitsHydrated || Platform.OS !== 'android' || !focusLockNative?.setAppUsageLimits) return;
+    void focusLockNative.setAppUsageLimits(appLimits).catch(() => undefined);
+  }, [hydrated, nativeLimitsHydrated, appLimits]);
+
+  useEffect(() => {
+    if (!hydrated || Platform.OS !== 'android' || !focusLockNative?.setStrictModePolicy) return;
+    void focusLockNative.setStrictModePolicy({
+      strictLevel,
+      pinProtection: strictConfig.pinProtection,
+      hasConfiguredPin,
+      limitEmergencyExits: strictConfig.limitEmergencyExits,
+    }).catch(() => undefined);
+  }, [hydrated, strictLevel, strictConfig.pinProtection, strictConfig.limitEmergencyExits, hasConfiguredPin]);
+
+  // Toast helper
+  const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    if (toastRef.current) clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => setToastMsg(''), 2600);
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeFocusLockEvent('onEmergencyAccessExpired', () => {
+      void refreshNativeState();
+      showToast('Emergency Pass expired — blocking restored');
+    });
+    return unsub;
+  }, [refreshNativeState, showToast]);
+
+  useEffect(() => {
+    return () => {
+      if (toastRef.current) clearTimeout(toastRef.current);
+    };
+  }, []);
+
+  const computedDurationMins = useMemo(() => Math.max(1, Math.round(totalSessionSecs / 60)), [totalSessionSecs]);
 
   useEffect(() => {
     const removeBlocked = subscribeFocusLockEvent('onBlockedAppDetected', (payload) => {
@@ -2122,7 +2156,7 @@ export default function FocusLockScreen() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [sessionState, breakConfig.autoResume, strictLevel, showToast]);
+    }, [sessionState, breakConfig.autoResume, strictLevel, showToast, remainingSecs, sessionId]);
 
   // Handlers
   const handleStartFocus = (
@@ -2148,7 +2182,7 @@ export default function FocusLockScreen() {
       return;
     }
     if (Platform.OS === 'android' && !nativeStatus?.accessibilityEnabled) { showToast('Enable Accessibility Service in Settings first'); setScreen('settings'); return; }
-    const nextSessionId = `focus-lock-${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
+    const nextSessionId = createFocusLockSessionId(startedAt);
     sessionEndMs.current = endsAt;
     setSessionId(nextSessionId);
     setTotalSessionSecs(Math.max(60, Math.ceil((endsAt - startedAt) / 1000)));
@@ -2363,7 +2397,7 @@ export default function FocusLockScreen() {
   };
 
   const analyticsData = useMemo<AnalyticsRangeData>(() => {
-    const now = Date.now();
+    const now = screenNowMs;
     const windowMs = analyticsRange === 'Daily' ? 24 * 60 * 60 * 1000 : analyticsRange === 'Monthly' ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
     const records = historyRecords.filter((record) => {
       const completedAt = Date.parse(record.completedAt);
@@ -2389,7 +2423,7 @@ export default function FocusLockScreen() {
       focusTrend: seconds ? [{ label: analyticsRange, focusMins: Math.round(seconds / 60), completion: completed ? Math.round((completed / Math.max(1, records.length)) * 100) : 0 }] : [],
       appAttempts: [],
     };
-  }, [analyticsRange, blockedAttemptsToday, historyRecords]);
+  }, [analyticsRange, blockedAttemptsToday, historyRecords, screenNowMs]);
   const heatmapData = useMemo<HeatmapData>(() => ({ slots: [], rows: [] }), []);
   const permissionItems = useMemo(() => permissions.map((permission) => {
     if (Platform.OS !== 'android' || !nativeStatus) return permission;
@@ -2460,13 +2494,13 @@ export default function FocusLockScreen() {
           <ChevronLeft size={18} color={theme.textPrimary} />
         </TouchableOpacity>
         <View style={styles.flex1}>
-          <Text numberOfLines={1} style={[styles.textSmExtraBold, { color: theme.textPrimary }]}>
+          <SSDSText variant="CardTitle" numberOfLines={1} style={{ color: theme.textPrimary }}>
             {title}
-          </Text>
+          </SSDSText>
           {Boolean(subtitle) && (
-            <Text numberOfLines={1} style={[styles.text11Muted, { color: theme.textMuted }]}>
+            <SSDSText variant="Caption" numberOfLines={1} style={{ color: theme.textMuted }}>
               {subtitle}
-            </Text>
+            </SSDSText>
           )}
         </View>
       </View>
@@ -2493,7 +2527,7 @@ export default function FocusLockScreen() {
               <View style={{ gap: 10 }}>
                 <View style={[styles.rowBetween, { paddingHorizontal: 4 }]}>
                   <View>
-                    <Text style={[styles.sectionHeading, { color: theme.textMuted }]}>BLOCKING PROFILES</Text>
+                    <SSDSText variant="Overline" style={{ color: theme.textMuted }}>BLOCKING PROFILES</SSDSText>
                     <Text style={[styles.text10Muted, { color: theme.textMuted, marginTop: 1 }]}>
                       Next scheduled: {nextScheduleText}
                     </Text>
@@ -2506,11 +2540,11 @@ export default function FocusLockScreen() {
                   </TouchableOpacity>
                 </View>
                 {presetLists.length === 0 ? (
-                  <View style={[styles.cardRounded2xl, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-                    <Text style={[styles.text11Muted, { color: theme.textMuted }]}>
+                <SSDSSurface variant="outlined" radius="xl" padding="cardPadding">
+                    <SSDSText variant="BodySecondary" style={{ color: theme.textMuted }}>
                       Select apps in App Selection and tap &ldquo;Save Profile&rdquo; to save and apply your Focus Lock profile.
-                    </Text>
-                  </View>
+                    </SSDSText>
+                  </SSDSSurface>
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                     {presetLists.map((pl) => {
@@ -2554,9 +2588,9 @@ export default function FocusLockScreen() {
 
               {/* F–L. DISCIPLINE CONTROLS (2-COLUMN GRID) */}
               <View style={{ gap: 10 }}>
-                <Text style={[styles.sectionHeading, { color: theme.textMuted, paddingHorizontal: 4 }]}>
+                <SSDSText variant="Overline" style={{ color: theme.textMuted, paddingHorizontal: 4 }}>
                   DISCIPLINE CONTROLS
-                </Text>
+                </SSDSText>
                 <View style={styles.controlsGrid}>
                   {([
                     { id: 'modes', title: 'Blocking Modes', sub: activeMode.name, icon: Layers, color: '#6366F1', bg: 'rgba(99,102,241,0.12)' },
@@ -2600,7 +2634,7 @@ export default function FocusLockScreen() {
                 <View style={[styles.rowGap10, { flex: 1 }]}>
                   <Cpu size={18} color={readinessPct === 100 ? theme.emerald : theme.amber} />
                   <View style={styles.flex1}>
-                    <Text style={[styles.textXsBold, { color: theme.textPrimary }]}>Android Protection Readiness</Text>
+                    <SSDSText variant="CardTitle" style={{ color: theme.textPrimary }}>Android Protection Readiness</SSDSText>
                     <Text style={[styles.text10Muted, { color: theme.textMuted, marginTop: 1 }]}>
                       {grantedPermsCount}/{permissions.length} permissions ready • DND & Background Service
                     </Text>
@@ -2619,7 +2653,7 @@ export default function FocusLockScreen() {
         const isStrict = strictLevel >= 2;
         const expectedEnd = sessionStartTime
           ? new Date(sessionStartTime.getTime() + totalSessionSecs * 1000)
-          : new Date(Date.now() + remainingSecs * 1000);
+          : new Date(screenNowMs + remainingSecs * 1000);
 
         return (
           <View style={styles.flex1}>
@@ -3364,9 +3398,9 @@ export default function FocusLockScreen() {
               </View>
 
               <View style={{ gap: 10 }}>
-                <Text style={[styles.sectionHeading, { color: theme.textMuted, paddingHorizontal: 4 }]}>
+                <SSDSText variant="Overline" style={{ color: theme.textMuted, paddingHorizontal: 4 }}>
                   ANDROID PERMISSIONS & SERVICE HEALTH
-                </Text>
+                </SSDSText>
                 {permissionItems.map((perm) => (
                   <PermissionStatusCard key={perm.id} perm={perm} onGrant={handleGrantPermission} theme={theme} />
                 ))}
@@ -3384,7 +3418,7 @@ export default function FocusLockScreen() {
     <Shell active="Dashboard" title="" scroll={false} fitContentToBottomNav onAndroidBack={handleAndroidBack}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.screenBg} />
 
-      <View style={styles.flex1}>{renderScreenContent()}</View>
+      <SSDSSurface variant="flat" style={styles.flex1}>{renderScreenContent()}</SSDSSurface>
 
       {/* Temporary Reminder Suspension Modal */}
       <Modal visible={suspendTargetApp !== null} transparent animationType="fade">
