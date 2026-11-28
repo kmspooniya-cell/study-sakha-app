@@ -1,34 +1,51 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import {
+  AlertCircle,
+  BarChart2,
+  BookOpen,
+  Lock,
+  LogIn,
+  Mail,
+  Sparkles,
+} from 'lucide-react-native';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../components/Logo';
 import { useLayout } from '../components/Shell';
-import { Button, Card, Field, Txt } from '../components/ui';
+import {
+  SSDSButton,
+  SSDSDivider,
+  SSDSIcon,
+  SSDSRow,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  SSDSTextInput,
+  useSSDSTheme,
+} from '../lib/ssds';
 import type { AuthNavigation } from '../lib/navigation';
 import { validateSignInCredentials } from '../lib/authValidation';
 import { useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 
 const HIGHLIGHTS = [
   {
-    icon: 'library-outline',
+    icon: BookOpen,
     title: '12,000+ curated resources',
     body: 'Notes, books and PYQ sets mapped to every micro-topic.',
     tint: '#38BDF8',
     bg: 'rgba(56, 189, 248, 0.14)',
   },
   {
-    icon: 'sparkles-outline',
+    icon: Sparkles,
     title: 'Sakha AI study partner',
     body: 'Grounded answers from your own library, mocks and notes.',
     tint: '#C084FC',
     bg: 'rgba(192, 132, 252, 0.14)',
   },
   {
-    icon: 'analytics-outline',
+    icon: BarChart2,
     title: 'Percentile-grade analytics',
     body: 'Subject-wise gaps, accuracy curves and recovery plans.',
     tint: '#4ADE80',
@@ -37,7 +54,7 @@ const HIGHLIGHTS = [
 ];
 
 export default function SignInScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AuthNavigation>();
   const { signIn } = useStore();
   const { isMobile } = useLayout();
@@ -66,111 +83,115 @@ export default function SignInScreen() {
   };
 
   const form = (
-    <Card
+    <SSDSSurface
+      variant="elevated"
+      radius="xl"
+      padding={isMobile ? 24 : 36}
       style={{
         width: '100%',
         maxWidth: 420,
         alignSelf: 'center',
-        padding: isMobile ? 24 : 36,
-        borderRadius: 20,
-        gap: 18,
       }}
     >
-      {isMobile ? (
-        <View style={{ alignItems: 'center', marginBottom: 4 }}>
-          <Logo size={38} />
+      <SSDSStack gap={18}>
+        {isMobile ? (
+          <View style={{ alignItems: 'center', marginBottom: 4 }}>
+            <Logo size={38} />
+          </View>
+        ) : null}
+
+        <View>
+          <SSDSText variant="ScreenTitle" style={{ fontSize: 26, lineHeight: 32 }}>
+            Welcome back
+          </SSDSText>
+          <SSDSText variant="BodySecondary" style={{ marginTop: 6 }}>
+            Sign in to continue your preparation streak.
+          </SSDSText>
         </View>
-      ) : null}
 
-      <View>
-        <Txt size={26} weight="800" display style={{ letterSpacing: -0.6 }}>
-          Welcome back
-        </Txt>
-        <Txt size={13.5} color={colors.textMuted} style={{ marginTop: 6 }}>
-          Sign in to continue your preparation streak.
-        </Txt>
-      </View>
-
-      <Field
-        label="Email"
-        value={email}
-        onChangeText={setEmail}
-        placeholder="you@example.in"
-        keyboardType="email-address"
-        icon="mail-outline"
-        returnKeyType="next"
-      />
-
-      <Field
-        label="Password"
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Your password"
-        secure
-        icon="lock-closed-outline"
-        returnKeyType="go"
-        onSubmitEditing={submit}
-      />
-
-      {error ? (
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            backgroundColor: `${colors.danger}15`,
-            padding: 11,
-            borderRadius: radii.md,
-          }}
-        >
-          <Ionicons name="alert-circle" size={17} color={colors.danger} />
-          <Txt size={12.5} weight="600" color={colors.danger} style={{ flex: 1 }}>
-            {error}
-          </Txt>
-        </View>
-      ) : null}
-
-      <View style={{ marginTop: 2 }}>
-        <Button
-          label="Sign in"
-          icon="log-in-outline"
-          full
-          loading={busy}
-          onPress={submit}
-          size="lg"
+        <SSDSTextInput
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@example.in"
+          type="email"
+          leadingIcon={Mail}
+          returnKeyType="next"
+          disabled={busy}
         />
-      </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
-        <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-        <Txt size={11} color={colors.textFaint} weight="700" style={{ letterSpacing: 0.6 }}>
-          SECURE ACCOUNT ACCESS
-        </Txt>
-        <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-      </View>
+        <SSDSTextInput
+          label="Password"
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Your password"
+          type="password"
+          leadingIcon={Lock}
+          returnKeyType="go"
+          onSubmitEditing={submit}
+          disabled={busy}
+        />
 
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <Txt size={13} color={colors.textMuted}>
-          New to Study Sakha?
-        </Txt>
-        <Pressable onPress={() => nav.navigate('SignUp')}>
-          <Txt size={13} weight="800" color={colors.blue}>
-            Create an account
-          </Txt>
-        </Pressable>
-      </View>
-    </Card>
+        {error ? (
+          <SSDSRow
+            gap={8}
+            accessibilityRole="alert"
+            style={{
+              backgroundColor: tokens.colors.dangerBackground,
+              padding: 11,
+              borderRadius: tokens.radius.md,
+            }}
+          >
+            <SSDSIcon icon={AlertCircle} size={17} color="danger" />
+            <SSDSText variant="ErrorText" style={{ flex: 1 }}>
+              {error}
+            </SSDSText>
+          </SSDSRow>
+        ) : null}
+
+        <View style={{ marginTop: 2 }}>
+          <SSDSButton
+            variant="primary"
+            size="large"
+            fullWidth
+            leadingIcon={LogIn}
+            loading={busy}
+            disabled={busy}
+            onPress={submit}
+          >
+            Sign in
+          </SSDSButton>
+        </View>
+
+        <SSDSRow gap={10} style={{ marginTop: 2 }}>
+          <SSDSDivider style={{ flex: 1 }} />
+          <SSDSText variant="Overline" color="textTertiary">
+            SECURE ACCOUNT ACCESS
+          </SSDSText>
+          <SSDSDivider style={{ flex: 1 }} />
+        </SSDSRow>
+
+        <SSDSRow justify="center" gap={6}>
+          <SSDSText variant="BodySecondary">New to Study Sakha?</SSDSText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create an account"
+            onPress={() => nav.navigate('SignUp')}
+          >
+            <SSDSText variant="ButtonLabel" color="primary">
+              Create an account
+            </SSDSText>
+          </Pressable>
+        </SSDSRow>
+      </SSDSStack>
+    </SSDSSurface>
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: tokens.colors.background }}
+      edges={['top', 'bottom']}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
@@ -189,7 +210,6 @@ export default function SignInScreen() {
                 position: 'relative',
               }}
             >
-              {/* Subtle Purple Glow Orb matching Dashboard Hero Card */}
               <View
                 style={{
                   position: 'absolute',
@@ -202,7 +222,6 @@ export default function SignInScreen() {
                 }}
               />
 
-              {/* Top Brand Logo (Wrapped in soft pill so dark text in Logo stays visible) */}
               <View
                 style={{
                   alignSelf: 'flex-start',
@@ -215,7 +234,6 @@ export default function SignInScreen() {
                 <Logo size={32} />
               </View>
 
-              {/* Center Highlights */}
               <View style={{ gap: 24, maxWidth: 440 }}>
                 <View style={{ gap: 10 }}>
                   <View
@@ -229,28 +247,23 @@ export default function SignInScreen() {
                       borderRadius: 6,
                     }}
                   >
-                    <Txt size={10.5} weight="800" color="#FDA4AF" style={{ letterSpacing: 0.8 }}>
+                    <SSDSText variant="Overline" color="#FDA4AF">
                       TODAY&apos;S MISSION
-                    </Txt>
+                    </SSDSText>
                   </View>
 
-                  <Txt
-                    size={34}
-                    weight="800"
-                    display
+                  <SSDSText
+                    variant="DisplayTitle"
                     color="#FFFFFF"
-                    style={{ letterSpacing: -0.8, lineHeight: 42 }}
+                    style={{ fontSize: 34, lineHeight: 42 }}
                   >
                     Preparation that adapts to you, every single day.
-                  </Txt>
+                  </SSDSText>
                 </View>
 
                 <View style={{ gap: 18 }}>
                   {HIGHLIGHTS.map((h) => (
-                    <View
-                      key={h.title}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}
-                    >
+                    <SSDSRow key={h.title} gap={14}>
                       <View
                         style={{
                           width: 42,
@@ -263,29 +276,27 @@ export default function SignInScreen() {
                           justifyContent: 'center',
                         }}
                       >
-                        <Ionicons name={h.icon as any} size={20} color={h.tint} />
+                        <SSDSIcon icon={h.icon} size={20} color={h.tint} />
                       </View>
                       <View style={{ flex: 1, gap: 2 }}>
-                        <Txt size={15} weight="800" color="#FFFFFF">
+                        <SSDSText variant="CardTitle" color="#FFFFFF">
                           {h.title}
-                        </Txt>
-                        <Txt size={13} color="rgba(255, 255, 255, 0.72)">
+                        </SSDSText>
+                        <SSDSText variant="BodySecondary" color="rgba(255, 255, 255, 0.72)">
                           {h.body}
-                        </Txt>
+                        </SSDSText>
                       </View>
-                    </View>
+                    </SSDSRow>
                   ))}
                 </View>
               </View>
 
-              {/* Footer Text */}
-              <Txt size={12} color="rgba(255, 255, 255, 0.5)">
+              <SSDSText variant="Caption" color="rgba(255, 255, 255, 0.5)">
                 Trusted by aspirants preparing for UPSC, SSC, Banking, NEET and JEE.
-              </Txt>
+              </SSDSText>
             </LinearGradient>
           ) : null}
 
-          {/* Right Form Container */}
           <View style={{ flex: 1, justifyContent: 'center' }}>
             <ScrollView
               contentContainerStyle={{

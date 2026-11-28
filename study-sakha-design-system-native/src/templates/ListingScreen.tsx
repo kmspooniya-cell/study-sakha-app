@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { FlatList, ListRenderItem, StyleSheet, View } from 'react-native';
+import { FlatList, ListRenderItem, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { SearchFilterPattern } from '../patterns/SearchFilterPattern';
@@ -33,6 +34,14 @@ export interface ListingScreenProps<T> {
   emptyTitle?: string;
   emptyDescription?: string;
   emptyAction?: EmptyStateAction;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  onEndReached?: () => void;
+  onEndReachedThreshold?: number;
+  ListHeaderComponent?: React.ComponentType<unknown> | React.ReactElement | null;
+  ListFooterComponent?: React.ComponentType<unknown> | React.ReactElement | null;
+  numColumns?: number;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function ListingScreen<T>({
@@ -56,11 +65,22 @@ export function ListingScreen<T>({
   emptyTitle = 'No items found',
   emptyDescription,
   emptyAction,
+  refreshing,
+  onRefresh,
+  onEndReached,
+  onEndReachedThreshold,
+  ListHeaderComponent,
+  ListFooterComponent,
+  numColumns,
+  style,
 }: ListingScreenProps<T>) {
   const { tokens } = useTheme();
 
   return (
-    <View style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView
+      edges={['left', 'right']}
+      style={[styles.root, { backgroundColor: tokens.colors.background }, style]}
+    >
       <ScreenHeader
         title={title}
         subtitle={subtitle}
@@ -103,6 +123,13 @@ export function ListingScreen<T>({
           data={data}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={onEndReachedThreshold}
+          ListHeaderComponent={ListHeaderComponent}
+          ListFooterComponent={ListFooterComponent}
+          numColumns={numColumns}
           contentContainerStyle={{
             padding: tokens.spacing.screenPadding,
             gap: tokens.spacing.componentGap,
@@ -117,7 +144,7 @@ export function ListingScreen<T>({
           }
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

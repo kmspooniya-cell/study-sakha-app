@@ -630,6 +630,12 @@ function isPersistedAction(action: Action) {
   return PERSISTED_ACTION_TYPES.has(action.type);
 }
 
+function normalizePersistedStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'hydrate': {
@@ -652,6 +658,31 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         ...action.payload,
+        notes: action.payload.notes === undefined
+          ? state.notes
+          : Array.isArray(action.payload.notes) ? action.payload.notes : [],
+        starred: action.payload.starred === undefined
+          ? state.starred
+          : normalizePersistedStringArray(action.payload.starred),
+        bookmarks: action.payload.bookmarks === undefined
+          ? state.bookmarks
+          : normalizePersistedStringArray(action.payload.bookmarks),
+        planDone: action.payload.planDone === undefined
+          ? state.planDone
+          : isRecord(action.payload.planDone)
+            ? Object.fromEntries(
+                Object.entries(action.payload.planDone).map(([date, ids]) => [
+                  date,
+                  normalizePersistedStringArray(ids),
+                ]),
+              )
+            : {},
+        plannerDeletedDefaults: action.payload.plannerDeletedDefaults === undefined
+          ? state.plannerDeletedDefaults
+          : normalizePersistedStringArray(action.payload.plannerDeletedDefaults),
+        recordedFocusSessionIds: action.payload.recordedFocusSessionIds === undefined
+          ? state.recordedFocusSessionIds
+          : normalizePersistedStringArray(action.payload.recordedFocusSessionIds),
         ...(nextSchedule !== undefined ? { plannerScheduleItems: nextSchedule } : {}),
         ...(nextNotifications !== undefined ? { notifications: nextNotifications } : {}),
         user: state.user,

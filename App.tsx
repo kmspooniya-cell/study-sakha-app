@@ -19,6 +19,7 @@ import { Logo } from './components/Logo';
 import { FocusSessionProvider, useOptionalFocusSession } from './lib/focusSession';
 import type { FocusCompletionPayload } from './lib/focusSession';
 import { StoreProvider, useStore } from './lib/store';
+import { SSDSThemeProvider } from './lib/ssdsThemeBridge';
 import { ThemeProvider, useTheme } from './lib/theme';
 import type {
   AppLinkingOptions,
@@ -530,9 +531,11 @@ function Themed() {
       backgroundOpacity={state.settings.backgroundOpacity}
       overlayIntensity={state.settings.overlayIntensity}
     >
-      <FocusSessionProvider onNavigateCompletion={handleBackgroundCompletion}>
-        <Navigation />
-      </FocusSessionProvider>
+      <SSDSThemeProvider>
+        <FocusSessionProvider onNavigateCompletion={handleBackgroundCompletion}>
+          <Navigation />
+        </FocusSessionProvider>
+      </SSDSThemeProvider>
     </ThemeProvider>
   );
 }

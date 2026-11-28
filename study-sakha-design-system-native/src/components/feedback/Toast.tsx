@@ -61,7 +61,10 @@ export function Toast({
       <IconComp size={18} color={cfg.color} style={{ marginTop: 1 }} />
       <View style={styles.content}>
         {!!title && (
-          <Text variant="CardTitle" style={{ fontSize: 13.5 }}>
+          <Text
+            variant="CardTitle"
+            style={{ fontSize: Math.round(13.5 * tokens.typography.scale * 10) / 10 }}
+          >
             {title}
           </Text>
         )}
@@ -72,7 +75,7 @@ export function Toast({
         )}
       </View>
       {onClose && (
-        <Pressable onPress={onClose} hitSlop={8} accessibilityLabel="Close toast">
+        <Pressable onPress={onClose} hitSlop={14} accessibilityLabel="Close toast">
           <X size={15} color={tokens.colors.textTertiary} />
         </Pressable>
       )}

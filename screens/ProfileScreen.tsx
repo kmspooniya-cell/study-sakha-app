@@ -25,7 +25,7 @@ import type { AppNavigation } from '../lib/navigation';
 import { Shell, useLayout } from '../components/Shell';
 import { getProfileContentMaxWidth } from '../lib/profileLayout';
 import { dayKey, getDisplayName, useStore } from '../lib/store';
-import { useTheme } from '../lib/theme';
+import { useSSDSTheme } from '../lib/ssds';
 import { EXAM_ID_BY_FOCUS } from '../lib/examCatalog';
 import Svg, { Circle } from 'react-native-svg';
 import {
@@ -382,8 +382,8 @@ export default function StudySakhaProfileScreen() {
   const isCompactPhone = profileViewportWidth < 380;
   const { isMobile } = useLayout();
   const { state, badges, todayMinutes, streak, dispatch, saveProfile, signOut } = useStore();
-  const { scheme } = useTheme();
-  const isDark = scheme === 'dark';
+  const { tokens } = useSSDSTheme();
+  const isDark = tokens.isDark;
   const profile = useMemo<ProfileState>(() => ({
     name: getDisplayName(state.user),
     email: state.user?.email ?? '',

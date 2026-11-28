@@ -7,6 +7,34 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { classifySyncError, clearSyncLogCooldowns } from '../lib/groupSyncErrors';
 
+jest.mock('react-native-reanimated', () => {
+  const { View: RNView } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: { View: RNView },
+    useSharedValue: (init: number | boolean) => ({ value: init }),
+    useAnimatedStyle: (fn: () => Record<string, unknown>) => fn(),
+    withSpring: (val: number) => val,
+    withTiming: (val: number) => val,
+    interpolate: (_val: number, _input: number[], output: number[]) => output[0],
+    runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  };
+});
+
+jest.mock('react-native-gesture-handler', () => {
+  const chain = {
+    minDistance: () => chain,
+    onStart: () => chain,
+    onUpdate: () => chain,
+    onEnd: () => chain,
+    onFinalize: () => chain,
+  };
+  return {
+    Gesture: { Pan: () => chain },
+    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
+  };
+});
+
 const mockStorage = new Map<string, string>();
 const mockSubmitStudyMemberActivityToGroups = jest.fn(async () => ({ groupIds: ['grp-1'], failures: [] as { groupId: string; message: string }[] }));
 
@@ -398,9 +426,10 @@ describe('Part 4 & 5: Unified ActiveSessionBar & Group Hall Exit', () => {
     // Case A without Hall: FocusCenter has no redundant bar
     expect(view.queryByTestId('active-session-bar')).toBeNull();
 
-    // Case B: Inside Hall -> shows ONE bar with Back to Focus
+    // Case B: Inside Hall -> shows ONE bubble that expands with Back to Focus
     fireEvent.press(view.getByTestId('enter-hall'));
     expect(view.getAllByTestId('active-session-bar')).toHaveLength(1);
+    fireEvent.press(view.getByTestId('focus-bubble-collapsed'));
     expect(view.getByLabelText('Back to Focus')).toBeTruthy();
 
     // Exit Hall -> Focus session stays intact with same ID!
@@ -414,9 +443,13 @@ describe('Part 4 & 5: Unified ActiveSessionBar & Group Hall Exit', () => {
     expect(view.queryByLabelText('Back to Focus')).toBeNull();
     expect(onReturnToHall).not.toHaveBeenCalled();
 
-    // Case C: On DashboardRoot -> shows ONE shared bar with Back to Focus
+    // Case C: On DashboardRoot -> shows ONE shared bubble that expands with Back to Focus
     fireEvent.press(view.getByTestId('go-dash'));
     expect(view.getAllByTestId('active-session-bar')).toHaveLength(1);
+    const collapsedDashBubble = view.queryByTestId('focus-bubble-collapsed');
+    if (collapsedDashBubble) {
+      fireEvent.press(collapsedDashBubble);
+    }
     expect(view.getByLabelText('Back to Focus')).toBeTruthy();
   });
 

@@ -4,6 +4,34 @@ import { Pressable, Text } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { endGroupRoomFocus, getGroupRoomFocusActivity, publishGroupRoomFocus } from '../lib/groupRoomFocusBridge';
 
+jest.mock('react-native-reanimated', () => {
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: { View },
+    useSharedValue: (init: number | boolean) => ({ value: init }),
+    useAnimatedStyle: (fn: () => Record<string, unknown>) => fn(),
+    withSpring: (val: number) => val,
+    withTiming: (val: number) => val,
+    interpolate: (_val: number, _input: number[], output: number[]) => output[0],
+    runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  };
+});
+
+jest.mock('react-native-gesture-handler', () => {
+  const chain = {
+    minDistance: () => chain,
+    onStart: () => chain,
+    onUpdate: () => chain,
+    onEnd: () => chain,
+    onFinalize: () => chain,
+  };
+  return {
+    Gesture: { Pan: () => chain },
+    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
+  };
+});
+
 const mockStorage = new Map<string, string>();
 const mockNavigate = jest.fn();
 const mockPopTo = jest.fn();
@@ -230,22 +258,25 @@ describe('Global Focus Session & persistent Back-to-Focus bar', () => {
     fireEvent.press(view.getByText('Go to Study Planner'));
     expect(mockNavigate).toHaveBeenCalledWith('StudyPlanner');
 
-    // Move out to Dashboard, Library, StudyPlanner, Groups, SakhaAI — bar appears and timer ticks accurately
+    // Move out to Dashboard, Library, StudyPlanner, Groups, SakhaAI — bubble appears collapsed and expands on tap
     fireEvent.press(view.getByTestId('nav-dashboard'));
+    expect(view.getByTestId('focus-bubble-collapsed')).toBeTruthy();
+    fireEvent.press(view.getByTestId('focus-bubble-collapsed'));
     expect(view.getByLabelText('Back to Focus')).toBeTruthy();
     expect(view.getByText('25:00')).toBeTruthy();
 
     act(() => jest.advanceTimersByTime(25_000));
+    fireEvent.press(view.getByTestId('focus-bubble-collapsed'));
     expect(view.getByText('24:35')).toBeTruthy();
 
     fireEvent.press(view.getByTestId('nav-library'));
-    expect(view.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(view.getByTestId('active-session-bar')).toBeTruthy();
     fireEvent.press(view.getByTestId('nav-planner'));
-    expect(view.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(view.getByTestId('active-session-bar')).toBeTruthy();
     fireEvent.press(view.getByTestId('nav-groups'));
-    expect(view.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(view.getByTestId('active-session-bar')).toBeTruthy();
     fireEvent.press(view.getByTestId('nav-ai'));
-    expect(view.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(view.getByTestId('active-session-bar')).toBeTruthy();
 
     // Group Hall activity stays independent
     publishGroupRoomFocus({
@@ -269,16 +300,16 @@ describe('Global Focus Session & persistent Back-to-Focus bar', () => {
     expect(view.getByTestId('timer-remaining').props.children).toBe('1475');
     expect(view.queryByLabelText('Back to Focus')).toBeNull();
 
-    // Ending session clears active session and removes bar externally
+    // Ending session clears active session and removes bubble externally
     fireEvent.press(view.getByTestId('nav-dashboard'));
-    expect(view.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(view.getByTestId('active-session-bar')).toBeTruthy();
     await act(async () => {
       fireEvent.press(view.getByTestId('end-session'));
       await Promise.resolve();
     });
     await waitFor(() => {
       expect(view.getByTestId('session-id').props.children).toBe('none');
-      expect(view.queryByLabelText('Back to Focus')).toBeNull();
+      expect(view.queryByTestId('active-session-bar')).toBeNull();
     });
     expect(getGroupRoomFocusActivity('room-1')).toBeTruthy();
     view.unmount();
@@ -320,9 +351,11 @@ describe('Global Focus Session & persistent Back-to-Focus bar', () => {
     await waitFor(() => {
       expect(restarted.getByTestId('session-id').props.children).toBe('persisted-focus-1');
       expect(restarted.getByTestId('session-task-id').props.children).toBe('task-ca');
-      expect(restarted.getByLabelText('Back to Focus')).toBeTruthy();
-      expect(restarted.getByText('Current Affairs · General Studies')).toBeTruthy();
+      expect(restarted.getByTestId('focus-bubble-collapsed')).toBeTruthy();
     });
+    fireEvent.press(restarted.getByTestId('focus-bubble-collapsed'));
+    expect(restarted.getByLabelText('Back to Focus')).toBeTruthy();
+    expect(restarted.getByText('Current Affairs · General Studies')).toBeTruthy();
     restarted.unmount();
   });
 });

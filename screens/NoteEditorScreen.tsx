@@ -1,15 +1,45 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
+import {
+  Check,
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  HelpCircle,
+  Info,
+  Layers,
+  List,
+  MessageSquare,
+  Plus,
+  Save,
+  Sparkles,
+  Star,
+  Tag as TagIcon,
+  Tags,
+  Trash2,
+  Type,
+  X,
+} from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DetailHeader, useLayout, useSmartAndroidBack } from '../components/Shell';
-import { Button, Card, Chip, Field, SectionHeader, Tag, Txt } from '../components/ui';
+import {
+  SSDSBadge,
+  SSDSButton,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSectionHeader,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  SSDSTextInput,
+  useSSDSTheme,
+} from '../lib/ssds';
 import { EXAMS, getResources, SUBJECTS } from '../lib/data';
 import { useStore } from '../lib/store';
 import { createStudentContentSignedUrl } from '../lib/supabase';
-import { radii, useTheme } from '../lib/theme';
 import { UserNote } from '../lib/types';
 
 const FOLDERS = ['My Revision', 'Error Log', 'Quick Facts', 'Mains Answers', 'Formula Sheets'];
@@ -21,7 +51,9 @@ function buildSummary(body: string) {
     .map((s) => s.trim())
     .filter((s) => s.length > 30);
   const picked = sentences.slice(0, 4);
-  if (!picked.length) return 'Add a few lines of content and Sakha will compress them into recall-ready points.';
+  if (!picked.length) {
+    return 'Add a few lines of content and Sakha will compress them into recall-ready points.';
+  }
   return picked.map((s, i) => `${i + 1}. ${s}`).join('\n');
 }
 
@@ -48,7 +80,11 @@ function buildQuiz(body: string, subject: string) {
     .slice(0, 3);
   return chunks.map((c, i) => {
     const key = c.split(/[—:–.]/)[0].trim().slice(0, 70);
-    const distractors = [`A different ${subject} concept`, `An unrelated ${subject} provision`, 'None of the above'];
+    const distractors = [
+      `A different ${subject} concept`,
+      `An unrelated ${subject} provision`,
+      'None of the above',
+    ];
     return {
       q: `Which statement correctly describes ${key}?`,
       options: [c.slice(0, 110), ...distractors],
@@ -60,7 +96,7 @@ function buildQuiz(body: string, subject: string) {
 
 export default function NoteEditorScreen() {
   useSmartAndroidBack();
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'NoteEditor'>>();
   const { state, dispatch } = useStore();
@@ -68,8 +104,12 @@ export default function NoteEditorScreen() {
   const { isMobile, isDesktop } = useLayout();
 
   const params = route.params;
-  const resource = params?.resourceId ? resources.find((r) => r.id === params.resourceId) : undefined;
-  const existing = params?.noteId ? state.notes.find((n) => n.id === params.noteId) : undefined;
+  const resource = params?.resourceId
+    ? resources.find((r) => r.id === params.resourceId)
+    : undefined;
+  const existing = params?.noteId
+    ? state.notes.find((n) => n.id === params.noteId)
+    : undefined;
   const readOnly = !!resource;
 
   const [title, setTitle] = useState(existing?.title ?? resource?.title ?? '');
@@ -128,11 +168,16 @@ export default function NoteEditorScreen() {
   };
 
   const markProgress = (pct: number) => {
-    if (resource) dispatch({ type: 'progress', id: resource.id, percent: pct, title: resource.title });
+    if (resource) {
+      dispatch({ type: 'progress', id: resource.id, percent: pct, title: resource.title });
+    }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: tokens.colors.background }}
+      edges={['top', 'bottom']}
+    >
       <DetailHeader
         title={readOnly ? 'Reading note' : existing ? 'Edit note' : 'New note'}
         subtitle={readOnly ? `${resource!.subject} · ${resource!.author}` : `${folder} · ${subject}`}
@@ -140,261 +185,468 @@ export default function NoteEditorScreen() {
         right={
           readOnly ? (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={starred ? 'Remove from starred' : 'Star note'}
               onPress={() => dispatch({ type: 'toggleStar', id: resource!.id })}
-              style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: starred ? `${colors.warning}1F` : colors.bg, borderWidth: 1, borderColor: colors.border }}
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: starred
+                  ? tokens.colors.warningBackground
+                  : tokens.colors.background,
+                borderWidth: 1,
+                borderColor: tokens.colors.border,
+              }}
             >
-              <Ionicons name={starred ? 'star' : 'star-outline'} size={18} color={starred ? colors.warning : colors.textMuted} />
+              <SSDSIcon
+                icon={Star}
+                size={18}
+                color={starred ? 'warning' : 'textSecondary'}
+              />
             </Pressable>
           ) : (
-            <Button label={saved ? 'Saved' : 'Save'} icon={saved ? 'checkmark' : 'save-outline'} size="sm" onPress={save} />
+            <SSDSButton
+              size="small"
+              leadingIcon={saved ? Check : Save}
+              onPress={save}
+            >
+              {saved ? 'Saved' : 'Save'}
+            </SSDSButton>
           )
         }
       />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: isMobile ? 16 : 24, maxWidth: 1120, width: '100%', alignSelf: 'center', paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
-          <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 18, maxWidth: 1120, width: '100%', alignSelf: 'center' }}>
-            <View style={{ flex: 1.5, gap: 16 }}>
-              <Card style={{ gap: 14 }}>
-                {readOnly ? (
-                  <View style={{ gap: 10 }}>
-                    <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap' }}>
-                      <Tag label={EXAMS.find((e) => e.id === resource!.exam)?.short ?? ''} color={colors.blue} />
-                      <Tag label={resource!.subject} color={colors.teal} />
-                      <Tag label={`${resource!.minutes} min read`} color={colors.textMuted} />
-                      <Tag label={`★ ${resource!.rating}`} color={colors.warning} />
-                    </View>
-                    <Txt size={isMobile ? 20 : 24} weight="800" display style={{ letterSpacing: -0.6 }}>
-                      {resource!.title}
-                    </Txt>
-                    <Txt size={13.5} color={colors.textMuted}>
-                      {resource!.summary}
-                    </Txt>
-                  </View>
-                ) : (
-                  <>
-                    <Field label="Title" value={title} onChangeText={setTitle} placeholder="E.g. Fundamental Rights quick recall" icon="text-outline" />
-                    <View>
-                      <Txt size={12.5} weight="700" color={colors.textMuted} style={{ marginBottom: 9 }}>
-                        Folder
-                      </Txt>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {FOLDERS.map((f) => (
-                          <Chip key={f} label={f} active={folder === f} onPress={() => setFolder(f)} />
-                        ))}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={{
+            padding: isMobile ? 16 : 24,
+            maxWidth: 1120,
+            width: '100%',
+            alignSelf: 'center',
+            paddingBottom: 48,
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View
+            style={{
+              flexDirection: isDesktop ? 'row' : 'column',
+              gap: 18,
+              maxWidth: 1120,
+              width: '100%',
+              alignSelf: 'center',
+            }}
+          >
+            <SSDSStack gap={16} style={{ flex: 1.5 }}>
+              <SSDSSurface variant="outlined" padding={16}>
+                <SSDSStack gap={14}>
+                  {readOnly ? (
+                    <SSDSStack gap={10}>
+                      <SSDSRow wrap="wrap" gap={7}>
+                        <SSDSBadge variant="primary" size="sm">
+                          {EXAMS.find((e) => e.id === resource!.exam)?.short ?? ''}
+                        </SSDSBadge>
+                        <SSDSBadge variant="secondary" size="sm">
+                          {resource!.subject}
+                        </SSDSBadge>
+                        <SSDSBadge variant="neutral" size="sm">
+                          {`${resource!.minutes} min read`}
+                        </SSDSBadge>
+                        <SSDSBadge variant="warning" size="sm">
+                          {`★ ${resource!.rating}`}
+                        </SSDSBadge>
+                      </SSDSRow>
+                      <SSDSText
+                        variant="ScreenTitle"
+                        style={{ fontSize: isMobile ? 20 : 24, lineHeight: isMobile ? 27 : 31 }}
+                      >
+                        {resource!.title}
+                      </SSDSText>
+                      <SSDSText variant="BodySecondary">{resource!.summary}</SSDSText>
+                    </SSDSStack>
+                  ) : (
+                    <>
+                      <SSDSTextInput
+                        label="Title"
+                        value={title}
+                        onChangeText={setTitle}
+                        placeholder="E.g. Fundamental Rights quick recall"
+                        leadingIcon={Type}
+                      />
+                      <View>
+                        <SSDSText
+                          variant="InputLabel"
+                          color="textSecondary"
+                          style={{ marginBottom: 9 }}
+                        >
+                          Folder
+                        </SSDSText>
+                        <SSDSRow wrap="wrap" gap={8}>
+                          {FOLDERS.map((f) => (
+                            <SSDSButton
+                              key={f}
+                              size="small"
+                              variant={folder === f ? 'primary' : 'outline'}
+                              onPress={() => setFolder(f)}
+                            >
+                              {f}
+                            </SSDSButton>
+                          ))}
+                        </SSDSRow>
                       </View>
-                    </View>
-                    <View>
-                      <Txt size={12.5} weight="700" color={colors.textMuted} style={{ marginBottom: 9 }}>
-                        Subject
-                      </Txt>
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                        {SUBJECTS.slice(0, 8).map((s) => (
-                          <Chip key={s.id} label={s.name} tone={s.color} active={subject === s.name} onPress={() => setSubject(s.name)} />
-                        ))}
+                      <View>
+                        <SSDSText
+                          variant="InputLabel"
+                          color="textSecondary"
+                          style={{ marginBottom: 9 }}
+                        >
+                          Subject
+                        </SSDSText>
+                        <SSDSRow wrap="wrap" gap={8}>
+                          {SUBJECTS.slice(0, 8).map((s) => (
+                            <SSDSButton
+                              key={s.id}
+                              size="small"
+                              variant={subject === s.name ? 'primary' : 'outline'}
+                              onPress={() => setSubject(s.name)}
+                            >
+                              {s.name}
+                            </SSDSButton>
+                          ))}
+                        </SSDSRow>
                       </View>
-                    </View>
-                  </>
-                )}
-              </Card>
+                    </>
+                  )}
+                </SSDSStack>
+              </SSDSSurface>
 
-              <Card style={{ gap: 12 }}>
-                <SectionHeader title={readOnly ? 'Content' : 'Your note'} icon="document-text-outline" />
+              <SSDSSurface variant="outlined" padding={16}>
+                <SSDSSectionHeader
+                  title={readOnly ? 'Content' : 'Your note'}
+                  icon={FileText}
+                  compact
+                />
                 {readOnly ? (
-                  <View style={{ gap: 14 }}>
+                  <SSDSStack gap={14}>
                     {resource!.body.map((p, i) => (
-                      <Txt key={i} size={14.5} color={colors.textMuted} style={{ lineHeight: 24 }}>
+                      <SSDSText
+                        key={i}
+                        variant="BodySecondary"
+                        style={{ fontSize: 14.5, lineHeight: 24 }}
+                      >
                         {p}
-                      </Txt>
+                      </SSDSText>
                     ))}
-                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
-                      <Button label="Mark 50% done" variant="outline" size="sm" onPress={() => markProgress(50)} />
-                      <Button label="Mark complete" icon="checkmark-circle-outline" size="sm" onPress={() => markProgress(100)} />
+                    <SSDSRow wrap="wrap" gap={10} style={{ marginTop: 4 }}>
+                      <SSDSButton
+                        variant="outline"
+                        size="small"
+                        onPress={() => markProgress(50)}
+                      >
+                        Mark 50% done
+                      </SSDSButton>
+                      <SSDSButton
+                        size="small"
+                        leadingIcon={CheckCircle2}
+                        onPress={() => markProgress(100)}
+                      >
+                        Mark complete
+                      </SSDSButton>
                       {resource!.fileObjectPath || resource!.sourceUrl ? (
-                        <Button label="Open hosted source" icon="open-outline" size="sm" variant="soft" onPress={openResourceFile} />
+                        <SSDSButton
+                          size="small"
+                          variant="secondary"
+                          leadingIcon={ExternalLink}
+                          onPress={openResourceFile}
+                        >
+                          Open hosted source
+                        </SSDSButton>
                       ) : null}
-                    </View>
-                    {fileError ? <Txt size={12} color={colors.danger}>{fileError}</Txt> : null}
-                  </View>
+                    </SSDSRow>
+                    {fileError ? <SSDSText variant="ErrorText">{fileError}</SSDSText> : null}
+                  </SSDSStack>
                 ) : (
-                  <Field value={body} onChangeText={setBody} placeholder={'Write your revision points here.\n\nUse one line per idea — Sakha turns each line into a flashcard.'} multiline minHeight={260} />
+                  <SSDSTextInput
+                    value={body}
+                    onChangeText={setBody}
+                    placeholder={
+                      'Write your revision points here.\n\nUse one line per idea — Sakha turns each line into a flashcard.'
+                    }
+                    multiline
+                    rows={10}
+                    inputStyle={{ minHeight: 240 }}
+                  />
                 )}
-              </Card>
+              </SSDSSurface>
 
               {!readOnly ? (
-                <Card style={{ gap: 12 }}>
-                  <SectionHeader title="Tags" icon="pricetags-outline" />
-                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
-                    <Field value={tagInput} onChangeText={setTagInput} placeholder="Add a tag" icon="pricetag-outline" style={{ flex: 1 }} onSubmitEditing={addTag} returnKeyType="done" />
-                    <Button label="Add" icon="add" onPress={addTag} />
-                  </View>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {tags.map((t) => (
-                      <Pressable
-                        key={t}
-                        onPress={() => setTags((x) => x.filter((y) => y !== t))}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, height: 32, borderRadius: radii.pill, backgroundColor: colors.tint }}
-                      >
-                        <Txt size={12} weight="700" color={colors.blue}>
-                          {t}
-                        </Txt>
-                        <Ionicons name="close" size={13} color={colors.blue} />
-                      </Pressable>
-                    ))}
-                    {!tags.length ? (
-                      <Txt size={12.5} color={colors.textFaint}>
-                        No tags yet. Tags power search and Sakha AI retrieval.
-                      </Txt>
-                    ) : null}
-                  </View>
-                </Card>
+                <SSDSSurface variant="outlined" padding={16}>
+                  <SSDSSectionHeader title="Tags" icon={Tags} compact />
+                  <SSDSStack gap={12}>
+                    <SSDSRow align="flex-end" gap={10}>
+                      <View style={{ flex: 1 }}>
+                        <SSDSTextInput
+                          value={tagInput}
+                          onChangeText={setTagInput}
+                          placeholder="Add a tag"
+                          leadingIcon={TagIcon}
+                          onSubmitEditing={addTag}
+                          returnKeyType="done"
+                        />
+                      </View>
+                      <SSDSButton leadingIcon={Plus} onPress={addTag}>
+                        Add
+                      </SSDSButton>
+                    </SSDSRow>
+                    <SSDSRow wrap="wrap" gap={8}>
+                      {tags.map((t) => (
+                        <Pressable
+                          key={t}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove tag ${t}`}
+                          onPress={() => setTags((x) => x.filter((y) => y !== t))}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            paddingHorizontal: 11,
+                            height: 32,
+                            borderRadius: tokens.radius.pill,
+                            backgroundColor: tokens.colors.primaryLight,
+                          }}
+                        >
+                          <SSDSText variant="Caption" color="primary">
+                            {t}
+                          </SSDSText>
+                          <SSDSIcon icon={X} size={13} color="primary" />
+                        </Pressable>
+                      ))}
+                      {!tags.length ? (
+                        <SSDSText variant="Caption" color="textTertiary">
+                          No tags yet. Tags power search and Sakha AI retrieval.
+                        </SSDSText>
+                      ) : null}
+                    </SSDSRow>
+                  </SSDSStack>
+                </SSDSSurface>
               ) : null}
-            </View>
+            </SSDSStack>
 
-            <View style={{ flex: 1, gap: 16 }}>
-              <Card style={{ gap: 12 }}>
-                <SectionHeader title="Sakha AI tools" icon="sparkles-outline" />
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  <Chip label="Summarise" icon="list-outline" active={tool === 'summary'} onPress={() => setTool(tool === 'summary' ? 'none' : 'summary')} />
-                  <Chip label="Flashcards" icon="albums-outline" active={tool === 'cards'} onPress={() => setTool(tool === 'cards' ? 'none' : 'cards')} />
-                  <Chip label="Generate MCQs" icon="help-circle-outline" active={tool === 'quiz'} onPress={() => setTool(tool === 'quiz' ? 'none' : 'quiz')} />
-                </View>
+            <SSDSStack gap={16} style={{ flex: 1 }}>
+              <SSDSSurface variant="outlined" padding={16}>
+                <SSDSSectionHeader title="Sakha AI tools" icon={Sparkles} compact />
+                <SSDSStack gap={12}>
+                  <SSDSRow wrap="wrap" gap={8}>
+                    <SSDSButton
+                      size="small"
+                      leadingIcon={List}
+                      variant={tool === 'summary' ? 'primary' : 'outline'}
+                      onPress={() => setTool(tool === 'summary' ? 'none' : 'summary')}
+                    >
+                      Summarise
+                    </SSDSButton>
+                    <SSDSButton
+                      size="small"
+                      leadingIcon={Layers}
+                      variant={tool === 'cards' ? 'primary' : 'outline'}
+                      onPress={() => setTool(tool === 'cards' ? 'none' : 'cards')}
+                    >
+                      Flashcards
+                    </SSDSButton>
+                    <SSDSButton
+                      size="small"
+                      leadingIcon={HelpCircle}
+                      variant={tool === 'quiz' ? 'primary' : 'outline'}
+                      onPress={() => setTool(tool === 'quiz' ? 'none' : 'quiz')}
+                    >
+                      Generate MCQs
+                    </SSDSButton>
+                  </SSDSRow>
 
-                {tool === 'summary' ? (
-                  <View style={{ padding: 13, borderRadius: radii.md, backgroundColor: colors.surfaceAlt }}>
-                    <Txt size={13} color={colors.textMuted} style={{ lineHeight: 21 }}>
-                      {summary}
-                    </Txt>
-                  </View>
-                ) : null}
+                  {tool === 'summary' ? (
+                    <View
+                      style={{
+                        padding: 13,
+                        borderRadius: tokens.radius.md,
+                        backgroundColor: tokens.colors.surfaceSecondary,
+                      }}
+                    >
+                      <SSDSText variant="BodySecondary" style={{ lineHeight: 21 }}>
+                        {summary}
+                      </SSDSText>
+                    </View>
+                  ) : null}
 
-                {tool === 'cards' ? (
-                  <View style={{ gap: 10 }}>
-                    {cards.length ? (
-                      cards.map((c, i) => (
-                        <View key={i} style={{ padding: 13, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, gap: 6 }}>
-                          <Txt size={13} weight="800">
-                            {c.front}
-                          </Txt>
-                          <Txt size={12.5} color={colors.textMuted}>
-                            {c.back}
-                          </Txt>
-                        </View>
-                      ))
-                    ) : (
-                      <Txt size={12.5} color={colors.textFaint}>
-                        Add more content to generate flashcards.
-                      </Txt>
-                    )}
-                  </View>
-                ) : null}
+                  {tool === 'cards' ? (
+                    <SSDSStack gap={10}>
+                      {cards.length ? (
+                        cards.map((c, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              padding: 13,
+                              borderRadius: tokens.radius.md,
+                              borderWidth: 1,
+                              borderColor: tokens.colors.border,
+                              gap: 6,
+                            }}
+                          >
+                            <SSDSText variant="CardTitle">{c.front}</SSDSText>
+                            <SSDSText variant="BodySecondary">{c.back}</SSDSText>
+                          </View>
+                        ))
+                      ) : (
+                        <SSDSText variant="Caption" color="textTertiary">
+                          Add more content to generate flashcards.
+                        </SSDSText>
+                      )}
+                    </SSDSStack>
+                  ) : null}
 
-                {tool === 'quiz' ? (
-                  <View style={{ gap: 12 }}>
-                    {quiz.length ? (
-                      quiz.map((q, qi) => (
-                        <View key={qi} style={{ gap: 8 }}>
-                          <Txt size={13} weight="700">
-                            {qi + 1}. {q.q}
-                          </Txt>
-                          {q.options.map((o, oi) => {
-                            const picked = quizPick[qi];
-                            const show = picked !== undefined;
-                            const correct = oi === q.answer;
-                            return (
-                              <Pressable
-                                key={oi}
-                                onPress={() => setQuizPick((p) => ({ ...p, [qi]: oi }))}
-                                style={{
-                                  padding: 10,
-                                  borderRadius: radii.sm,
-                                  borderWidth: 1,
-                                  borderColor: show && correct ? colors.success : show && picked === oi ? colors.danger : colors.border,
-                                  backgroundColor: show && correct ? `${colors.success}12` : colors.surface,
-                                }}
-                              >
-                                <Txt size={12.5} color={colors.textMuted}>
-                                  {String.fromCharCode(65 + oi)}. {o}
-                                </Txt>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      ))
-                    ) : (
-                      <Txt size={12.5} color={colors.textFaint}>
-                        Add more content to generate practice questions.
-                      </Txt>
-                    )}
-                  </View>
-                ) : null}
+                  {tool === 'quiz' ? (
+                    <SSDSStack gap={12}>
+                      {quiz.length ? (
+                        quiz.map((q, qi) => (
+                          <SSDSStack key={qi} gap={8}>
+                            <SSDSText variant="CardTitle">
+                              {qi + 1}. {q.q}
+                            </SSDSText>
+                            {q.options.map((o, oi) => {
+                              const picked = quizPick[qi];
+                              const show = picked !== undefined;
+                              const correct = oi === q.answer;
+                              return (
+                                <Pressable
+                                  key={oi}
+                                  onPress={() => setQuizPick((p) => ({ ...p, [qi]: oi }))}
+                                  style={{
+                                    padding: 10,
+                                    borderRadius: tokens.radius.sm,
+                                    borderWidth: 1,
+                                    borderColor:
+                                      show && correct
+                                        ? tokens.colors.success
+                                        : show && picked === oi
+                                          ? tokens.colors.danger
+                                          : tokens.colors.border,
+                                    backgroundColor:
+                                      show && correct
+                                        ? tokens.colors.successBackground
+                                        : tokens.colors.surface,
+                                  }}
+                                >
+                                  <SSDSText variant="BodySecondary">
+                                    {String.fromCharCode(65 + oi)}. {o}
+                                  </SSDSText>
+                                </Pressable>
+                              );
+                            })}
+                          </SSDSStack>
+                        ))
+                      ) : (
+                        <SSDSText variant="Caption" color="textTertiary">
+                          Add more content to generate practice questions.
+                        </SSDSText>
+                      )}
+                    </SSDSStack>
+                  ) : null}
 
-                <Button
-                  label="Ask Sakha about this note"
-                  icon="chatbubbles-outline"
-                  variant="soft"
-                  full
-                  onPress={() => nav.navigate('SakhaAI', { prompt: `Summarise and quiz me on ${title || resource?.title || subject}` })}
-                />
-              </Card>
+                  <SSDSButton
+                    variant="secondary"
+                    leadingIcon={MessageSquare}
+                    fullWidth
+                    onPress={() =>
+                      nav.navigate('SakhaAI', {
+                        prompt: `Summarise and quiz me on ${title || resource?.title || subject}`,
+                      })
+                    }
+                  >
+                    Ask Sakha about this note
+                  </SSDSButton>
+                </SSDSStack>
+              </SSDSSurface>
 
               {readOnly ? (
-                <Card style={{ gap: 10 }}>
-                  <SectionHeader title="Resource details" icon="information-circle-outline" />
-                  {[
-                    ['Author', resource!.author],
-                    ['Folder', resource!.folder],
-                    ['Pages', `${resource!.pages}`],
-                    ['Downloads', resource!.downloads.toLocaleString('en-IN')],
-                    ['Updated', resource!.updated],
-                  ].map(([k, v]) => (
-                    <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Txt size={13} color={colors.textMuted}>
-                        {k}
-                      </Txt>
-                      <Txt size={13} weight="700">
-                        {v}
-                      </Txt>
-                    </View>
-                  ))}
-                  <Button label="Open related PYQs" icon="albums-outline" variant="outline" full style={{ marginTop: 6 }} onPress={() => nav.navigate('PYQ', { subject: resource!.subject })} />
-                </Card>
-              ) : (
-                <Card style={{ gap: 12 }}>
-                  <SectionHeader title="My notes" icon="folder-open-outline" />
-                  {state.notes.slice(0, 6).map((n) => (
-                    <Pressable
-                      key={n.id}
-                      onPress={() => nav.replace('NoteEditor', { noteId: n.id })}
-                      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: pressed ? 0.7 : 1 })}
-                    >
-                      <Ionicons name="document-text-outline" size={17} color={colors.blue} />
-                      <View style={{ flex: 1 }}>
-                        <Txt size={13} weight="700" numberOfLines={1}>
-                          {n.title}
-                        </Txt>
-                        <Txt size={11.5} color={colors.textFaint}>
-                          {n.folder} · {new Date(n.updatedAt).toLocaleDateString('en-IN')}
-                        </Txt>
-                      </View>
-                      {existing?.id === n.id ? <Tag label="Editing" color={colors.teal} /> : null}
-                    </Pressable>
-                  ))}
-                  {existing ? (
-                    <Button
-                      label="Delete this note"
-                      icon="trash-outline"
+                <SSDSSurface variant="outlined" padding={16}>
+                  <SSDSSectionHeader title="Resource details" icon={Info} compact />
+                  <SSDSStack gap={10}>
+                    {[
+                      ['Author', resource!.author],
+                      ['Folder', resource!.folder],
+                      ['Pages', `${resource!.pages}`],
+                      ['Downloads', resource!.downloads.toLocaleString('en-IN')],
+                      ['Updated', resource!.updated],
+                    ].map(([k, v]) => (
+                      <SSDSRow key={k} justify="space-between">
+                        <SSDSText variant="BodySecondary">{k}</SSDSText>
+                        <SSDSText variant="CardTitle">{v}</SSDSText>
+                      </SSDSRow>
+                    ))}
+                    <SSDSButton
                       variant="outline"
-                      full
-                      onPress={() => {
-                        dispatch({ type: 'deleteNote', id: existing.id });
-                        nav.goBack();
-                      }}
-                    />
-                  ) : null}
-                </Card>
+                      leadingIcon={Layers}
+                      fullWidth
+                      style={{ marginTop: 6 }}
+                      onPress={() => nav.navigate('PYQ', { subject: resource!.subject })}
+                    >
+                      Open related PYQs
+                    </SSDSButton>
+                  </SSDSStack>
+                </SSDSSurface>
+              ) : (
+                <SSDSSurface variant="outlined" padding={16}>
+                  <SSDSSectionHeader title="My notes" icon={FolderOpen} compact />
+                  <SSDSStack gap={12}>
+                    {state.notes.slice(0, 6).map((n) => (
+                      <Pressable
+                        key={n.id}
+                        onPress={() => nav.replace('NoteEditor', { noteId: n.id })}
+                        style={({ pressed }) => ({
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          opacity: pressed ? 0.7 : 1,
+                        })}
+                      >
+                        <SSDSIcon icon={FileText} size={17} color="primary" />
+                        <View style={{ flex: 1 }}>
+                          <SSDSText variant="CardTitle" truncate>
+                            {n.title}
+                          </SSDSText>
+                          <SSDSText variant="Caption">
+                            {n.folder} · {new Date(n.updatedAt).toLocaleDateString('en-IN')}
+                          </SSDSText>
+                        </View>
+                        {existing?.id === n.id ? (
+                          <SSDSBadge variant="secondary" size="sm">
+                            Editing
+                          </SSDSBadge>
+                        ) : null}
+                      </Pressable>
+                    ))}
+                    {existing ? (
+                      <SSDSButton
+                        variant="outline"
+                        leadingIcon={Trash2}
+                        fullWidth
+                        onPress={() => {
+                          dispatch({ type: 'deleteNote', id: existing.id });
+                          nav.goBack();
+                        }}
+                      >
+                        Delete this note
+                      </SSDSButton>
+                    ) : null}
+                  </SSDSStack>
+                </SSDSSurface>
               )}
-            </View>
+            </SSDSStack>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

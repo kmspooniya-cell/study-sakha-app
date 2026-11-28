@@ -1,34 +1,69 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileText,
+  Layers,
+  Lightbulb,
+  Newspaper,
+  PenSquare,
+  Search,
+  Timer,
+  TrendingUp,
+  type LucideIcon,
+} from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
-import { Card, Chip, EmptyState, Field, SectionHeader, Tag, Txt } from '../components/ui';
+import {
+  SSDSBadge,
+  SSDSButton,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSearchInput,
+  SSDSSectionHeader,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
 import { getCurrentAffairs, getResources, getTests, PYQS } from '../lib/data';
 import { useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 
 type Hit = {
   id: string;
   kind: 'Note' | 'Book' | 'PYQ Set' | 'PYQ' | 'Test' | 'My note' | 'Current affairs';
   title: string;
   sub: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: LucideIcon;
   color: string;
   go: () => void;
 };
 
-const SUGGESTIONS = ['Fundamental Rights', 'Monsoon', 'Inflation targeting', 'Rotational motion', 'Quit India', 'Puzzle'];
+const SUGGESTIONS = [
+  'Fundamental Rights',
+  'Monsoon',
+  'Inflation targeting',
+  'Rotational motion',
+  'Quit India',
+  'Puzzle',
+];
 
 export default function SearchScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const { state } = useStore();
   const resources = useMemo(() => getResources(state.managedContent), [state.managedContent]);
   const tests = useMemo(() => getTests(state.managedContent), [state.managedContent]);
-  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
-  const { isMobile, isDesktop } = useLayout();
+  const currentAffairs = useMemo(
+    () => getCurrentAffairs(state.managedContent),
+    [state.managedContent],
+  );
+  const { isDesktop } = useLayout();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'library' | 'pyq' | 'tests' | 'notes'>('all');
 
@@ -38,202 +73,292 @@ export default function SearchScreen() {
     const out: Hit[] = [];
 
     if (filter === 'all' || filter === 'library') {
-      resources.filter((r) => `${r.title} ${r.summary} ${(r.tags ?? []).join(' ')} ${r.subject} ${r.topic ?? ''}`.toLowerCase().includes(q)).forEach((r) =>
-        out.push({
-          id: r.id,
-          kind: r.type === 'book' ? 'Book' : r.type === 'note' ? 'Note' : 'PYQ Set',
-          title: r.title,
-          sub: `${r.subject} · ${r.author} · ${r.minutes} min`,
-          icon: r.type === 'book' ? 'book-outline' : 'document-text-outline',
-          color: colors.blue,
-          go: () => (r.type === 'book' ? nav.navigate('BookReader', { resourceId: r.id }) : nav.navigate('NoteEditor', { resourceId: r.id })),
-        })
-      );
+      resources
+        .filter((r) =>
+          `${r.title} ${r.summary} ${(r.tags ?? []).join(' ')} ${r.subject} ${r.topic ?? ''}`
+            .toLowerCase()
+            .includes(q),
+        )
+        .forEach((r) =>
+          out.push({
+            id: r.id,
+            kind: r.type === 'book' ? 'Book' : r.type === 'note' ? 'Note' : 'PYQ Set',
+            title: r.title,
+            sub: `${r.subject} · ${r.author} · ${r.minutes} min`,
+            icon: r.type === 'book' ? BookOpen : FileText,
+            color: tokens.colors.primary,
+            go: () =>
+              r.type === 'book'
+                ? nav.navigate('BookReader', { resourceId: r.id })
+                : nav.navigate('NoteEditor', { resourceId: r.id }),
+          }),
+        );
     }
 
     if (filter === 'all' || filter === 'pyq') {
-      PYQS.filter((p) => `${p.question} ${p.explanation} ${p.subject}`.toLowerCase().includes(q)).forEach((p) =>
+      PYQS.filter((p) =>
+        `${p.question} ${p.explanation} ${p.subject}`.toLowerCase().includes(q),
+      ).forEach((p) =>
         out.push({
           id: p.id,
           kind: 'PYQ',
           title: p.question,
           sub: `${p.exam.toUpperCase()} ${p.year} · ${p.subject} · ${p.difficulty}`,
-          icon: 'albums-outline',
-          color: colors.teal,
+          icon: Layers,
+          color: tokens.colors.secondary,
           go: () => nav.navigate('PYQ', { subject: p.subject }),
-        })
+        }),
       );
     }
 
     if (filter === 'all' || filter === 'tests') {
-      tests.filter((t) => `${t.title} ${(t.sections ?? []).map((s) => s.name).join(' ')} ${t.subject ?? ''} ${t.topic ?? ''}`.toLowerCase().includes(q)).forEach((t) =>
-        out.push({
-          id: t.id,
-          kind: 'Test',
-          title: t.title,
-          sub: `${(t.questions ?? []).length} questions · ${t.durationMin} min · ${t.kind}`,
-          icon: 'timer-outline',
-          color: colors.violet,
-          go: () => nav.navigate('TestPlayer', { testId: t.id }),
-        })
-      );
+      tests
+        .filter((t) =>
+          `${t.title} ${(t.sections ?? []).map((s) => s.name).join(' ')} ${t.subject ?? ''} ${t.topic ?? ''}`
+            .toLowerCase()
+            .includes(q),
+        )
+        .forEach((t) =>
+          out.push({
+            id: t.id,
+            kind: 'Test',
+            title: t.title,
+            sub: `${(t.questions ?? []).length} questions · ${t.durationMin} min · ${t.kind}`,
+            icon: Timer,
+            color: tokens.colors.chartQuaternary,
+            go: () => nav.navigate('TestPlayer', { testId: t.id }),
+          }),
+        );
     }
 
     if (filter === 'all' || filter === 'notes') {
       state.notes
-        .filter((n) => `${n.title} ${n.body} ${(n.tags ?? []).join(' ')}`.toLowerCase().includes(q))
+        .filter((n) =>
+          `${n.title} ${n.body} ${(n.tags ?? []).join(' ')}`.toLowerCase().includes(q),
+        )
         .forEach((n) =>
           out.push({
             id: n.id,
             kind: 'My note',
             title: n.title,
             sub: `${n.folder} · ${(n.tags ?? []).join(', ')}`,
-            icon: 'create-outline',
-            color: colors.amber,
+            icon: PenSquare,
+            color: tokens.colors.accent,
             go: () => nav.navigate('NoteEditor', { noteId: n.id }),
-          })
+          }),
         );
     }
 
     if (filter === 'all') {
-      currentAffairs.filter((c) => `${c.title} ${c.summary} ${c.topic ?? ''} ${c.subject ?? ''}`.toLowerCase().includes(q)).forEach((c) =>
-        out.push({
-          id: c.id,
-          kind: 'Current affairs',
-          title: c.title,
-          sub: `${c.category} · ${c.date}`,
-          icon: 'newspaper-outline',
-          color: colors.success,
-          go: () => nav.navigate('CurrentAffairs'),
-        })
-      );
+      currentAffairs
+        .filter((c) =>
+          `${c.title} ${c.summary} ${c.topic ?? ''} ${c.subject ?? ''}`
+            .toLowerCase()
+            .includes(q),
+        )
+        .forEach((c) =>
+          out.push({
+            id: c.id,
+            kind: 'Current affairs',
+            title: c.title,
+            sub: `${c.category} · ${c.date}`,
+            icon: Newspaper,
+            color: tokens.colors.success,
+            go: () => nav.navigate('CurrentAffairs'),
+          }),
+        );
     }
 
     return out;
-  }, [query, filter, state.notes, colors, nav, resources, tests, currentAffairs]);
+  }, [query, filter, state.notes, tokens.colors, nav, resources, tests, currentAffairs]);
 
   return (
-    <Shell active="Search" title="Search" subtitle="One query across notes, books, PYQs, tests and current affairs">
+    <Shell
+      active="Search"
+      title="Search"
+      subtitle="One query across notes, books, PYQs, tests and current affairs"
+    >
       <View style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}>
-      <Field value={query} onChangeText={setQuery} placeholder="Search everything in Study Sakha…" icon="search-outline" returnKeyType="search" />
+        <SSDSSearchInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search everything in Study Sakha…"
+          returnKeyType="search"
+        />
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
-        {([
-          ['all', 'Everything'],
-          ['library', 'Library'],
-          ['pyq', 'PYQs'],
-          ['tests', 'Tests'],
-          ['notes', 'My notes'],
-        ] as const).map(([k, l]) => (
-          <Chip key={k} label={l} active={filter === k} onPress={() => setFilter(k)} />
-        ))}
-      </View>
-
-      {!query.trim() ? (
-        <View style={{ marginTop: 20, gap: 16 }}>
-          <Card>
-            <SectionHeader title="Popular searches" icon="trending-up-outline" />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {SUGGESTIONS.map((s) => (
-                <Chip key={s} label={s} onPress={() => setQuery(s)} />
-              ))}
-            </View>
-          </Card>
-
-          <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
-            <Card style={{ flex: 1 }}>
-              <SectionHeader title="Jump back in" icon="time-outline" />
-              <View style={{ gap: 12 }}>
-                {Object.entries(state.progress)
-                  .sort((a, b) => b[1].at - a[1].at)
-                  .slice(0, 4)
-                  .map(([id, v]) => {
-                    const r = resources.find((x) => x.id === id);
-                    if (!r) return null;
-                    return (
-                      <Pressable
-                        key={id}
-                        onPress={() => (r.type === 'book' ? nav.navigate('BookReader', { resourceId: id }) : nav.navigate('NoteEditor', { resourceId: id }))}
-                        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 11, opacity: pressed ? 0.7 : 1 })}
-                      >
-                        <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: colors.tint, alignItems: 'center', justifyContent: 'center' }}>
-                          <Ionicons name={r.type === 'book' ? 'book-outline' : 'document-text-outline'} size={17} color={colors.blue} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Txt size={13} weight="700" numberOfLines={1}>
-                            {v.title}
-                          </Txt>
-                          <Txt size={11.5} color={colors.textFaint}>
-                            {v.percent}% complete
-                          </Txt>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-              </View>
-            </Card>
-
-            <Card style={{ flex: 1 }}>
-              <SectionHeader title="Search tips" icon="bulb-outline" />
-              <View style={{ gap: 10 }}>
-                {[
-                  'Search a micro-topic such as “anti-defection” to pull both notes and PYQs.',
-                  'Type a year such as “2024” inside the PYQ bank to isolate that paper.',
-                  'Use the filter chips to restrict results to your own notes.',
-                ].map((t) => (
-                  <View key={t} style={{ flexDirection: 'row', gap: 9 }}>
-                    <Ionicons name="checkmark-circle-outline" size={16} color={colors.teal} style={{ marginTop: 2 }} />
-                    <Txt size={13} color={colors.textMuted} style={{ flex: 1 }}>
-                      {t}
-                    </Txt>
-                  </View>
-                ))}
-              </View>
-            </Card>
-          </View>
-        </View>
-      ) : hits.length ? (
-        <View style={{ marginTop: 18, gap: 10 }}>
-          <Txt size={12.5} weight="700" color={colors.textMuted}>
-            {hits.length} result{hits.length === 1 ? '' : 's'} for “{query.trim()}”
-          </Txt>
-          {hits.map((h, idx) => (
-            <Pressable key={`${h.kind}-${h.id}-${idx}`} onPress={h.go}>
-              {({ pressed }) => (
-                <Card style={{ opacity: pressed ? 0.85 : 1, padding: 14 }}>
-                  <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: `${h.color}1A`, alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name={h.icon} size={19} color={h.color} />
-                    </View>
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-                        <Tag label={h.kind} color={h.color} />
-                      </View>
-                      <Txt size={14} weight="700" numberOfLines={2}>
-                        {h.title}
-                      </Txt>
-                      <Txt size={11.5} color={colors.textMuted} numberOfLines={1}>
-                        {h.sub}
-                      </Txt>
-                    </View>
-                    <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
-                  </View>
-                </Card>
-              )}
-            </Pressable>
+        <SSDSRow wrap="wrap" gap={8} style={{ marginTop: 14 }}>
+          {([
+            ['all', 'Everything'],
+            ['library', 'Library'],
+            ['pyq', 'PYQs'],
+            ['tests', 'Tests'],
+            ['notes', 'My notes'],
+          ] as const).map(([k, l]) => (
+            <SSDSButton
+              key={k}
+              size="small"
+              variant={filter === k ? 'primary' : 'outline'}
+              onPress={() => setFilter(k)}
+            >
+              {l}
+            </SSDSButton>
           ))}
-        </View>
-      ) : (
-        <View style={{ marginTop: 10 }}>
-          <EmptyState
-            icon="search-outline"
-            title={`No matches for “${query.trim()}”`}
-            body="Try a shorter keyword, or ask Sakha AI — it can reason across your library even when the exact words do not match."
-            action="Ask Sakha AI"
-            onAction={() => nav.navigate('SakhaAI', { prompt: query.trim() })}
-          />
-        </View>
-      )}
+        </SSDSRow>
+
+        {!query.trim() ? (
+          <SSDSStack gap={16} style={{ marginTop: 20 }}>
+            <SSDSSurface variant="outlined" padding={16}>
+              <SSDSSectionHeader title="Popular searches" icon={TrendingUp} compact />
+              <SSDSRow wrap="wrap" gap={8}>
+                {SUGGESTIONS.map((s) => (
+                  <SSDSButton
+                    key={s}
+                    size="small"
+                    variant="outline"
+                    onPress={() => setQuery(s)}
+                  >
+                    {s}
+                  </SSDSButton>
+                ))}
+              </SSDSRow>
+            </SSDSSurface>
+
+            <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
+              <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+                <SSDSSectionHeader title="Jump back in" icon={Clock} compact />
+                <SSDSStack gap={12}>
+                  {Object.entries(state.progress)
+                    .sort((a, b) => b[1].at - a[1].at)
+                    .slice(0, 4)
+                    .map(([id, v]) => {
+                      const r = resources.find((x) => x.id === id);
+                      if (!r) return null;
+                      return (
+                        <Pressable
+                          key={id}
+                          onPress={() =>
+                            r.type === 'book'
+                              ? nav.navigate('BookReader', { resourceId: id })
+                              : nav.navigate('NoteEditor', { resourceId: id })
+                          }
+                          style={({ pressed }) => ({
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 11,
+                            opacity: pressed ? 0.7 : 1,
+                          })}
+                        >
+                          <View
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 11,
+                              backgroundColor: tokens.colors.primaryLight,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <SSDSIcon
+                              icon={r.type === 'book' ? BookOpen : FileText}
+                              size={17}
+                              color="primary"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <SSDSText variant="CardTitle" truncate>
+                              {v.title}
+                            </SSDSText>
+                            <SSDSText variant="Caption">{v.percent}% complete</SSDSText>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                </SSDSStack>
+              </SSDSSurface>
+
+              <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+                <SSDSSectionHeader title="Search tips" icon={Lightbulb} compact />
+                <SSDSStack gap={10}>
+                  {[
+                    'Search a micro-topic such as “anti-defection” to pull both notes and PYQs.',
+                    'Type a year such as “2024” inside the PYQ bank to isolate that paper.',
+                    'Use the filter chips to restrict results to your own notes.',
+                  ].map((t) => (
+                    <SSDSRow key={t} align="flex-start" gap={9}>
+                      <SSDSIcon
+                        icon={CheckCircle2}
+                        size={16}
+                        color="secondary"
+                        style={{ marginTop: 2 }}
+                      />
+                      <SSDSText variant="BodySecondary" style={{ flex: 1 }}>
+                        {t}
+                      </SSDSText>
+                    </SSDSRow>
+                  ))}
+                </SSDSStack>
+              </SSDSSurface>
+            </View>
+          </SSDSStack>
+        ) : hits.length ? (
+          <SSDSStack gap={10} style={{ marginTop: 18 }}>
+            <SSDSText variant="Caption" color="textSecondary">
+              {hits.length} result{hits.length === 1 ? '' : 's'} for “{query.trim()}”
+            </SSDSText>
+            {hits.map((h, idx) => (
+              <Pressable key={`${h.kind}-${h.id}-${idx}`} onPress={h.go}>
+                {({ pressed }) => (
+                  <SSDSSurface
+                    variant="outlined"
+                    padding={14}
+                    style={{ opacity: pressed ? 0.85 : 1 }}
+                  >
+                    <SSDSRow gap={12}>
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 12,
+                          backgroundColor: `${h.color}1A`,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <SSDSIcon icon={h.icon} size={19} color={h.color} />
+                      </View>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <SSDSRow gap={7}>
+                          <SSDSBadge variant="primary" size="sm">
+                            {h.kind}
+                          </SSDSBadge>
+                        </SSDSRow>
+                        <SSDSText variant="CardTitle" maxLines={2}>
+                          {h.title}
+                        </SSDSText>
+                        <SSDSText variant="Caption" truncate>
+                          {h.sub}
+                        </SSDSText>
+                      </View>
+                      <SSDSIcon icon={ChevronRight} size={17} color="textTertiary" />
+                    </SSDSRow>
+                  </SSDSSurface>
+                )}
+              </Pressable>
+            ))}
+          </SSDSStack>
+        ) : (
+          <View style={{ marginTop: 10 }}>
+            <SSDSEmptyState
+              icon={Search}
+              title={`No matches for “${query.trim()}”`}
+              description="Try a shorter keyword, or ask Sakha AI — it can reason across your library even when the exact words do not match."
+              primaryAction={{
+                label: 'Ask Sakha AI',
+                onPress: () => nav.navigate('SakhaAI', { prompt: query.trim() }),
+              }}
+            />
+          </View>
+        )}
       </View>
     </Shell>
   );

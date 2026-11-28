@@ -4,12 +4,12 @@ import { Platform, useColorScheme } from 'react-native';
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 export const brand = {
-  navy: '#243B80',
-  blue: '#4778F5',
-  teal: '#18B6A4',
-  amber: '#F5A524',
-  rose: '#F2555A',
-  violet: '#7C5CF0',
+  navy: '#2B4C7E',
+  blue: '#2B4C7E',
+  teal: '#2E6F6B',
+  amber: '#B87314',
+  rose: '#C63636',
+  violet: '#6C5CE7',
 };
 
 /**
@@ -19,89 +19,97 @@ export const brand = {
  */
 export const lightPalette = {
   ...brand,
-  bg: '#F2F2F7',
+  bg: '#F7F8FA',
   surface: '#FFFFFF',
-  surfaceAlt: '#F2F2F7',
-  text: '#1C1C1E',
-  textMuted: '#8E8E93',
-  textFaint: '#AEAEB2',
-  border: '#E5E5EA',
-  separator: '#C6C6C8',
+  surfaceAlt: '#EFF2F6',
+  text: '#111827',
+  textMuted: '#6B7280',
+  textFaint: '#9CA3AF',
+  border: '#E2E7EF',
+  separator: '#CBD4E1',
   overlay: 'rgba(0,0,0,0.4)',
-  tint: 'rgba(0,122,255,0.08)',
-  tealTint: 'rgba(90,200,250,0.12)',
-  blue: '#007AFF',
-  green: '#34C759',
-  orange: '#FF9500',
-  purple: '#AF52DE',
-  red: '#FF3B30',
-  teal: '#5AC8FA',
-  dark: '#1C1C1E',
-  success: '#34C759',
-  danger: '#FF3B30',
-  warning: '#FF9500',
+  tint: '#EBF1FA',
+  tealTint: '#E8F4F3',
+  primaryLight: '#EBF1FA',
+  blue: '#2B4C7E',
+  green: '#1E7E4E',
+  orange: '#B4690E',
+  purple: '#6C5CE7',
+  red: '#C63636',
+  teal: '#2E6F6B',
+  dark: '#111827',
+  success: '#1E7E4E',
+  danger: '#C63636',
+  warning: '#B4690E',
   shadow: '#000000',
-  brandPrimary: '#007AFF',
-  brandSecondary: '#34C759',
-  brandAccent: '#AF52DE',
-  surfaceBase: '#F2F2F7',
+  brandPrimary: '#2B4C7E',
+  brandSecondary: '#2E6F6B',
+  brandAccent: '#B87314',
+  surfaceBase: '#F7F8FA',
   surfaceRaised: '#FFFFFF',
-  surfaceSubtle: '#F2F2F7',
-  surfaceInteractive: '#E5E5EA',
-  textPrimary: '#1C1C1E',
-  textSecondary: '#8E8E93',
-  textTertiary: '#AEAEB2',
-  borderSubtle: '#E5E5EA',
-  borderStrong: '#D1D1D6',
-  info: '#007AFF',
-  focus: '#007AFF',
-  focusRing: 'rgba(0,122,255,0.25)',
-  selected: '#007AFF',
-  selectedSurface: 'rgba(0,122,255,0.08)',
+  surfaceSubtle: '#F9FAFC',
+  surfaceInteractive: '#E6EAF0',
+  textPrimary: '#111827',
+  textSecondary: '#4B5563',
+  textTertiary: '#6B7280',
+  borderSubtle: '#EEF1F6',
+  borderStrong: '#CBD4E1',
+  info: '#1F639B',
+  focus: '#2B4C7E',
+  focusRing: 'rgba(43,76,126,0.25)',
+  selected: '#2B4C7E',
+  selectedSurface: '#EBF1FA',
+  chartPrimary: '#2B4C7E',
+  chartSecondary: '#2E6F6B',
+  chartTertiary: '#B87314',
 };
 
 export const darkPalette: typeof lightPalette = {
   ...brand,
-  navy: '#5C7BD6',
-  bg: '#0C1220',
-  surface: '#141C2E',
-  surfaceAlt: '#1B2439',
-  text: '#EDF1F8',
-  textMuted: '#9AA6BC',
-  textFaint: '#6D7A91',
-  border: '#253049',
-  separator: '#3A4968',
+  navy: '#6B9CE8',
+  bg: '#0D1117',
+  surface: '#161C26',
+  surfaceAlt: '#1B222E',
+  text: '#F1F5F9',
+  textMuted: '#8592A6',
+  textFaint: '#68758A',
+  border: '#263040',
+  separator: '#38465C',
   overlay: 'rgba(0,0,0,0.65)',
-  tint: 'rgba(111,149,255,0.15)',
-  tealTint: 'rgba(90,200,250,0.18)',
-  blue: '#6F95FF',
-  green: '#2BD69B',
-  orange: '#FFB84D',
-  purple: '#9A82FF',
-  red: '#FF6B70',
-  teal: '#5AC8FA',
-  dark: '#EDF1F8',
-  success: '#2BD69B',
-  danger: '#FF6B70',
-  warning: '#FFB84D',
+  tint: '#1B283D',
+  tealTint: '#172E2C',
+  primaryLight: '#1B283D',
+  blue: '#6B9CE8',
+  green: '#3FB97C',
+  orange: '#E5A13E',
+  purple: '#9B8CFF',
+  red: '#E86161',
+  teal: '#4FB0A8',
+  dark: '#F1F5F9',
+  success: '#3FB97C',
+  danger: '#E86161',
+  warning: '#E5A13E',
   shadow: '#000000',
-  brandPrimary: '#6F95FF',
-  brandSecondary: '#2BD69B',
-  brandAccent: '#9A82FF',
-  surfaceBase: '#0C1220',
-  surfaceRaised: '#141C2E',
-  surfaceSubtle: '#1B2439',
-  surfaceInteractive: '#202C48',
-  textPrimary: '#EDF1F8',
-  textSecondary: '#9AA6BC',
-  textTertiary: '#6D7A91',
-  borderSubtle: '#253049',
-  borderStrong: '#3A4968',
-  info: '#6F95FF',
-  focus: '#6F95FF',
-  focusRing: 'rgba(111,149,255,0.35)',
-  selected: '#6F95FF',
-  selectedSurface: 'rgba(111,149,255,0.15)',
+  brandPrimary: '#6B9CE8',
+  brandSecondary: '#4FB0A8',
+  brandAccent: '#E09F3E',
+  surfaceBase: '#0D1117',
+  surfaceRaised: '#1F2735',
+  surfaceSubtle: '#131820',
+  surfaceInteractive: '#222B3A',
+  textPrimary: '#F1F5F9',
+  textSecondary: '#B0BAC9',
+  textTertiary: '#68758A',
+  borderSubtle: '#1E2634',
+  borderStrong: '#38465C',
+  info: '#5AA4E8',
+  focus: '#6B9CE8',
+  focusRing: 'rgba(107,156,232,0.35)',
+  selected: '#6B9CE8',
+  selectedSurface: '#1B283D',
+  chartPrimary: '#6B9CE8',
+  chartSecondary: '#4FB0A8',
+  chartTertiary: '#E09F3E',
 };
 
 export type Palette = typeof lightPalette;
@@ -210,7 +218,7 @@ const ThemeCtx = createContext<Ctx>({
 });
 
 const accentValues: Record<string, string> = {
-  indigo: '#4f46e5',
+  indigo: '#2B4C7E',
   amber: '#d97706',
   emerald: '#059669',
   rose: '#e11d48',
@@ -263,17 +271,22 @@ export function ThemeProvider({
   );
   const value = useMemo<Ctx>(() => {
       const base = scheme === 'dark' ? darkPalette : lightPalette;
-      const accent = /^#[0-9a-f]{6}$/i.test(customAccentHex ?? '')
+      const hasCustomHex = /^#[0-9a-f]{6}$/i.test(customAccentHex ?? '');
+      const hasCustomPreset = Boolean(accentColor && accentColor !== 'indigo' && accentValues[accentColor]);
+      const accent = hasCustomHex
         ? customAccentHex!
-        : accentValues[accentColor] ?? accentValues.indigo;
+        : hasCustomPreset
+          ? accentValues[accentColor]
+          : base.brandPrimary;
       const background = backgroundValues[backgroundId]?.[scheme] ?? base.bg;
       const opacity = Math.min(1, Math.max(0.1, backgroundOpacity / 100));
       const overlay = Math.min(0.85, Math.max(0, overlayIntensity / 100));
       const blendedBackground = backgroundId === 'none'
         ? base.bg
         : scheme === 'dark'
-          ? `rgba(12,18,32,${1 - opacity * (1 - overlay)})`
-          : `rgba(242,242,247,${1 - opacity * (1 - overlay)})`;
+          ? `rgba(13,17,23,${1 - opacity * (1 - overlay)})`
+          : `rgba(247,248,250,${1 - opacity * (1 - overlay)})`;
+      const isDefaultBrand = !hasCustomHex && !hasCustomPreset;
       const colors = {
         ...base,
         bg: blendedBackground,
@@ -281,9 +294,11 @@ export function ThemeProvider({
         brandPrimary: accent,
         focus: accent,
         selected: accent,
-        info: accent,
-        focusRing: `${accent}55`,
-        selectedSurface: `${accent}18`,
+        chartPrimary: accent,
+        focusRing: isDefaultBrand ? base.focusRing : `${accent}55`,
+        selectedSurface: isDefaultBrand ? base.selectedSurface : `${accent}18`,
+        tint: isDefaultBrand ? base.tint : `${accent}18`,
+        primaryLight: isDefaultBrand ? base.primaryLight : `${accent}18`,
         border: highContrast ? (scheme === 'dark' ? '#94a3b8' : '#334155') : base.border,
       } as Palette;
       return {

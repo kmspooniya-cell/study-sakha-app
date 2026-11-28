@@ -4250,35 +4250,20 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
                   },
                 ]}
               >
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={{ fontSize: isSm ? 20 : 18, fontWeight: '700', color: theme.textPrimary }}>
-                      {MONTH_NAMES[currentMonth]} {currentYear}
-                    </Text>
-                    <View style={{ paddingHorizontal: 10, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.bgSubtle }}>
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textSecondary }}>
-                        {listMonthData.totalOccurrences} {listMonthData.totalOccurrences === 1 ? 'plan' : 'plans'}
-                      </Text>
-                    </View>
-                  </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: isSm ? 12 : 8 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: isSm ? 20 : 17,
+                      fontWeight: '700',
+                      color: theme.textPrimary,
+                      flexShrink: 1,
+                    }}
+                  >
+                    {MONTH_NAMES[currentMonth]} {currentYear}
+                  </Text>
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={() => openNewPlanFormForDate(selectedDate, 'task')}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        paddingHorizontal: 14,
-                        paddingVertical: 8,
-                        borderRadius: 12,
-                        backgroundColor: theme.blue600,
-                      }}
-                    >
-                      <PlusIcon color="#FFFFFF" size={16} />
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#FFFFFF' }}>Add Plan</Text>
-                    </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: isSm ? 8 : 6, flexShrink: 0 }}>
                     <TouchableOpacity
                       onPress={() => stepMonth(-1)}
                       accessibilityLabel="Previous month"
@@ -4293,6 +4278,20 @@ export default function StudyPlannerScreen({ route }: { route?: AppRoute<'StudyP
                     >
                       <ChevronRightIcon color={theme.textSecondary} size={16} />
                     </TouchableOpacity>
+                  </View>
+
+                  <View
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      borderRadius: 999,
+                      backgroundColor: theme.bgSubtle,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '600', color: theme.textSecondary }}>
+                      {listMonthData.totalOccurrences} {listMonthData.totalOccurrences === 1 ? 'plan' : 'plans'}
+                    </Text>
                   </View>
                 </View>
 

@@ -2,6 +2,39 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
+jest.mock('react-native-reanimated', () => {
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: { View },
+    useSharedValue: (init: number | boolean) => ({ value: init }),
+    useAnimatedStyle: (fn: () => Record<string, unknown>) => fn(),
+    withSpring: (val: number) => val,
+    withTiming: (val: number) => val,
+    interpolate: (_val: number, _input: number[], output: number[]) => output[0],
+    runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  };
+});
+
+jest.mock('react-native-gesture-handler', () => {
+  const chain = {
+    minDistance: () => chain,
+    onStart: () => chain,
+    onUpdate: () => chain,
+    onEnd: () => chain,
+    onFinalize: () => chain,
+  };
+  return {
+    Gesture: { Pan: () => chain },
+    GestureDetector: ({ children }: { children: React.ReactNode }) => children,
+  };
+});
+
 import { ActiveSessionBar } from '../components/ActiveSessionBar';
 
 let mockFocusContextValue: any = null;
@@ -125,6 +158,7 @@ describe('Four Requested Changes Verification', () => {
       );
 
       expect(view.getByTestId('active-session-bar')).toBeTruthy();
+      fireEvent.press(view.getByTestId('focus-bubble-collapsed'));
       expect(view.getByLabelText('Back to Focus')).toBeTruthy();
       expect(view.getByLabelText('Pause active focus session')).toBeTruthy();
       expect(view.queryByLabelText('Return to Hall')).toBeNull();

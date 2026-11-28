@@ -1,5 +1,86 @@
 # Testing Status — Study Sakha
 
+## 2026-11-28 — Null persisted collection web crash
+- `node_modules/.bin/jest --runInBand test/store.reducer.test.tsx --forceExit`: **PASS** — 1 suite, 8 tests.
+- `EXPO_NO_TELEMETRY=1 node_modules/.bin/expo export --platform web`: **PASS** — `dist` exported successfully.
+- `node_modules/.bin/tsc --noEmit --pretty false`: **FAIL baseline** — unrelated existing errors in SSDS bridge/components and several tests; no reported error in the changed store/test code.
+- Browser console stack and visual preview: **NOT VERIFIED** — Playwright package exists, but no Chromium executable/cache is available in Codespace.
+
+## SSDS Phase 6, Batch 3 Screen Migration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/BookReaderScreen.tsx screens/NoteEditorScreen.tsx screens/TaskPerformanceScreen.tsx screens/TestResultScreen.tsx`):** **PASS** (0 errors, 0 warnings).
+- **Batch 1–3, Statistics, Store/Sync & SSDS Phase 1–5 Jest Suites:** **PASS** — **12 suites, 37 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Study Planner List View Month Navigation Card UI Update — 2026-11-28
+- **Study Planner Jest Suites (`test/studyPlannerFilters.test.tsx`, `test/plannerRecovery.test.tsx`):** **PASS** — **2 suites, 15 tests passed**.
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/StudyPlannerScreen.tsx test/studyPlannerFilters.test.tsx`):** 0 errors/warnings in `test/studyPlannerFilters.test.tsx` and modified lines of `screens/StudyPlannerScreen.tsx` (24 pre-existing errors and 14 pre-existing warnings elsewhere in `screens/StudyPlannerScreen.tsx`).
+- **Full App TypeScript (`pnpm run lint`):** **TERMINATED** (exit 143 in container).
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 6, Batch 2 Screen Migration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/SearchScreen.tsx screens/CurrentAffairsScreen.tsx screens/PYQScreen.tsx screens/TestsScreen.tsx`):** **PASS** (0 errors, 0 warnings).
+- **Batch 1–2, Auth, Navigation & SSDS Phase 1–5 Jest Suites:** **PASS** — **10 suites, 32 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 6, Batch 1 Screen Migration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache screens/MoreScreen.tsx screens/SignInScreen.tsx screens/SignUpScreen.tsx`):** **PASS** (0 errors, 0 warnings).
+- **Batch 1, Auth, Navigation & SSDS Phase 1–5 Jest Suites:** **PASS** — **10 suites, 34 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Smart Draggable Floating Focus Bubble — 2026-11-28
+- **Focus Bubble & Bar Jest Suites (`test/focusFloatingBubble.test.tsx`, `test/globalFocusBar.test.tsx`, `test/groupChatAndFocusDecoupling.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/focusSettingsSheet.test.tsx`):** **PASS** (verified after final edits).
+- **Expo ESLint (`lib/focusBubblePosition.ts`, `components/ActiveSessionBar.tsx`, `test/focusFloatingBubble.test.tsx`):** **PASS** (0 errors).
+- **Scoped TypeScript (`tsc --noEmit --pretty false` filtered to modified/added files):** **PASS** (0 errors).
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Focus Centre Settings Popup Tabbed Redesign — 2026-11-28
+- **Focus Jest Suites (`test/focusSettingsSheet.test.tsx`, `test/focusUnifiedRefactor.test.tsx`, `test/focusUiSurface.test.tsx`, `test/unifiedStudyDataFlow.test.tsx`):** **PASS** — **4 suites, 23 tests passed**.
+- **Expo ESLint (`components/FocusSettingsSheet.tsx`, `components/GeminiFocusTimer.tsx`, `test/focusSettingsSheet.test.tsx`):** **PASS** (0 errors).
+- **Scoped TypeScript (`tsc --noEmit --pretty false` filtered to modified/added files):** **PASS** (0 errors in `components/FocusSettingsSheet.tsx`, `components/GeminiFocusTimer.tsx`, `test/focusSettingsSheet.test.tsx`).
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 5: Patterns & Screen Templates Integration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache lib/ssds.ts`):** **PASS** (0 errors, 0 warnings).
+- **Phase 1–5 & Theme/Store/Sync Jest Suites (`test/ssdsPhase5PatternsTemplates.test.tsx`, `test/ssdsPhase4Components.test.tsx`, `test/ssdsInteractiveComponents.test.tsx`, `test/ssdsFoundationComponents.test.tsx`, `test/ssdsThemeBridge.test.tsx`, `test/theme.test.tsx`, `test/store.reducer.test.tsx`, `test/store.persistence.test.tsx`, `test/accountSync.test.tsx`):** **PASS** — **9 suites, 28 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 4: Layout, Navigation & Data Display Integration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache lib/ssds.ts`):** **PASS** (0 errors, 0 warnings).
+- **Phase 1–4 & Theme/Store/Sync Jest Suites (`test/ssdsPhase4Components.test.tsx`, `test/ssdsInteractiveComponents.test.tsx`, `test/ssdsFoundationComponents.test.tsx`, `test/ssdsThemeBridge.test.tsx`, `test/theme.test.tsx`, `test/store.reducer.test.tsx`, `test/store.persistence.test.tsx`, `test/accountSync.test.tsx`):** **PASS** — **8 suites, 26 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 3: Interactive Components Integration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache lib/ssds.ts screens/AppGuideScreen.tsx`):** **PASS** (0 errors, 0 warnings).
+- **Phase 1–3 & Theme/Store/Sync Jest Suites (`test/ssdsInteractiveComponents.test.tsx`, `test/ssdsFoundationComponents.test.tsx`, `test/ssdsThemeBridge.test.tsx`, `test/theme.test.tsx`, `test/store.reducer.test.tsx`, `test/store.persistence.test.tsx`, `test/accountSync.test.tsx`):** **PASS** — **7 suites, 25 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 2: Foundation Components Integration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec eslint --no-cache lib/ssds.ts screens/AppGuideScreen.tsx`):** **PASS** (0 errors, 0 warnings).
+- **Phase 2 & Theme/Store/Sync Jest Suites (`test/ssdsFoundationComponents.test.tsx`, `test/ssdsThemeBridge.test.tsx`, `test/theme.test.tsx`, `test/store.reducer.test.tsx`, `test/store.persistence.test.tsx`, `test/accountSync.test.tsx`):** **PASS** — **6 suites, 24 tests passed**.
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## Authoritative Brand Palette Alignment — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **Scoped Application TypeScript (`tsc --noEmit --pretty false` filtered to scoped files):** **PASS** (0 errors in `lib/theme.tsx`, `lib/ssdsThemeBridge.tsx`, `lib/store.tsx`, `screens/DashboardScreen.tsx`, `screens/SettingsScreen.tsx`, `components/Charts.tsx`, `test/theme.test.tsx`).
+- **Expo ESLint (`lib/theme.tsx`, `lib/ssdsThemeBridge.tsx`, `components/Charts.tsx`, `test/theme.test.tsx`, `test/ssdsThemeBridge.test.tsx`):** **PASS** (0 errors, 6 pre-existing warnings).
+- **Theme/Store/Sync/Bridge/Dashboard/Settings Jest Suites:** **PASS** — **7 suites, 26 tests passed** (`theme`, `ssdsThemeBridge`, `store.reducer`, `store.persistence`, `accountSync`, `dashboardHomepageRedesign`, `settingsScreen`).
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
+## SSDS Phase 1 Theme Infrastructure Integration — 2026-11-28
+- **SSDS Package TypeScript (`pnpm exec tsc --noEmit -p study-sakha-design-system-native/tsconfig.json`):** **PASS** (0 errors).
+- **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint App.tsx lib/ssdsThemeBridge.tsx study-sakha-design-system-native/src/theme/ThemeProvider.tsx test/ssdsThemeBridge.test.tsx`):** **PASS** (0 errors, 1 pre-existing warning in `App.tsx`).
+- **Theme Bridge Jest Suite (`test/ssdsThemeBridge.test.tsx`):** **PASS** — **1 suite, 5 tests passed**.
+- **Existing Theme/Store/Sync Jest Suites (`test/theme.test.tsx`, `test/store.reducer.test.tsx`, `test/store.persistence.test.tsx`, `test/accountSync.test.tsx`):** **PASS** — **4 suites, 16 tests passed**.
+- **Full App TypeScript (`pnpm run lint`):** **TERMINATED** (exit 143 in container).
+- **Physical Android Device Runtime:** **NOT VERIFIED** (no Android SDK or connected device/emulator in Codespace).
+
 ## Homepage UI Replacement — 2026-11-28
 - **Focused Jest Suites (`test/dashboardHomepageRedesign.test.tsx`, `test/navigationLayoutFixes.test.tsx`, `test/drawerSettingsNavigation.test.tsx`, `test/navigationBack.test.tsx`):** **PASS** — **4 suites, 21 tests passed**.
 - **Expo ESLint (`EXPO_NO_TELEMETRY=1 pnpm exec expo lint`):** **PASS** (0 errors, 5 pre-existing warnings in `StudySakhaAlarmModule.tsx`).

@@ -26,7 +26,7 @@ import {
   type NormalizedFocusSession,
 } from '../lib/statistics';
 import { getUserScopedStorageKey, useStore, type State } from '../lib/store';
-import { useTheme } from '../lib/theme';
+import { useSSDSTheme } from '../lib/ssds';
 import Svg, {
   Circle,
   Path,
@@ -208,33 +208,36 @@ const SUBJECT_COLORS: Record<string, string> = {
 const getSubjectColor = (subject: string): string => SUBJECT_COLORS[subject] || '#0EA5E9';
 
 /** Exact Tailwind-matched Light & Dark color tokens from the original web UI */
-const getThemeColors = (dark: boolean, colors: ReturnType<typeof useTheme>['colors']) => ({
-  bgPage: colors.bg,
+const getThemeColors = (
+  dark: boolean,
+  colors: ReturnType<typeof useSSDSTheme>['tokens']['colors'],
+) => ({
+  bgPage: colors.background,
   bgHeader: colors.surface,
   bgNav: colors.surface,
-  bgCard: colors.surfaceRaised,
-  bgSubtle: colors.surfaceSubtle,
-  bgSubtleStrong: colors.surfaceAlt,
-  bgPill: colors.surfaceInteractive,
-  bgTrack: colors.surfaceInteractive,
-  bgTrackAlt: colors.surfaceAlt,
-  bgButtonGhost: colors.surfaceAlt,
+  bgCard: colors.surfaceElevated,
+  bgSubtle: colors.surfaceSecondary,
+  bgSubtleStrong: colors.surfaceTertiary,
+  bgPill: colors.surfaceTertiary,
+  bgTrack: colors.surfaceTertiary,
+  bgTrackAlt: colors.surfaceSecondary,
+  bgButtonGhost: colors.surfaceSecondary,
   borderCard: colors.border,
   borderSubtle: colors.borderSubtle,
   borderHeader: colors.border,
   textPrimary: colors.textPrimary,
   textHeading: colors.textPrimary,
   textSecondary: colors.textSecondary,
-  textBody: colors.text,
+  textBody: colors.textPrimary,
   textMuted: colors.textMuted,
-  tealText: colors.teal,
-  tealAccent: colors.teal,
+  tealText: colors.secondary,
+  tealAccent: colors.secondary,
   skyText: colors.info,
   emeraldText: colors.success,
   amberText: colors.warning,
   roseText: colors.danger,
-  violetText: colors.purple,
-  cyanText: colors.teal,
+  violetText: colors.chartQuaternary,
+  cyanText: colors.secondary,
 });
 
 /* ============================================================================
@@ -1731,8 +1734,8 @@ const AnalyticsCard: React.FC<AnalyticsCardProps> = ({
   style,
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
-  const { colors } = useTheme();
-  const c = getThemeColors(dark, colors);
+  const { tokens } = useSSDSTheme();
+  const c = getThemeColors(dark, tokens.colors);
 
   const toneStyles: Record<string, { bg: string; fg: string }> = {
     teal: { bg: dark ? 'rgba(20,184,166,0.15)' : '#F0FDFA', fg: dark ? '#2DD4BF' : '#0F766E' },
@@ -1843,11 +1846,12 @@ function StudySakhaStatisticsScreen() {
   const isLg = screenWidth >= 1024;
   const navigation = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
-  const { scheme, colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const historyKey = getUserScopedStorageKey(HISTORY_KEY, state.user?.id);
 
   // Theme & Dataset Switcher States
-  const dark = scheme === 'dark';
+  const dark = tokens.isDark;
+  const colors = tokens.colors;
   const [datasetMode, setDatasetMode] = useState<DatasetMode>('active');
   const [datasetSnapshot, setDatasetSnapshot] = useState<RawDataset | null>(null);
   const [sessions, setSessions] = useState<NormalizedFocusSession[]>([]);

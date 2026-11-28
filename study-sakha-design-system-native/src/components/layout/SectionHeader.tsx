@@ -11,7 +11,6 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { Text } from '../foundation/Text';
 import { Icon } from '../foundation/Icon';
 import { Button } from '../buttons/Button';
-import { IconButton } from '../buttons/IconButton';
 
 export interface SectionHeaderProps {
   title: string;
@@ -73,18 +72,24 @@ export function SectionHeader({
         {collapsible ? (
           <Pressable
             onPress={onToggleCollapse}
-            style={styles.flex}
+            style={[styles.flex, styles.collapsibleTrigger]}
             accessibilityRole="button"
+            accessibilityLabel={title}
             accessibilityState={{ expanded: !collapsed }}
           >
-            {leftContent}
+            <View style={styles.flex}>{leftContent}</View>
+            <Icon
+              icon={collapsed ? ChevronRight : ChevronDown}
+              size="sm"
+              color="textSecondary"
+            />
           </Pressable>
         ) : (
           <View style={styles.flex}>{leftContent}</View>
         )}
 
-        <View style={styles.rightRow}>
-          {!!actionLabel && (
+        {!!actionLabel && (
+          <View style={styles.rightRow}>
             <Button
               variant="text"
               size="small"
@@ -93,16 +98,8 @@ export function SectionHeader({
             >
               {actionLabel}
             </Button>
-          )}
-          {collapsible && (
-            <IconButton
-              icon={collapsed ? ChevronRight : ChevronDown}
-              size="small"
-              label={collapsed ? 'Expand section' : 'Collapse section'}
-              onPress={onToggleCollapse}
-            />
-          )}
-        </View>
+          </View>
+        )}
       </View>
 
       {!!description && (
@@ -124,6 +121,13 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     minWidth: 0,
+  },
+  collapsibleTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    minHeight: 44,
   },
   leftRow: {
     flexDirection: 'row',

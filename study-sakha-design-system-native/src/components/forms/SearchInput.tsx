@@ -9,6 +9,7 @@ import {
   StyleProp,
   StyleSheet,
   TextInput as RNTextInput,
+  TextInputProps as RNTextInputProps,
   View,
   ViewStyle,
 } from 'react-native';
@@ -16,7 +17,8 @@ import { Search, X } from 'lucide-react-native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Icon } from '../foundation/Icon';
 
-export interface SearchInputProps {
+export interface SearchInputProps
+  extends Omit<RNTextInputProps, 'style' | 'value' | 'onChangeText'> {
   value: string;
   onChangeText?: (value: string) => void;
   placeholder?: string;
@@ -30,6 +32,7 @@ export function SearchInput({
   placeholder = 'Search notes, tests, PYQs...',
   onClear,
   style,
+  ...rest
 }: SearchInputProps) {
   const { tokens } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -48,13 +51,21 @@ export function SearchInput({
     >
       <Icon icon={Search} size={16} color={focused ? 'primary' : 'textTertiary'} />
       <RNTextInput
+        {...rest}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={tokens.colors.textPlaceholder}
-        returnKeyType="search"
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        returnKeyType={rest.returnKeyType ?? 'search'}
+        accessibilityRole={rest.accessibilityRole ?? 'search'}
+        onFocus={(e) => {
+          setFocused(true);
+          rest.onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          rest.onBlur?.(e);
+        }}
         style={[
           styles.input,
           {

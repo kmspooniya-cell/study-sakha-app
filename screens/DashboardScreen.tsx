@@ -62,73 +62,41 @@ interface DashboardPalette {
   neutralPillBg: string;
 }
 
-const LIGHT_PALETTE: DashboardPalette = {
-  canvas: '#F6F8FB',
-  surface: '#FFFFFF',
-  hairline: '#E6ECF2',
-  inkPrimary: '#1A2233',
-  inkSecondary: '#5E6A7D',
-  inkMuted: '#7D899C',
-  sakha: '#19C5B5',
-  sakhaDeep: '#11A89A',
-  dialTick: '#CBD5E1',
-  dialTrack: '#E3E8F0',
-  studiedIconBg: '#EEF2FF',
-  studiedIconColor: '#5B6BE1',
-  streakIconBg: '#FFF6E5',
-  streakIconColor: '#F59E0B',
-  sky: '#29A8E8',
-  skySoft: '#EBF7FF',
-  skyPillText: '#0284C7',
-  rose: '#EE5A70',
-  roseSoft: '#FFF0F2',
-  roseActiveSurface: '#FFF5F6',
-  roseActiveBorder: 'rgba(238, 90, 112, 0.55)',
-  roseStatusText: '#D93D57',
-  violet: '#7C5CFA',
-  violetSoft: '#F3EEFF',
-  violetPillText: '#6D4AE8',
-  amber: '#F59E0B',
-  amberSoft: '#FFF6E5',
-  amberActiveSurface: '#FFFBF2',
-  amberActiveBorder: 'rgba(245, 158, 11, 0.55)',
-  amberStatusText: '#C27803',
-  neutralPillBg: '#F1F5F9',
-};
-
-const DARK_PALETTE: DashboardPalette = {
-  canvas: '#12101D',
-  surface: '#1C182D',
-  hairline: '#2E2845',
-  inkPrimary: '#F4F6FA',
-  inkSecondary: '#9D97B8',
-  inkMuted: '#928CAE',
-  sakha: '#19C5B5',
-  sakhaDeep: '#19C5B5',
-  dialTick: '#3A3257',
-  dialTrack: '#2A2342',
-  studiedIconBg: 'rgba(99, 102, 241, 0.20)',
-  studiedIconColor: '#93A3FF',
-  streakIconBg: 'rgba(245, 158, 11, 0.20)',
-  streakIconColor: '#F59E0B',
-  sky: '#29A8E8',
-  skySoft: 'rgba(41, 168, 232, 0.15)',
-  skyPillText: '#7DD3FC',
-  rose: '#FB7185',
-  roseSoft: 'rgba(238, 90, 112, 0.15)',
-  roseActiveSurface: 'rgba(238, 90, 112, 0.12)',
-  roseActiveBorder: 'rgba(238, 90, 112, 0.55)',
-  roseStatusText: '#FDA4AF',
-  violet: '#A78BFA',
-  violetSoft: 'rgba(124, 92, 250, 0.18)',
-  violetPillText: '#C4B5FD',
-  amber: '#FBBF24',
-  amberSoft: 'rgba(245, 158, 11, 0.18)',
-  amberActiveSurface: 'rgba(245, 158, 11, 0.10)',
-  amberActiveBorder: 'rgba(245, 158, 11, 0.55)',
-  amberStatusText: '#FCD34D',
-  neutralPillBg: '#27213E',
-};
+function buildDashboardPalette(colors: ReturnType<typeof useTheme>['colors'], isDark: boolean): DashboardPalette {
+  return {
+    canvas: colors.bg,
+    surface: colors.surface,
+    hairline: colors.border,
+    inkPrimary: colors.textPrimary,
+    inkSecondary: colors.textSecondary,
+    inkMuted: colors.textMuted,
+    sakha: colors.brandSecondary,
+    sakhaDeep: colors.brandPrimary,
+    dialTick: colors.borderStrong,
+    dialTrack: colors.border,
+    studiedIconBg: colors.primaryLight,
+    studiedIconColor: colors.brandPrimary,
+    streakIconBg: isDark ? 'rgba(224, 159, 62, 0.18)' : '#FDF4E7',
+    streakIconColor: colors.brandAccent,
+    sky: colors.info,
+    skySoft: isDark ? '#142638' : '#EBF4FC',
+    skyPillText: colors.info,
+    rose: colors.danger,
+    roseSoft: isDark ? '#2E1618' : '#FDECEC',
+    roseActiveSurface: isDark ? 'rgba(232, 97, 97, 0.12)' : '#FFF5F6',
+    roseActiveBorder: isDark ? 'rgba(232, 97, 97, 0.55)' : 'rgba(198, 54, 54, 0.45)',
+    roseStatusText: colors.danger,
+    violet: colors.brandPrimary,
+    violetSoft: colors.primaryLight,
+    violetPillText: colors.brandPrimary,
+    amber: colors.warning,
+    amberSoft: isDark ? '#2D2212' : '#FEF6E7',
+    amberActiveSurface: isDark ? 'rgba(229, 161, 62, 0.10)' : '#FFFBF2',
+    amberActiveBorder: isDark ? 'rgba(229, 161, 62, 0.55)' : 'rgba(180, 105, 14, 0.45)',
+    amberStatusText: colors.warning,
+    neutralPillBg: colors.surfaceAlt,
+  };
+}
 
 const MONO_FONT = Platform.select({
   ios: 'Menlo',
@@ -311,7 +279,7 @@ const GoalDial: React.FC<GoalDialProps> = ({ percent, isLive, palette, onPress }
  * ============================================================================ */
 
 export default function DashboardScreen() {
-  const { scheme } = useTheme();
+  const { scheme, colors } = useTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, streak, todayMinutes } = useStore();
   const focusSession = useOptionalFocusSession();
@@ -320,7 +288,7 @@ export default function DashboardScreen() {
   const { width } = useWindowDimensions();
 
   const isDark = scheme === 'dark';
-  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+  const palette = useMemo(() => buildDashboardPalette(colors, isDark), [colors, isDark]);
   const isCompactWidth = width < 360;
   const horizontalPad = isCompactWidth ? 16 : 20;
 

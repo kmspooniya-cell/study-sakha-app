@@ -1,20 +1,40 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
+import {
+  Bookmark,
+  ChevronDown,
+  ExternalLink,
+  Newspaper,
+  Sparkles,
+  Zap,
+} from 'lucide-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
-import { Button, Card, Chip, EmptyState, Field, Tag, Txt } from '../components/ui';
+import {
+  SSDSBadge,
+  SSDSButton,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSearchInput,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
 import { EXAMS, getCurrentAffairs } from '../lib/data';
 import { useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 import { ExamId } from '../lib/types';
 
 export default function CurrentAffairsScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const { state, dispatch } = useStore();
-  const currentAffairs = useMemo(() => getCurrentAffairs(state.managedContent), [state.managedContent]);
+  const currentAffairs = useMemo(
+    () => getCurrentAffairs(state.managedContent),
+    [state.managedContent],
+  );
   const { isMobile } = useLayout();
   const [category, setCategory] = useState('all');
   const [exam, setExam] = useState<ExamId | 'all'>('all');
@@ -23,70 +43,136 @@ export default function CurrentAffairsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    },
+    [],
+  );
 
-  const categories = useMemo(() => Array.from(new Set(currentAffairs.map((c) => c.category))), [currentAffairs]);
+  const categories = useMemo(
+    () => Array.from(new Set(currentAffairs.map((c) => c.category))),
+    [currentAffairs],
+  );
 
   const data = useMemo(() => {
     let list = currentAffairs;
     if (category !== 'all') list = list.filter((c) => c.category === category);
     if (exam !== 'all') list = list.filter((c) => (c.exams ?? []).includes(exam));
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((c) => `${c.title} ${c.summary} ${(c.points ?? []).join(' ')}`.toLowerCase().includes(q));
+    if (q) {
+      list = list.filter((c) =>
+        `${c.title} ${c.summary} ${(c.points ?? []).join(' ')}`.toLowerCase().includes(q),
+      );
+    }
     return list;
   }, [currentAffairs, category, exam, query]);
 
   const header = (
-    <View style={{ gap: 14, marginBottom: 8 }}>
-      <Card style={{ gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: colors.tealTint, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="newspaper-outline" size={20} color={colors.teal} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Txt size={14.5} weight="800">
-              Daily digest · {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}
-            </Txt>
-            <Txt size={12.5} color={colors.textMuted}>
-              {currentAffairs.length} curated items · prelims-ready bullets · exam tagging
-            </Txt>
-          </View>
-        </View>
-        <Button
-          label="Take today's current affairs quiz"
-          icon="flash-outline"
-          variant="soft"
-          full
-          onPress={() => nav.navigate('TestPlayer', { testId: 't4' })}
-        />
-      </Card>
+    <SSDSStack gap={14} style={{ marginBottom: 8 }}>
+      <SSDSSurface variant="outlined" padding={16}>
+        <SSDSStack gap={10}>
+          <SSDSRow gap={10}>
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 13,
+                backgroundColor: tokens.colors.secondaryLight,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <SSDSIcon icon={Newspaper} size={20} color="secondary" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <SSDSText variant="CardTitle">
+                Daily digest ·{' '}
+                {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}
+              </SSDSText>
+              <SSDSText variant="BodySecondary">
+                {currentAffairs.length} curated items · prelims-ready bullets · exam tagging
+              </SSDSText>
+            </View>
+          </SSDSRow>
+          <SSDSButton
+            variant="secondary"
+            leadingIcon={Zap}
+            fullWidth
+            onPress={() => nav.navigate('TestPlayer', { testId: 't4' })}
+          >
+            Take today&apos;s current affairs quiz
+          </SSDSButton>
+        </SSDSStack>
+      </SSDSSurface>
 
-      <Field value={query} onChangeText={setQuery} placeholder="Search current affairs…" icon="search-outline" returnKeyType="search" />
+      <SSDSSearchInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search current affairs…"
+        returnKeyType="search"
+      />
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="All topics" active={category === 'all'} onPress={() => setCategory('all')} />
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={category === 'all' ? 'primary' : 'outline'}
+          onPress={() => setCategory('all')}
+        >
+          All topics
+        </SSDSButton>
         {categories.map((c) => (
-          <Chip key={c} label={c} active={category === c} onPress={() => setCategory(c)} />
+          <SSDSButton
+            key={c}
+            size="small"
+            variant={category === c ? 'primary' : 'outline'}
+            onPress={() => setCategory(c)}
+          >
+            {c}
+          </SSDSButton>
         ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="All exams" active={exam === 'all'} onPress={() => setExam('all')} />
+      </SSDSRow>
+
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={exam === 'all' ? 'primary' : 'outline'}
+          onPress={() => setExam('all')}
+        >
+          All exams
+        </SSDSButton>
         {EXAMS.map((e) => (
-          <Chip key={e.id} label={e.short} tone={e.color} active={exam === e.id} onPress={() => setExam(e.id)} />
+          <SSDSButton
+            key={e.id}
+            size="small"
+            variant={exam === e.id ? 'primary' : 'outline'}
+            onPress={() => setExam(e.id)}
+          >
+            {e.short}
+          </SSDSButton>
         ))}
-      </View>
-    </View>
+      </SSDSRow>
+    </SSDSStack>
   );
 
   return (
-    <Shell active="CurrentAffairs" title="Current Affairs" subtitle="Exam-tagged news with prelims-ready bullet points" scroll={false}>
+    <Shell
+      active="CurrentAffairs"
+      title="Current Affairs"
+      subtitle="Exam-tagged news with prelims-ready bullet points"
+      scroll={false}
+    >
       <FlatList
         data={data}
         keyExtractor={(c) => c.id}
         ListHeaderComponent={header}
-        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 24, maxWidth: 960, width: '100%', alignSelf: 'center' }}
+        contentContainerStyle={{
+          padding: isMobile ? 16 : 24,
+          paddingBottom: 24,
+          maxWidth: 960,
+          width: '100%',
+          alignSelf: 'center',
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -99,89 +185,126 @@ export default function CurrentAffairsScreen() {
                 dispatch({ type: 'study', minutes: 3 });
               }, 650);
             }}
-            tintColor={colors.blue}
-            colors={[colors.blue]}
+            tintColor={tokens.colors.primary}
+            colors={[tokens.colors.primary]}
           />
         }
         renderItem={({ item }) => {
           const expanded = open === item.id;
           return (
-            <Card style={{ marginBottom: 12 }}>
-              <Pressable onPress={() => setOpen(expanded ? null : item.id)} style={({ pressed }) => ({ gap: 10, opacity: pressed ? 0.85 : 1 })}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Tag label={item.category} color={colors.teal} />
-                  <Txt size={11.5} color={colors.textFaint}>
+            <SSDSSurface variant="outlined" padding={16} style={{ marginBottom: 12 }}>
+              <Pressable
+                onPress={() => setOpen(expanded ? null : item.id)}
+                style={({ pressed }) => ({ gap: 10, opacity: pressed ? 0.85 : 1 })}
+              >
+                <SSDSRow wrap="wrap" gap={8}>
+                  <SSDSBadge variant="secondary" size="sm">
+                    {item.category}
+                  </SSDSBadge>
+                  <SSDSText variant="Caption">
                     {item.date} · {item.readMinutes} min read
-                  </Txt>
-                  <View style={{ flexDirection: 'row', gap: 5, marginLeft: 'auto' }}>
+                  </SSDSText>
+                  <SSDSRow gap={5} style={{ marginLeft: 'auto' }}>
                     {(item.exams ?? []).map((e) => (
-                      <Tag key={e} label={EXAMS.find((x) => x.id === e)?.short ?? e} color={EXAMS.find((x) => x.id === e)?.color} />
+                      <SSDSBadge key={e} variant="neutral" size="sm">
+                        {EXAMS.find((x) => x.id === e)?.short ?? e}
+                      </SSDSBadge>
                     ))}
-                  </View>
-                </View>
-                <Txt size={15.5} weight="800" display>
-                  {item.title}
-                </Txt>
-                <Txt size={13.5} color={colors.textMuted}>
-                  {item.summary}
-                </Txt>
+                  </SSDSRow>
+                </SSDSRow>
+
+                <SSDSText variant="SectionTitle">{item.title}</SSDSText>
+                <SSDSText variant="BodySecondary">{item.summary}</SSDSText>
 
                 {expanded ? (
-                  <View style={{ gap: 10, marginTop: 4, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderSubtle }}>
+                  <View
+                    style={{
+                      gap: 10,
+                      marginTop: 4,
+                      padding: 14,
+                      borderRadius: 16,
+                      backgroundColor: tokens.colors.surfaceSecondary,
+                      borderWidth: 1,
+                      borderColor: tokens.colors.borderSubtle,
+                    }}
+                  >
                     {(item.points ?? []).map((p, i) => (
-                      <View key={i} style={{ flexDirection: 'row', gap: 9 }}>
-                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.teal, marginTop: 7 }} />
-                        <Txt size={13} color={colors.textMuted} style={{ flex: 1 }}>
+                      <SSDSRow key={i} align="flex-start" gap={9}>
+                        <View
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 3,
+                            backgroundColor: tokens.colors.secondary,
+                            marginTop: 7,
+                          }}
+                        />
+                        <SSDSText variant="BodySecondary" style={{ flex: 1 }}>
                           {p}
-                        </Txt>
-                      </View>
+                        </SSDSText>
+                      </SSDSRow>
                     ))}
-                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-                      <Button
-                        label="Ask Sakha"
-                        icon="sparkles-outline"
-                        size="sm"
-                        variant="soft"
-                        onPress={() => nav.navigate('SakhaAI', { prompt: `Explain the exam relevance of: ${item.title}` })}
-                      />
-                      <Button label="Save as note" icon="bookmark-outline" size="sm" variant="outline" onPress={() => nav.navigate('NoteEditor', {})} />
+                    <SSDSRow wrap="wrap" gap={10} style={{ marginTop: 4 }}>
+                      <SSDSButton
+                        size="small"
+                        variant="secondary"
+                        leadingIcon={Sparkles}
+                        onPress={() =>
+                          nav.navigate('SakhaAI', {
+                            prompt: `Explain the exam relevance of: ${item.title}`,
+                          })
+                        }
+                      >
+                        Ask Sakha
+                      </SSDSButton>
+                      <SSDSButton
+                        size="small"
+                        variant="outline"
+                        leadingIcon={Bookmark}
+                        onPress={() => nav.navigate('NoteEditor', {})}
+                      >
+                        Save as note
+                      </SSDSButton>
                       {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) ? (
-                        <Button
-                          label="Open source"
-                          icon="open-outline"
-                          size="sm"
+                        <SSDSButton
+                          size="small"
                           variant="outline"
+                          leadingIcon={ExternalLink}
                           onPress={() => {
                             if (item.sourceUrl) {
                               void Linking.openURL(item.sourceUrl).catch(() => {});
                             }
                           }}
-                        />
+                        >
+                          Open source
+                        </SSDSButton>
                       ) : null}
-                    </View>
+                    </SSDSRow>
                   </View>
                 ) : (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <Txt size={12.5} weight="800" color={colors.blue}>
+                  <SSDSRow gap={5}>
+                    <SSDSText variant="ButtonLabel" color="primary">
                       Read key points
-                    </Txt>
-                    <Ionicons name="chevron-down" size={14} color={colors.blue} />
-                  </View>
+                    </SSDSText>
+                    <SSDSIcon icon={ChevronDown} size={14} color="primary" />
+                  </SSDSRow>
                 )}
               </Pressable>
-            </Card>
+            </SSDSSurface>
           );
         }}
         ListEmptyComponent={
-          <EmptyState
-            icon="newspaper-outline"
+          <SSDSEmptyState
+            icon={Newspaper}
             title="No stories match"
-            body="Try another category or clear the exam filter to see the full digest."
-            action="Reset"
-            onAction={() => {
-              setCategory('all');
-              setExam('all');
-              setQuery('');
+            description="Try another category or clear the exam filter to see the full digest."
+            primaryAction={{
+              label: 'Reset',
+              onPress: () => {
+                setCategory('all');
+                setExam('all');
+                setQuery('');
+              },
             }}
           />
         }

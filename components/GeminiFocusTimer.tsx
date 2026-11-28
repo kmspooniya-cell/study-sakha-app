@@ -13,12 +13,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import {
   Animated,
-  Modal,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
   View,
   useWindowDimensions,
@@ -29,6 +26,7 @@ import { themeById } from '../themes';
 import type { ThemeDefinition, ThemeId } from '../types';
 import { useStore } from '../lib/store';
 import type { AppStackRouteName } from '../lib/navigation';
+import { FocusSettingsSheet } from './FocusSettingsSheet';
 
 export type FocusTimerController = {
   totalSeconds: number;
@@ -325,60 +323,22 @@ export default function GeminiFocusTimer({
         </View>
       ) : null}
 
-      <Modal visible={settingsOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setSettingsOpen(false)}>
-        <View style={styles.modalRoot}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSettingsOpen(false)} />
-          <View style={[styles.settingsSheet, { width: Math.min(width - 32, 420), maxHeight: height * 0.82, marginBottom: Math.max(insets.bottom, 10) }]}> 
-            <View style={styles.sheetHandle} />
-            <View style={styles.settingsHeader}>
-              <Text style={styles.settingsTitle}>Focus & Visual Settings</Text>
-              <Pressable onPress={() => setSettingsOpen(false)} accessibilityLabel="Close settings" style={styles.closeButton}>
-                <Ionicons name="close" size={19} color="rgba(255,255,255,0.85)" />
-              </Pressable>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
-            <Text style={styles.sectionLabel}>Theme</Text>
-            {Object.values(themeById).map((definition) => (
-              <Pressable key={definition.id} onPress={() => applyTheme(definition.id)} style={styles.menuRow}>
-                <Text style={styles.settingTitle}>{definition.name}</Text>
-                {themeId === definition.id ? <Ionicons name="checkmark-circle" size={19} color={definition.accent} /> : null}
-              </Pressable>
-            ))}
-            <Text style={styles.sectionLabel}>Audio</Text>
-            <Pressable onPress={onMusicPress} style={styles.menuRow}>
-              <Text style={styles.settingTitle}>Music</Text>
-              <Text style={styles.resetText}>Choose</Text>
-            </Pressable>
-            <Text style={styles.sectionLabel}>Visual Settings</Text>
-            <View style={styles.settingRow}>
-              <View style={styles.settingCopy}>
-                <Text style={styles.settingTitle}>Living Atmosphere</Text>
-                <Text style={styles.settingDescription}>Fireflies, drifting mist & gentle shimmer</Text>
-              </View>
-              <Switch
-                value={motionEnabled}
-                onValueChange={(value) => {
-                  dispatch({ type: 'settings', patch: { reduceFocusMotion: !value } });
-                  showToast(value ? 'Living atmosphere enabled' : 'Static artwork mode');
-                }}
-                trackColor={{ false: '#41434b', true: '#168650' }}
-                thumbColor={motionEnabled ? '#56e69b' : '#f3f4f6'}
-                accessibilityLabel="Living Atmosphere"
-              />
-            </View>
-            <Text style={styles.sectionLabel}>Timer</Text>
-            <Pressable onPress={resetTimer} style={styles.resetButton}>
-              <Text style={styles.resetText}>Reset Timer to {focusSettings.focusDurationMinutes}:00</Text>
-            </Pressable>
-            <Text style={styles.sectionLabel}>Blocked Apps</Text>
-            <Pressable onPress={onManageBlockedApps} style={styles.menuRow}>
-              <Text style={styles.settingTitle}>Blocked Apps ({blockedAppsCount})</Text>
-              <Text style={styles.resetText}>Manage</Text>
-            </Pressable>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <FocusSettingsSheet
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        themeId={themeId}
+        onSelectTheme={applyTheme}
+        onMusicPress={onMusicPress}
+        motionEnabled={motionEnabled}
+        onToggleMotion={(value) => {
+          dispatch({ type: 'settings', patch: { reduceFocusMotion: !value } });
+          showToast(value ? 'Living atmosphere enabled' : 'Static artwork mode');
+        }}
+        focusDurationMinutes={focusSettings.focusDurationMinutes}
+        onResetTimer={resetTimer}
+        blockedAppsCount={blockedAppsCount}
+        onManageBlockedApps={onManageBlockedApps}
+      />
     </View>
   );
 }

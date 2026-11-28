@@ -1,5 +1,10 @@
 # Next Task — Study Sakha
 
+## Null `.includes()` web preview crash — remaining verification
+- **Completed:** Traced the null to persisted StoreProvider collection hydration and fixed validation at the reducer boundary; added regression coverage; exported the web bundle successfully.
+- **Remaining:** Open the generated/deployed web preview in a real Chromium browser, capture the complete console stack, and verify cold start plus authenticated Library/Settings navigation with legacy null snapshots.
+- **Exact next action:** Run the web preview/E2E environment with Chromium available and confirm no runtime errors before release sign-off.
+
 ## Help & Feedback System follow-up — 2026-11-28
 - Host implementation, RLS migration (`supabase/migrations/202611280001_feedback_submissions.sql`), log redaction, screenshot upload/cleanup, Admin Feedback tab, and Jest/ESLint/TS checks are complete.
 - Exact next action: push `supabase/migrations/202611280001_feedback_submissions.sql` to the linked Supabase project and verify live end-to-end submission, private screenshot signed URLs, and Admin status updates on a running build.

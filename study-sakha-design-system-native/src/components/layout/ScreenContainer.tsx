@@ -23,6 +23,7 @@ export interface ScreenContainerProps {
   maxWidth?: number;
   safeAreaEdges?: Edge[];
   keyboardAvoiding?: boolean;
+  keyboardVerticalOffset?: number;
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
 }
@@ -34,6 +35,7 @@ export function ScreenContainer({
   maxWidth,
   safeAreaEdges = ['left', 'right'],
   keyboardAvoiding = false,
+  keyboardVerticalOffset = 0,
   style,
   contentContainerStyle,
 }: ScreenContainerProps) {
@@ -75,7 +77,8 @@ export function ScreenContainer({
   const body = keyboardAvoiding ? (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={keyboardVerticalOffset}
     >
       {innerContent}
     </KeyboardAvoidingView>

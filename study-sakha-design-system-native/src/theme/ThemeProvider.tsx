@@ -15,21 +15,14 @@ import React, {
 } from 'react';
 import {
   AccessibilityInfo,
-  Pressable,
   StyleSheet,
-  Text as RNText,
   useColorScheme,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  Info,
-  X,
-} from 'lucide-react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { Toast } from '../components/feedback/Toast';
+import { Snackbar } from '../components/feedback/Snackbar';
 
 import {
   ColorTokens,
@@ -141,7 +134,7 @@ const STORAGE_KEY_APPEARANCE = 'ssds_appearance_v1';
 const STORAGE_KEY_PRESETS = 'ssds_custom_presets_v1';
 
 export const DEFAULT_APPEARANCE: AppearanceConfig = {
-  themeMode: 'light',
+  themeMode: 'system',
   presetId: 'classic',
   customColors: null,
   typographyScale: 1,
@@ -165,24 +158,59 @@ export function useTheme(): ThemeContextValue {
   return ctx;
 }
 
-interface ThemeProviderProps {
+export interface ThemeProviderProps {
   children: React.ReactNode;
+  controlledAppearance?: Partial<AppearanceConfig>;
+  onAppearanceChange?: (patch: Partial<AppearanceConfig>) => void;
+  disablePersistence?: boolean;
+  resolveColorTokens?: (
+    colors: ColorTokens,
+    context: { isDark: boolean; appearance: AppearanceConfig }
+  ) => Partial<ColorTokens> | undefined;
 }
 
-export function ThemeProvider({ children }: ThemeProviderProps) {
+const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
+export function ThemeProvider({
+  children,
+  controlledAppearance,
+  onAppearanceChange,
+  disablePersistence = false,
+  resolveColorTokens,
+}: ThemeProviderProps) {
   const systemColorScheme = useColorScheme();
-  const insets = useSafeAreaInsets();
+  const insets = useContext(SafeAreaInsetsContext) ?? ZERO_INSETS;
 
   const [appearance, setAppearance] = useState<AppearanceConfig>(DEFAULT_APPEARANCE);
   const [savedPresets, setSavedPresets] = useState<SavedCustomPreset[]>([]);
   const [osReduceMotion, setOsReduceMotion] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(Boolean(disablePersistence));
+  const effectiveIsHydrated = disablePersistence || isHydrated;
 
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const [snackbar, setSnackbar] = useState<SnackbarRecord | null>(null);
   const snackbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    const toastTimers = toastTimersRef.current;
+    return () => {
+      isMountedRef.current = false;
+      if (snackbarTimerRef.current) {
+        clearTimeout(snackbarTimerRef.current);
+        snackbarTimerRef.current = null;
+      }
+      toastTimers.forEach((timer) => clearTimeout(timer));
+      toastTimers.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (disablePersistence) {
+      return;
+    }
     let mounted = true;
     async function hydrate() {
       try {
@@ -211,7 +239,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [disablePersistence]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
@@ -228,29 +256,38 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }, []);
 
   useEffect(() => {
-    if (!isHydrated) return;
+    if (disablePersistence || controlledAppearance || !isHydrated) return;
     AsyncStorage.setItem(STORAGE_KEY_APPEARANCE, JSON.stringify(appearance)).catch(
       () => undefined
     );
-  }, [appearance, isHydrated]);
+  }, [appearance, controlledAppearance, disablePersistence, isHydrated]);
 
-  const resolvedMode = resolveThemeMode(appearance.themeMode, systemColorScheme);
+  const effectiveAppearance = useMemo<AppearanceConfig>(
+    () =>
+      controlledAppearance
+        ? { ...DEFAULT_APPEARANCE, ...controlledAppearance }
+        : appearance,
+    [appearance, controlledAppearance]
+  );
+
+  const resolvedMode = resolveThemeMode(effectiveAppearance.themeMode, systemColorScheme);
   const isDark = resolvedMode === 'dark';
 
   const tokens = useMemo<ThemeTokens>(() => {
     const base: ColorTokens = isDark ? { ...DARK_THEME_COLORS } : { ...LIGHT_THEME_COLORS };
     const preset =
-      THEME_PRESETS.find((p) => p.id === appearance.presetId) ?? THEME_PRESETS[0];
+      THEME_PRESETS.find((p) => p.id === effectiveAppearance.presetId) ?? THEME_PRESETS[0];
     const presetOverrides = isDark ? preset.dark : preset.light;
 
     const colors: ColorTokens = { ...base, ...presetOverrides };
 
-    if (appearance.presetId === 'custom' && appearance.customColors) {
-      const c = appearance.customColors;
+    if (effectiveAppearance.presetId === 'custom' && effectiveAppearance.customColors) {
+      const c = effectiveAppearance.customColors;
       if (c.primary) {
         colors.primary = c.primary;
         colors.primaryLight = hexToRgba(c.primary, isDark ? 0.18 : 0.1);
-        colors.primaryDark = c.primary;
+        colors.primaryDark = darkenHex(c.primary, 0.2);
+        colors.textInverse = isLightHex(c.primary) ? '#111827' : '#FFFFFF';
         colors.borderFocused = c.primary;
         colors.borderSelected = c.primary;
         colors.textLink = c.primary;
@@ -277,27 +314,34 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       colors.chartSecondary = colors.secondary;
       colors.chartTertiary = colors.accent;
       colors.brandGradientStart = colors.primary;
-      colors.brandGradientEnd = colors.secondary;
     }
 
-    if (appearance.borderIntensity === 'subtle') {
+    if (effectiveAppearance.borderIntensity === 'subtle') {
       colors.border = colors.borderSubtle;
-    } else if (appearance.borderIntensity === 'strong') {
+    } else if (effectiveAppearance.borderIntensity === 'strong') {
       colors.border = colors.borderStrong;
     }
 
-    const spacing = buildSpacingTokens(appearance.density);
-    const radius = buildRadiusTokens(appearance.radiusMode);
-    const shadows = buildShadowTokens(isDark, appearance.shadowIntensity);
+    const extraColors = resolveColorTokens?.(colors, {
+      isDark,
+      appearance: effectiveAppearance,
+    });
+    if (extraColors) {
+      Object.assign(colors, extraColors);
+    }
+
+    const spacing = buildSpacingTokens(effectiveAppearance.density);
+    const radius = buildRadiusTokens(effectiveAppearance.radiusMode);
+    const shadows = buildShadowTokens(isDark, effectiveAppearance.shadowIntensity);
     const motion = buildMotionTokens(
-      appearance.animationIntensity,
-      appearance.reduceMotion || osReduceMotion
+      effectiveAppearance.animationIntensity,
+      effectiveAppearance.reduceMotion || osReduceMotion
     );
 
-    const fontFamilies = resolveFontFamilies(appearance.fontStyle);
+    const fontFamilies = resolveFontFamilies(effectiveAppearance.fontStyle);
     const typography: TypographyTokens = {
       ...fontFamilies,
-      scale: appearance.typographyScale,
+      scale: effectiveAppearance.typographyScale,
       styles: TYPOGRAPHY_SPECS,
     };
 
@@ -312,60 +356,118 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       motion,
       icons: ICON_TOKENS,
       typography,
-      cardAppearance: appearance.cardAppearance,
+      cardAppearance: effectiveAppearance.cardAppearance,
     };
-  }, [appearance, isDark, osReduceMotion, resolvedMode]);
+  }, [effectiveAppearance, isDark, osReduceMotion, resolveColorTokens, resolvedMode]);
+
+  const dismissToast = useCallback((id: number) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+    if (!isMountedRef.current) return;
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const showToast = useCallback(
     ({ type = 'info', title, message, duration = 3200 }: ToastPayload) => {
       const id = Date.now() + Math.random();
-      setToasts((prev) => [...prev.slice(-2), { id, type, title, message }]);
-      setTimeout(() => {
+      setToasts((prev) => {
+        const evicted = prev.length >= 3 ? prev.slice(0, prev.length - 2) : [];
+        evicted.forEach((item) => {
+          const oldTimer = toastTimersRef.current.get(item.id);
+          if (oldTimer) {
+            clearTimeout(oldTimer);
+            toastTimersRef.current.delete(item.id);
+          }
+        });
+        return [...prev.slice(-2), { id, type, title, message }];
+      });
+      const timer = setTimeout(() => {
+        toastTimersRef.current.delete(id);
+        if (!isMountedRef.current) return;
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, duration);
+      toastTimersRef.current.set(id, timer);
     },
     []
   );
+
+  const dismissSnackbar = useCallback(() => {
+    if (snackbarTimerRef.current) {
+      clearTimeout(snackbarTimerRef.current);
+      snackbarTimerRef.current = null;
+    }
+    if (!isMountedRef.current) return;
+    setSnackbar(null);
+  }, []);
 
   const showSnackbar = useCallback(
     ({ message, actionLabel, onAction, duration = 4000 }: SnackbarPayload) => {
       if (snackbarTimerRef.current) {
         clearTimeout(snackbarTimerRef.current);
+        snackbarTimerRef.current = null;
       }
       const id = Date.now();
       setSnackbar({ id, message, actionLabel, onAction, duration });
       snackbarTimerRef.current = setTimeout(() => {
+        snackbarTimerRef.current = null;
+        if (!isMountedRef.current) return;
         setSnackbar((prev) => (prev?.id === id ? null : prev));
       }, duration);
     },
     []
   );
 
-  const updateAppearance = useCallback((patch: Partial<AppearanceConfig>) => {
-    setAppearance((prev) => ({ ...prev, ...patch }));
-  }, []);
+  const updateAppearance = useCallback(
+    (patch: Partial<AppearanceConfig>) => {
+      onAppearanceChange?.(patch);
+      if (!controlledAppearance) {
+        setAppearance((prev) => ({ ...prev, ...patch }));
+      }
+    },
+    [controlledAppearance, onAppearanceChange]
+  );
 
   const resetCurrentTheme = useCallback(() => {
-    setAppearance((prev) => ({
+    const nextPresetId =
+      effectiveAppearance.presetId === 'custom'
+        ? 'classic'
+        : effectiveAppearance.presetId;
+    const resetPatch: AppearanceConfig = {
       ...DEFAULT_APPEARANCE,
-      themeMode: prev.themeMode,
-      presetId: prev.presetId === 'custom' ? 'classic' : prev.presetId,
-    }));
+      themeMode: effectiveAppearance.themeMode,
+      presetId: nextPresetId,
+    };
+    onAppearanceChange?.(resetPatch);
+    if (!controlledAppearance) {
+      setAppearance(resetPatch);
+    }
     showToast({
       type: 'info',
       title: 'Theme reset',
       message: 'Current theme settings restored to preset defaults.',
     });
-  }, [showToast]);
+  }, [
+    controlledAppearance,
+    effectiveAppearance.presetId,
+    effectiveAppearance.themeMode,
+    onAppearanceChange,
+    showToast,
+  ]);
 
   const restoreDefaultAppearance = useCallback(() => {
-    setAppearance(DEFAULT_APPEARANCE);
+    onAppearanceChange?.(DEFAULT_APPEARANCE);
+    if (!controlledAppearance) {
+      setAppearance(DEFAULT_APPEARANCE);
+    }
     showToast({
       type: 'success',
       title: 'Defaults restored',
       message: 'Study Sakha Classic default appearance applied.',
     });
-  }, [showToast]);
+  }, [controlledAppearance, onAppearanceChange, showToast]);
 
   const saveCustomPreset = useCallback(
     (name: string) => {
@@ -374,14 +476,16 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const newPreset: SavedCustomPreset = {
         id: `saved_${Date.now()}`,
         name: trimmed,
-        config: { ...appearance },
+        config: { ...effectiveAppearance },
         createdAt: new Date().toLocaleDateString(),
       };
       setSavedPresets((prev) => {
         const next = [newPreset, ...prev].slice(0, 6);
-        AsyncStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(next)).catch(
-          () => undefined
-        );
+        if (!disablePersistence) {
+          AsyncStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(next)).catch(
+            () => undefined
+          );
+        }
         return next;
       });
       showToast({
@@ -390,24 +494,29 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         message: `"${trimmed}" saved to your custom themes.`,
       });
     },
-    [appearance, showToast]
+    [disablePersistence, effectiveAppearance, showToast]
   );
 
-  const deleteCustomPreset = useCallback((id: string) => {
-    setSavedPresets((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      AsyncStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(next)).catch(
-        () => undefined
-      );
-      return next;
-    });
-  }, []);
+  const deleteCustomPreset = useCallback(
+    (id: string) => {
+      setSavedPresets((prev) => {
+        const next = prev.filter((p) => p.id !== id);
+        if (!disablePersistence) {
+          AsyncStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(next)).catch(
+            () => undefined
+          );
+        }
+        return next;
+      });
+    },
+    [disablePersistence]
+  );
 
   const value = useMemo<ThemeContextValue>(
     () => ({
       tokens,
-      appearance,
-      isHydrated,
+      appearance: effectiveAppearance,
+      isHydrated: effectiveIsHydrated,
       updateAppearance,
       resetCurrentTheme,
       restoreDefaultAppearance,
@@ -419,8 +528,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }),
     [
       tokens,
-      appearance,
-      isHydrated,
+      effectiveAppearance,
+      effectiveIsHydrated,
       updateAppearance,
       resetCurrentTheme,
       restoreDefaultAppearance,
@@ -445,13 +554,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           ]}
         >
           {toasts.map((toast) => (
-            <NativeToastItem
+            <Toast
               key={toast.id}
-              toast={toast}
-              tokens={tokens}
-              onClose={() =>
-                setToasts((prev) => prev.filter((item) => item.id !== toast.id))
-              }
+              type={toast.type}
+              title={toast.title}
+              message={toast.message}
+              onClose={() => dismissToast(toast.id)}
+              style={styles.toastItem}
             />
           ))}
         </View>
@@ -465,113 +574,58 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
             { bottom: Math.max(insets.bottom + 16, 20) },
           ]}
         >
-          <View
-            accessibilityRole="alert"
-            style={[
-              styles.snackbar,
-              tokens.shadows.elevation4,
-              {
-                backgroundColor: tokens.isDark
-                  ? tokens.colors.surfaceElevated
-                  : '#182230',
-                borderRadius: tokens.radius.md,
-                borderColor: tokens.isDark ? tokens.colors.borderStrong : 'transparent',
-              },
-            ]}
-          >
-            <RNText style={styles.snackbarMessage} numberOfLines={2}>
-              {snackbar.message}
-            </RNText>
-            {snackbar.actionLabel && (
-              <Pressable
-                onPress={() => {
-                  snackbar.onAction?.();
-                  setSnackbar(null);
-                }}
-                hitSlop={8}
-                style={styles.snackbarActionBtn}
-              >
-                <RNText style={styles.snackbarActionText}>
-                  {snackbar.actionLabel}
-                </RNText>
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => setSnackbar(null)}
-              accessibilityLabel="Dismiss notification"
-              hitSlop={8}
-            >
-              <X size={16} color="#94A3B8" />
-            </Pressable>
-          </View>
+          <Snackbar
+            message={snackbar.message}
+            actionLabel={snackbar.actionLabel}
+            onAction={() => {
+              snackbar.onAction?.();
+              dismissSnackbar();
+            }}
+            onDismiss={dismissSnackbar}
+            style={styles.snackbar}
+          />
         </View>
       )}
     </ThemeContext.Provider>
   );
 }
 
-function NativeToastItem({
-  toast,
-  tokens,
-  onClose,
-}: {
-  toast: ToastRecord;
-  tokens: ThemeTokens;
-  onClose: () => void;
-}) {
-  const configMap = {
-    success: { Icon: CheckCircle2, color: tokens.colors.success },
-    warning: { Icon: AlertTriangle, color: tokens.colors.warning },
-    danger: { Icon: AlertCircle, color: tokens.colors.danger },
-    info: { Icon: Info, color: tokens.colors.info },
-  };
-  const cfg = configMap[toast.type ?? 'info'];
-  const IconComp = cfg.Icon;
+function parseHexRgb(hex: string): [number, number, number] | null {
+  if (!hex || !hex.startsWith('#')) return null;
+  const clean = hex.slice(1);
+  const full =
+    clean.length === 3
+      ? clean
+          .split('')
+          .map((ch) => ch + ch)
+          .join('')
+      : clean;
+  if (full.length !== 6) return null;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return null;
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
 
-  return (
-    <View
-      accessibilityRole="alert"
-      style={[
-        styles.toastItem,
-        tokens.shadows.elevation3,
-        {
-          backgroundColor: tokens.colors.surfaceElevated,
-          borderColor: tokens.colors.border,
-          borderLeftColor: cfg.color,
-          borderRadius: tokens.radius.md,
-        },
-      ]}
-    >
-      <IconComp size={18} color={cfg.color} style={{ marginTop: 1 }} />
-      <View style={{ flex: 1 }}>
-        {!!toast.title && (
-          <RNText
-            style={{
-              fontSize: 13.5,
-              fontWeight: '600',
-              color: tokens.colors.textPrimary,
-            }}
-          >
-            {toast.title}
-          </RNText>
-        )}
-        {!!toast.message && (
-          <RNText
-            style={{
-              fontSize: 12.5,
-              color: tokens.colors.textSecondary,
-              marginTop: 2,
-            }}
-          >
-            {toast.message}
-          </RNText>
-        )}
-      </View>
-      <Pressable onPress={onClose} accessibilityLabel="Close toast" hitSlop={8}>
-        <X size={15} color={tokens.colors.textTertiary} />
-      </Pressable>
-    </View>
+function isLightHex(hex: string): boolean {
+  const rgb = parseHexRgb(hex);
+  if (!rgb) return false;
+  const [r, g, b] = rgb.map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.35;
+}
+
+function darkenHex(hex: string, amount: number): string {
+  const rgb = parseHexRgb(hex);
+  if (!rgb) return hex;
+  const factor = Math.max(0, Math.min(1, 1 - amount));
+  const [r, g, b] = rgb.map((v) =>
+    Math.max(0, Math.min(255, Math.round(v * factor)))
+      .toString(16)
+      .padStart(2, '0')
   );
+  return `#${r}${g}${b}`;
 }
 
 const styles = StyleSheet.create({
@@ -586,13 +640,6 @@ const styles = StyleSheet.create({
   toastItem: {
     width: '100%',
     maxWidth: 400,
-    borderWidth: 1,
-    borderLeftWidth: 3,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
   },
   snackbarWrapper: {
     position: 'absolute',
@@ -604,25 +651,5 @@ const styles = StyleSheet.create({
   snackbar: {
     width: '100%',
     maxWidth: 440,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  snackbarMessage: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 13.5,
-  },
-  snackbarActionBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  snackbarActionText: {
-    color: '#7AA8EE',
-    fontWeight: '600',
-    fontSize: 13,
   },
 });

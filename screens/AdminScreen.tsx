@@ -1,14 +1,59 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { AppNavigation } from '../lib/navigation';
 import * as DocumentPicker from 'expo-document-picker';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 import { File } from 'expo-file-system';
+import {
+  BarChart2,
+  Calendar,
+  Check,
+  CheckCheck,
+  Clock,
+  CloudUpload,
+  EyeOff,
+  File as FileIcon,
+  FilePlus2,
+  Gauge,
+  Globe,
+  Info,
+  Layers,
+  Link as LinkIcon,
+  Lock,
+  Megaphone,
+  MessageSquare,
+  PauseCircle,
+  PenSquare,
+  PieChart,
+  PlayCircle,
+  Save,
+  Send,
+  Trash2,
+  Trophy,
+  Type,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Platform, Pressable, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 import { BarChart, Donut, HBar, SvgLegend } from '../components/Charts';
 import { Shell, useLayout } from '../components/Shell';
-import { Avatar, Button, Card, Chip, EmptyState, Field, SectionHeader, Tag, Txt } from '../components/ui';
+import {
+  SSDSAvatar,
+  SSDSBadge,
+  SSDSButton,
+  SSDSConfirmationPattern,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSearchInput,
+  SSDSSectionHeader,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  SSDSTextInput,
+  useSSDSTheme,
+} from '../lib/ssds';
 import { EXAMS, getResources, getTests, PYQS } from '../lib/data';
 import {
   createFeedbackScreenshotSignedUrl,
@@ -20,7 +65,6 @@ import {
   updateFeedbackSubmissionAdmin,
 } from '../lib/feedback';
 import { dayKey, useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 import { ManagedContent, ManagedContentType, TestQuestion } from '../lib/types';
 
 type Tab = 'overview' | 'learners' | 'manage' | 'content' | 'announce' | 'feedback';
@@ -43,8 +87,18 @@ type ContentDraft = {
 };
 
 const emptyDraft = (): ContentDraft => ({
-  type: 'note', title: '', description: '', exam: 'upsc', subject: '', topic: '',
-  sourceUrl: '', published: false, body: '', questionsJson: '', durationMin: '10', points: '',
+  type: 'note',
+  title: '',
+  description: '',
+  exam: 'upsc',
+  subject: '',
+  topic: '',
+  sourceUrl: '',
+  published: false,
+  body: '',
+  questionsJson: '',
+  durationMin: '10',
+  points: '',
   eventDate: new Date().toISOString().slice(0, 10),
 });
 
@@ -71,18 +125,32 @@ function parseQuestions(value: string, subject: string): TestQuestion[] | null {
         !Number.isInteger(question.answer) ||
         (question.answer as number) < 0 ||
         (question.answer as number) >= question.options.length
-      ) return null;
+      ) {
+        return null;
+      }
       return {
-        id: typeof question.id === 'string' && question.id ? question.id : `q-${index + 1}`,
-        section: typeof question.section === 'string' && question.section ? question.section : subject || 'General',
-        subject: typeof question.subject === 'string' && question.subject ? question.subject : subject || 'General',
+        id:
+          typeof question.id === 'string' && question.id
+            ? question.id
+            : `q-${index + 1}`,
+        section:
+          typeof question.section === 'string' && question.section
+            ? question.section
+            : subject || 'General',
+        subject:
+          typeof question.subject === 'string' && question.subject
+            ? question.subject
+            : subject || 'General',
         question: question.question,
         options: question.options,
         answer: question.answer as number,
-        explanation: typeof question.explanation === 'string' ? question.explanation : '',
+        explanation:
+          typeof question.explanation === 'string' ? question.explanation : '',
       };
     });
-    return questions.every((question): question is TestQuestion => question !== null) ? questions : null;
+    return questions.every((question): question is TestQuestion => question !== null)
+      ? questions
+      : null;
   } catch {
     return null;
   }
@@ -108,24 +176,34 @@ function contentErrorMessage(error: unknown, fallback: string) {
   };
   if (typeof detail.message !== 'string') return fallback;
   const code = typeof detail.code === 'string' ? ` (${detail.code})` : '';
-  const status = typeof detail.statusCode === 'string' || typeof detail.statusCode === 'number'
-    ? ` (HTTP ${detail.statusCode})`
-    : '';
-  const details = typeof detail.details === 'string' ? ` Details: ${detail.details}` : '';
+  const status =
+    typeof detail.statusCode === 'string' || typeof detail.statusCode === 'number'
+      ? ` (HTTP ${detail.statusCode})`
+      : '';
+  const details =
+    typeof detail.details === 'string' ? ` Details: ${detail.details}` : '';
   const hint = typeof detail.hint === 'string' ? ` Hint: ${detail.hint}` : '';
   return `${detail.message}${code}${status}${details}${hint}`;
 }
 
 export default function AdminScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
-  const { state, dispatch, saveManagedContent, deleteManagedContent: removeManagedContent } = useStore();
+  const {
+    state,
+    dispatch,
+    saveManagedContent,
+    deleteManagedContent: removeManagedContent,
+  } = useStore();
   const { isMobile, isDesktop } = useLayout();
   const [tab, setTab] = useState<Tab>('overview');
   const [search, setSearch] = useState('');
   const [contentSearch, setContentSearch] = useState('');
-  const [contentTypeFilter, setContentTypeFilter] = useState<ManagedTypeFilter>('all');
-  const [contentExamFilter, setContentExamFilter] = useState<'all' | ManagedContent['exam']>('all');
+  const [contentTypeFilter, setContentTypeFilter] =
+    useState<ManagedTypeFilter>('all');
+  const [contentExamFilter, setContentExamFilter] = useState<
+    'all' | ManagedContent['exam']
+  >('all');
   const [draft, setDraft] = useState<ContentDraft>(emptyDraft);
   const [editingContentId, setEditingContentId] = useState<string | null>(null);
   const [contentError, setContentError] = useState('');
@@ -142,9 +220,15 @@ export default function AdminScreen() {
   const [feedbackItems, setFeedbackItems] = useState<FeedbackSubmissionRecord[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState('');
-  const [feedbackCategoryFilter, setFeedbackCategoryFilter] = useState<'all' | FeedbackCategory>('all');
-  const [feedbackStatusDrafts, setFeedbackStatusDrafts] = useState<Record<string, FeedbackStatus>>({});
-  const [feedbackResponseDrafts, setFeedbackResponseDrafts] = useState<Record<string, string>>({});
+  const [feedbackCategoryFilter, setFeedbackCategoryFilter] = useState<
+    'all' | FeedbackCategory
+  >('all');
+  const [feedbackStatusDrafts, setFeedbackStatusDrafts] = useState<
+    Record<string, FeedbackStatus>
+  >({});
+  const [feedbackResponseDrafts, setFeedbackResponseDrafts] = useState<
+    Record<string, string>
+  >({});
   const [feedbackSavingId, setFeedbackSavingId] = useState<string | null>(null);
 
   const isAdmin = state.user?.role === 'admin';
@@ -157,26 +241,41 @@ export default function AdminScreen() {
       const items = await listAllFeedbackSubmissionsForAdmin();
       setFeedbackItems(items);
     } catch (error) {
-      setFeedbackError(error instanceof Error ? error.message : 'Unable to load feedback submissions.');
+      setFeedbackError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to load feedback submissions.',
+      );
     } finally {
       setFeedbackLoading(false);
     }
   }, [isAdmin]);
 
   useEffect(() => {
-    if (isAdmin && tab === 'feedback') {
-      void loadFeedback();
-    }
+    if (!isAdmin || tab !== 'feedback') return;
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) {
+        void loadFeedback();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [isAdmin, loadFeedback, tab]);
 
   const learners = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return state.learners.filter((l) => !q || `${l.name} ${l.email} ${l.exam}`.toLowerCase().includes(q));
+    return state.learners.filter(
+      (l) => !q || `${l.name} ${l.email} ${l.exam}`.toLowerCase().includes(q),
+    );
   }, [state.learners, search]);
 
   const kpis = useMemo(() => {
     const active = state.learners.filter((l) => l.status === 'active').length;
-    const avg = Math.round(state.learners.reduce((a, b) => a + b.avgScore, 0) / state.learners.length);
+    const avg = Math.round(
+      state.learners.reduce((a, b) => a + b.avgScore, 0) / state.learners.length,
+    );
     const tests = state.learners.reduce((a, b) => a + b.tests, 0);
     const pending = state.queue.filter((q) => q.status === 'pending').length;
     return { active, avg, tests, pending };
@@ -189,15 +288,19 @@ export default function AdminScreen() {
         value: state.learners.filter((l) => l.exam === e.id).length,
         color: e.color,
       })).filter((x) => x.value > 0),
-    [state.learners]
+    [state.learners],
   );
 
   const managedContent = useMemo(() => {
     const query = contentSearch.trim().toLowerCase();
-    return state.managedContent.filter((item) =>
-      (contentTypeFilter === 'all' || item.type === contentTypeFilter) &&
-      (contentExamFilter === 'all' || item.exam === contentExamFilter) &&
-      (!query || `${item.title} ${item.description} ${item.subject} ${item.topic}`.toLowerCase().includes(query))
+    return state.managedContent.filter(
+      (item) =>
+        (contentTypeFilter === 'all' || item.type === contentTypeFilter) &&
+        (contentExamFilter === 'all' || item.exam === contentExamFilter) &&
+        (!query ||
+          `${item.title} ${item.description} ${item.subject} ${item.topic}`
+            .toLowerCase()
+            .includes(query)),
     );
   }, [state.managedContent, contentSearch, contentTypeFilter, contentExamFilter]);
 
@@ -231,10 +334,13 @@ export default function AdminScreen() {
       sourceUrl: item.sourceUrl ?? '',
       published: item.published,
       body: item.body ?? '',
-      questionsJson: item.questions ? JSON.stringify(item.questions, null, 2) : '',
+      questionsJson: item.questions
+        ? JSON.stringify(item.questions, null, 2)
+        : '',
       durationMin: `${item.durationMin ?? 10}`,
       points: item.points?.join('\n') ?? '',
-      eventDate: item.eventDate ?? new Date(item.updatedAt).toISOString().slice(0, 10),
+      eventDate:
+        item.eventDate ?? new Date(item.updatedAt).toISOString().slice(0, 10),
     });
     setContentError('');
   };
@@ -268,7 +374,9 @@ export default function AdminScreen() {
         return;
       }
       const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
-      if (Array.from(signature, (byte) => String.fromCharCode(byte)).join('') !== '%PDF-') {
+      if (
+        Array.from(signature, (byte) => String.fromCharCode(byte)).join('') !== '%PDF-'
+      ) {
         setContentError('The selected file does not have a valid PDF signature.');
         return;
       }
@@ -294,15 +402,21 @@ export default function AdminScreen() {
 
     const sourceUrl = draft.sourceUrl.trim();
     if (selectedPdf && sourceUrl) {
-      setContentError('Choose either a PDF upload or an external source URL, not both.');
+      setContentError(
+        'Choose either a PDF upload or an external source URL, not both.',
+      );
       return;
     }
     if (sourceUrl) {
       try {
         const parsed = new URL(sourceUrl);
-        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error();
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          throw new Error();
+        }
       } catch {
-        setContentError('Use a valid HTTP(S) URL to a file hosted outside this device.');
+        setContentError(
+          'Use a valid HTTP(S) URL to a file hosted outside this device.',
+        );
         return;
       }
     }
@@ -312,7 +426,9 @@ export default function AdminScreen() {
       questions = parseQuestions(draft.questionsJson, subject) ?? undefined;
       const durationMin = Number(draft.durationMin);
       if (!questions) {
-        setContentError('Enter a valid JSON array of questions with at least two options and a valid answer index.');
+        setContentError(
+          'Enter a valid JSON array of questions with at least two options and a valid answer index.',
+        );
         return;
       }
       if (!Number.isInteger(durationMin) || durationMin < 1 || durationMin > 600) {
@@ -332,35 +448,48 @@ export default function AdminScreen() {
       sourceUrl: sourceUrl || undefined,
       fileObjectPath: removePdf
         ? undefined
-        : state.managedContent.find((item) => item.id === editingContentId)?.fileObjectPath,
+        : state.managedContent.find((entry) => entry.id === editingContentId)
+            ?.fileObjectPath,
       published: draft.published,
       updatedAt: Date.now(),
-      body: draft.type === 'current-affairs' || draft.type === 'test' ? undefined : draft.body.trim(),
+      body:
+        draft.type === 'current-affairs' || draft.type === 'test'
+          ? undefined
+          : draft.body.trim(),
       questions,
       durationMin: draft.type === 'test' ? Number(draft.durationMin) : undefined,
-      points: draft.type === 'current-affairs'
-        ? draft.points.split('\n').map((point) => point.trim()).filter(Boolean)
-        : undefined,
+      points:
+        draft.type === 'current-affairs'
+          ? draft.points
+              .split('\n')
+              .map((point) => point.trim())
+              .filter(Boolean)
+          : undefined,
       eventDate: draft.type === 'current-affairs' ? draft.eventDate : undefined,
     };
     setContentBusy(true);
     setContentMessage('');
     try {
       const selectedFile = selectedPdf
-        ? Platform.OS === 'web' ? selectedPdf.file : new File(selectedPdf.uri)
+        ? Platform.OS === 'web'
+          ? selectedPdf.file
+          : new File(selectedPdf.uri)
         : undefined;
-      if (selectedPdf && !selectedFile) throw new Error('Unable to access the selected PDF.');
-      const uploadFile = selectedPdf && selectedFile
-        ? {
-            blob: Platform.OS === 'web' ? selectedFile : await selectedFile.arrayBuffer(),
-            name: selectedPdf.name,
-            size: selectedPdf.size ?? selectedFile.size,
-          }
-        : undefined;
-      const result = await saveManagedContent(
-        item,
-        uploadFile
-      );
+      if (selectedPdf && !selectedFile) {
+        throw new Error('Unable to access the selected PDF.');
+      }
+      const uploadFile =
+        selectedPdf && selectedFile
+          ? {
+              blob:
+                Platform.OS === 'web'
+                  ? selectedFile
+                  : await selectedFile.arrayBuffer(),
+              name: selectedPdf.name,
+              size: selectedPdf.size ?? selectedFile.size,
+            }
+          : undefined;
+      const result = await saveManagedContent(item, uploadFile);
       if (!result.ok) {
         setContentError(result.error);
         return;
@@ -372,7 +501,9 @@ export default function AdminScreen() {
       setContentError('');
       setContentMessage(result.warning ?? 'Content saved to Supabase.');
     } catch (error) {
-      setContentError(contentErrorMessage(error, 'Unable to save managed content.'));
+      setContentError(
+        contentErrorMessage(error, 'Unable to save managed content.'),
+      );
     } finally {
       setContentBusy(false);
     }
@@ -393,11 +524,17 @@ export default function AdminScreen() {
     setContentError('');
     setContentMessage('');
     try {
-      const result = await saveManagedContent({ ...item, published: !item.published, updatedAt: Date.now() });
+      const result = await saveManagedContent({
+        ...item,
+        published: !item.published,
+        updatedAt: Date.now(),
+      });
       if (!result.ok) setContentError(result.error);
       else setContentMessage(result.warning ?? 'Publication status updated.');
     } catch (error) {
-      setContentError(contentErrorMessage(error, 'Unable to update publication status.'));
+      setContentError(
+        contentErrorMessage(error, 'Unable to update publication status.'),
+      );
     } finally {
       setContentBusy(false);
     }
@@ -419,7 +556,11 @@ export default function AdminScreen() {
       setContentMessage(result.warning ?? 'Content deleted from Supabase.');
       setDeleteTarget(null);
     } catch (error) {
-      setContentError(error instanceof Error ? error.message : 'Unable to delete managed content.');
+      setContentError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to delete managed content.',
+      );
     } finally {
       setContentBusy(false);
     }
@@ -428,156 +569,266 @@ export default function AdminScreen() {
   if (!isAdmin) {
     return (
       <Shell active="Admin" title="Admin Portal" subtitle="Restricted area">
-        <Card>
-          <EmptyState
-            icon="lock-closed-outline"
+        <SSDSSurface variant="outlined" padding={16}>
+          <SSDSEmptyState
+            icon={Lock}
             title="Administrator access required"
-            body="Sign in with an account that has been granted administrator access by a trusted server-side operator."
-            action="Go to profile"
-            onAction={() => nav.navigate('Profile')}
+            description="Sign in with an account that has been granted administrator access by a trusted server-side operator."
+            primaryAction={{
+              label: 'Go to profile',
+              onPress: () => nav.navigate('Profile'),
+            }}
           />
-        </Card>
+        </SSDSSurface>
       </Shell>
     );
   }
 
-  const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: 'overview', label: 'Overview', icon: 'speedometer-outline' },
-    { key: 'learners', label: 'Learners', icon: 'people-outline' },
-    { key: 'manage', label: 'Manage Content', icon: 'create-outline' },
-    { key: 'content', label: 'Approvals', icon: 'checkmark-done-outline' },
-    { key: 'announce', label: 'Announcements', icon: 'megaphone-outline' },
-    { key: 'feedback', label: 'Feedback', icon: 'chatbox-ellipses-outline' },
+  const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
+    { key: 'overview', label: 'Overview', icon: Gauge },
+    { key: 'learners', label: 'Learners', icon: Users },
+    { key: 'manage', label: 'Manage Content', icon: PenSquare },
+    { key: 'content', label: 'Approvals', icon: CheckCheck },
+    { key: 'announce', label: 'Announcements', icon: Megaphone },
+    { key: 'feedback', label: 'Feedback', icon: MessageSquare },
   ];
 
   return (
-    <Shell active="Admin" title="Admin Portal" subtitle="Platform health, learner management and content governance">
+    <Shell
+      active="Admin"
+      title="Admin Portal"
+      subtitle="Platform health, learner management and content governance"
+    >
       {state.managedContentError ? (
-        <Card style={{ marginBottom: 14 }}>
-          <Txt size={13} color={colors.danger}>{state.managedContentError}</Txt>
-        </Card>
+        <SSDSSurface variant="outlined" padding={14} style={{ marginBottom: 14 }}>
+          <SSDSText variant="ErrorText">{state.managedContentError}</SSDSText>
+        </SSDSSurface>
       ) : null}
       {tab !== 'manage' && (contentError || contentMessage) ? (
-        <Card style={{ marginBottom: 14 }}>
-          <Txt size={13} color={contentError ? colors.danger : colors.success}>{contentError || contentMessage}</Txt>
-        </Card>
+        <SSDSSurface variant="outlined" padding={14} style={{ marginBottom: 14 }}>
+          <SSDSText
+            variant="BodySecondary"
+            color={contentError ? 'danger' : 'success'}
+          >
+            {contentError || contentMessage}
+          </SSDSText>
+        </SSDSSurface>
       ) : null}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+
+      <SSDSRow wrap="wrap" gap={8} style={{ marginBottom: 16 }}>
         {TABS.map((t) => (
-          <Chip key={t.key} label={t.label} icon={t.icon} active={tab === t.key} onPress={() => setTab(t.key)} />
+          <SSDSButton
+            key={t.key}
+            size="small"
+            leadingIcon={t.icon}
+            variant={tab === t.key ? 'primary' : 'outline'}
+            onPress={() => setTab(t.key)}
+          >
+            {t.label}
+          </SSDSButton>
         ))}
-      </View>
+      </SSDSRow>
 
       {tab === 'overview' ? (
-        <View style={{ gap: 16 }}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+        <SSDSStack gap={16}>
+          <SSDSRow wrap="wrap" gap={10}>
             {[
-              { l: 'Active learners', v: `${kpis.active}`, s: `${state.learners.length} total`, i: 'people-outline' as const, c: colors.blue },
-              { l: 'Avg. mock score', v: `${kpis.avg}%`, s: 'across all exams', i: 'stats-chart-outline' as const, c: colors.teal },
-              { l: 'Tests attempted', v: kpis.tests.toLocaleString('en-IN'), s: 'lifetime', i: 'timer-outline' as const, c: colors.violet },
-              { l: 'Pending approvals', v: `${kpis.pending}`, s: 'awaiting review', i: 'document-attach-outline' as const, c: colors.warning },
+              {
+                l: 'Active learners',
+                v: `${kpis.active}`,
+                s: `${state.learners.length} total`,
+                i: Users,
+                c: tokens.colors.primary,
+              },
+              {
+                l: 'Avg. mock score',
+                v: `${kpis.avg}%`,
+                s: 'across all exams',
+                i: BarChart2,
+                c: tokens.colors.secondary,
+              },
+              {
+                l: 'Tests attempted',
+                v: kpis.tests.toLocaleString('en-IN'),
+                s: 'lifetime',
+                i: Clock,
+                c: tokens.colors.chartQuaternary,
+              },
+              {
+                l: 'Pending approvals',
+                v: `${kpis.pending}`,
+                s: 'awaiting review',
+                i: FilePlus2,
+                c: tokens.colors.warning,
+              },
             ].map((k) => (
-              <Card key={k.l} style={{ flexGrow: 1, flexBasis: isMobile ? '45%' : 180, gap: 9 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: `${k.c}1A`, alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name={k.i} size={18} color={k.c} />
-                </View>
-                <Txt size={24} weight="800" display>
-                  {k.v}
-                </Txt>
-                <Txt size={12.5} weight="700" color={colors.textMuted}>
-                  {k.l}
-                </Txt>
-                <Txt size={11.5} color={colors.textFaint}>
-                  {k.s}
-                </Txt>
-              </Card>
+              <SSDSSurface
+                key={k.l}
+                variant="outlined"
+                padding={16}
+                style={{ flexGrow: 1, flexBasis: isMobile ? '45%' : 180 }}
+              >
+                <SSDSStack gap={9}>
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: `${k.c}1A`,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <SSDSIcon icon={k.i} size={18} color={k.c} />
+                  </View>
+                  <SSDSText variant="StatisticValue">{k.v}</SSDSText>
+                  <SSDSText variant="StatisticLabel">{k.l}</SSDSText>
+                  <SSDSText variant="Caption" color="textTertiary">
+                    {k.s}
+                  </SSDSText>
+                </SSDSStack>
+              </SSDSSurface>
             ))}
-          </View>
+          </SSDSRow>
 
           <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
-            <Card style={{ flex: 1.3 }}>
-              <SectionHeader title="Weekly platform activity" icon="bar-chart-outline" action="minutes studied" />
-              <BarChart data={weekly} color={colors.blue} />
-            </Card>
-            <Card style={{ flex: 1 }}>
-              <SectionHeader title="Learners by exam" icon="pie-chart-outline" />
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+            <SSDSSurface variant="outlined" padding={16} style={{ flex: 1.3 }}>
+              <SSDSSectionHeader
+                title="Weekly platform activity"
+                icon={BarChart2}
+                description="minutes studied"
+                compact
+              />
+              <BarChart data={weekly} color={tokens.colors.primary} />
+            </SSDSSurface>
+            <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+              <SSDSSectionHeader title="Learners by exam" icon={PieChart} compact />
+              <SSDSRow gap={18}>
                 <Donut
                   segments={examSplit}
                   center={
                     <>
-                      <Txt size={20} weight="800" display>
+                      <SSDSText variant="StatisticValue">
                         {state.learners.length}
-                      </Txt>
-                      <Txt size={11} color={colors.textMuted}>
-                        learners
-                      </Txt>
+                      </SSDSText>
+                      <SSDSText variant="Caption">learners</SSDSText>
                     </>
                   }
                 />
                 <View style={{ flex: 1 }}>
-                  <SvgLegend items={examSplit.map((e) => ({ label: e.label, color: e.color, value: `${e.value}` }))} />
+                  <SvgLegend
+                    items={examSplit.map((e) => ({
+                      label: e.label,
+                      color: e.color,
+                      value: `${e.value}`,
+                    }))}
+                  />
                 </View>
-              </View>
-            </Card>
+              </SSDSRow>
+            </SSDSSurface>
           </View>
 
           <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
-            <Card style={{ flex: 1 }}>
-              <SectionHeader title="Catalogue coverage" icon="layers-outline" />
-              <HBar label="Library resources" value={getResources(state.managedContent).length} total={20} color={colors.blue} />
-              <HBar label="PYQ bank" value={PYQS.length} total={30} color={colors.teal} />
-              <HBar label="Mock tests" value={getTests(state.managedContent).length} total={10} color={colors.violet} />
-              <HBar label="Approved submissions" value={state.queue.filter((q) => q.status === 'approved').length} total={state.queue.length} color={colors.success} />
-            </Card>
-            <Card style={{ flex: 1 }}>
-              <SectionHeader title="Top performers" icon="trophy-outline" />
-              <View style={{ gap: 12 }}>
+            <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+              <SSDSSectionHeader title="Catalogue coverage" icon={Layers} compact />
+              <HBar
+                label="Library resources"
+                value={getResources(state.managedContent).length}
+                total={20}
+                color={tokens.colors.primary}
+              />
+              <HBar
+                label="PYQ bank"
+                value={PYQS.length}
+                total={30}
+                color={tokens.colors.secondary}
+              />
+              <HBar
+                label="Mock tests"
+                value={getTests(state.managedContent).length}
+                total={10}
+                color={tokens.colors.chartQuaternary}
+              />
+              <HBar
+                label="Approved submissions"
+                value={state.queue.filter((q) => q.status === 'approved').length}
+                total={state.queue.length}
+                color={tokens.colors.success}
+              />
+            </SSDSSurface>
+            <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+              <SSDSSectionHeader title="Top performers" icon={Trophy} compact />
+              <SSDSStack gap={12}>
                 {[...state.learners]
                   .sort((a, b) => b.avgScore - a.avgScore)
                   .slice(0, 5)
                   .map((l, i) => (
-                    <View key={l.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
-                      <Txt size={13} weight="800" color={colors.textFaint} style={{ width: 18 }}>
+                    <SSDSRow key={l.id} gap={11}>
+                      <SSDSText
+                        variant="Caption"
+                        color="textTertiary"
+                        style={{ width: 18 }}
+                      >
                         {i + 1}
-                      </Txt>
-                      <Avatar name={l.name} size={32} />
+                      </SSDSText>
+                      <SSDSAvatar name={l.name} size={32} />
                       <View style={{ flex: 1 }}>
-                        <Txt size={13} weight="700" numberOfLines={1}>
+                        <SSDSText variant="CardTitle" truncate>
                           {l.name}
-                        </Txt>
-                        <Txt size={11.5} color={colors.textFaint}>
+                        </SSDSText>
+                        <SSDSText variant="Caption">
                           {l.exam.toUpperCase()} · {l.tests} tests
-                        </Txt>
+                        </SSDSText>
                       </View>
-                      <Tag label={`${l.avgScore}%`} color={colors.success} />
-                    </View>
+                      <SSDSBadge variant="success" size="sm">
+                        {`${l.avgScore}%`}
+                      </SSDSBadge>
+                    </SSDSRow>
                   ))}
-              </View>
-            </Card>
+              </SSDSStack>
+            </SSDSSurface>
           </View>
-        </View>
+        </SSDSStack>
       ) : null}
 
       {tab === 'learners' ? (
-        <View style={{ gap: 14 }}>
-          <Field value={search} onChangeText={setSearch} placeholder="Search learners by name, email or exam…" icon="search-outline" returnKeyType="search" />
+        <SSDSStack gap={14}>
+          <SSDSSearchInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search learners by name, email or exam…"
+            returnKeyType="search"
+          />
           {learners.map((l) => (
-            <Card key={l.id}>
-              <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 14, alignItems: isMobile ? 'flex-start' : 'center' }}>
-                <Avatar name={l.name} size={44} />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <Txt size={14.5} weight="800">
-                      {l.name}
-                    </Txt>
-                    <Tag label={l.plan} color={l.plan === 'Elite' ? colors.violet : l.plan === 'Pro' ? colors.blue : colors.textMuted} />
-                    <Tag label={l.status === 'active' ? 'Active' : 'Suspended'} color={l.status === 'active' ? colors.success : colors.danger} />
-                  </View>
-                  <Txt size={12} color={colors.textMuted}>
+            <SSDSSurface key={l.id} variant="outlined" padding={16}>
+              <View
+                style={{
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gap: 14,
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                }}
+              >
+                <SSDSAvatar name={l.name} size={44} />
+                <SSDSStack gap={4} style={{ flex: 1 }}>
+                  <SSDSRow wrap="wrap" gap={8}>
+                    <SSDSText variant="CardTitle">{l.name}</SSDSText>
+                    <SSDSBadge
+                      variant={l.plan === 'Elite' || l.plan === 'Pro' ? 'primary' : 'neutral'}
+                      size="sm"
+                    >
+                      {l.plan}
+                    </SSDSBadge>
+                    <SSDSBadge
+                      variant={l.status === 'active' ? 'success' : 'danger'}
+                      size="sm"
+                    >
+                      {l.status === 'active' ? 'Active' : 'Suspended'}
+                    </SSDSBadge>
+                  </SSDSRow>
+                  <SSDSText variant="Caption">
                     {l.email} · joined {l.joined}
-                  </Txt>
-                  <View style={{ flexDirection: 'row', gap: 14, marginTop: 4, flexWrap: 'wrap' }}>
+                  </SSDSText>
+                  <SSDSRow wrap="wrap" gap={14} style={{ marginTop: 4 }}>
                     {[
                       ['Exam', l.exam.toUpperCase()],
                       ['Streak', `${l.streak}d`],
@@ -585,323 +836,712 @@ export default function AdminScreen() {
                       ['Avg', `${l.avgScore}%`],
                     ].map(([k, v]) => (
                       <View key={k}>
-                        <Txt size={11} color={colors.textFaint}>
+                        <SSDSText variant="Caption" color="textTertiary">
                           {k}
-                        </Txt>
-                        <Txt size={13} weight="800">
-                          {v}
-                        </Txt>
+                        </SSDSText>
+                        <SSDSText variant="CardTitle">{v}</SSDSText>
                       </View>
                     ))}
-                  </View>
-                </View>
-                <Button
-                  label={l.status === 'active' ? 'Suspend' : 'Activate'}
-                  icon={l.status === 'active' ? 'pause-circle-outline' : 'play-circle-outline'}
-                  size="sm"
+                  </SSDSRow>
+                </SSDSStack>
+                <SSDSButton
+                  size="small"
+                  leadingIcon={l.status === 'active' ? PauseCircle : PlayCircle}
                   variant={l.status === 'active' ? 'outline' : 'primary'}
-                  onPress={() => dispatch({ type: 'learnerStatus', id: l.id, status: l.status === 'active' ? 'suspended' : 'active' })}
-                />
+                  onPress={() =>
+                    dispatch({
+                      type: 'learnerStatus',
+                      id: l.id,
+                      status: l.status === 'active' ? 'suspended' : 'active',
+                    })
+                  }
+                >
+                  {l.status === 'active' ? 'Suspend' : 'Activate'}
+                </SSDSButton>
               </View>
-            </Card>
+            </SSDSSurface>
           ))}
-          {!learners.length ? <EmptyState icon="people-outline" title="No learners found" body="Try a different name, email or exam keyword." /> : null}
-        </View>
+          {!learners.length ? (
+            <SSDSEmptyState
+              icon={Users}
+              title="No learners found"
+              description="Try a different name, email or exam keyword."
+            />
+          ) : null}
+        </SSDSStack>
       ) : null}
 
       {tab === 'manage' ? (
-        <View style={{ flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'flex-start' : 'stretch', gap: 16 }}>
-          <Card style={{ flex: isDesktop ? 1.1 : undefined, width: isDesktop ? undefined : '100%', gap: 14 }}>
-            <SectionHeader title={editingContentId ? 'Edit content' : 'Add educational content'} icon="document-attach-outline" />
-            <Field label="Title" value={draft.title} onChangeText={(value) => updateDraft('title', value)} placeholder="Content title" icon="text-outline" />
-            <Field label="Description" value={draft.description} onChangeText={(value) => updateDraft('description', value)} placeholder="What will students learn?" multiline minHeight={92} />
-
-            <View style={{ gap: 8 }}>
-              <Txt size={12.5} weight="700" color={colors.textMuted}>Content type</Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {CONTENT_TYPES.map((item) => (
-                  <Chip key={item.id} label={item.label} active={draft.type === item.id} onPress={() => { updateDraft('type', item.id); setContentError(''); }} />
-                ))}
-              </View>
-            </View>
-
-            <View style={{ gap: 8 }}>
-              <Txt size={12.5} weight="700" color={colors.textMuted}>Exam</Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {EXAMS.map((item) => (
-                  <Chip key={item.id} label={item.short} tone={item.color} active={draft.exam === item.id} onPress={() => updateDraft('exam', item.id)} />
-                ))}
-              </View>
-            </View>
-
-            <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
-              <Field label="Subject" value={draft.subject} onChangeText={(value) => updateDraft('subject', value)} placeholder="e.g. Polity" style={{ flex: 1 }} />
-              <Field label="Topic" value={draft.topic} onChangeText={(value) => updateDraft('topic', value)} placeholder="e.g. Fundamental Rights" style={{ flex: 1 }} />
-            </View>
-
-            <Field
-              label="Hosted file or source URL (optional)"
-              value={draft.sourceUrl}
-              onChangeText={(value) => updateDraft('sourceUrl', value)}
-              placeholder="https://…"
-              keyboardType="default"
-              autoCapitalize="none"
-              icon="link-outline"
-              helper="Use a durable HTTP(S) source, or select a PDF below for a private upload to Student-content."
-            />
-
-            {draft.type === 'book' ? (
-              <View style={{ gap: 8 }}>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                  <Button
-                    label={selectedPdf ? 'Choose a different PDF' : 'Upload PDF'}
-                    icon="cloud-upload-outline"
-                    variant="outline"
-                    loading={contentBusy}
-                    onPress={pickPdf}
-                  />
-                  {selectedPdf ? (
-                    <Txt size={12} color={colors.textMuted}>{selectedPdf.name}</Txt>
-                  ) : editingContentId && !removePdf && state.managedContent.find((item) => item.id === editingContentId)?.fileObjectPath ? (
-                    <Txt size={12} color={colors.success}>A private PDF is already uploaded.</Txt>
-                  ) : null}
-                  {editingContentId && state.managedContent.find((item) => item.id === editingContentId)?.fileObjectPath ? (
-                    <Button
-                      label={removePdf ? 'Keep uploaded PDF' : 'Remove uploaded PDF'}
-                      size="sm"
-                      variant="ghost"
-                      onPress={() => setRemovePdf((value) => !value)}
-                    />
-                  ) : null}
-                </View>
-                {removePdf ? <Txt size={11.5} color={colors.warning}>The existing PDF will be removed when you save.</Txt> : null}
-                <Txt size={11.5} color={colors.textFaint}>PDF only, maximum 50 MB. Student access is granted only after publication.</Txt>
-              </View>
-            ) : null}
-
-            {draft.type === 'note' || draft.type === 'book' || draft.type === 'pyq-set' ? (
-              <Field
-                label={draft.type === 'book' ? 'Reading content (optional when a hosted PDF is linked)' : 'Content'}
-                value={draft.body}
-                onChangeText={(value) => updateDraft('body', value)}
-                placeholder="Paste the learning content here…"
-                multiline
-                minHeight={170}
+        <View
+          style={{
+            flexDirection: isDesktop ? 'row' : 'column',
+            alignItems: isDesktop ? 'flex-start' : 'stretch',
+            gap: 16,
+          }}
+        >
+          <SSDSSurface
+            variant="outlined"
+            padding={16}
+            style={{
+              flex: isDesktop ? 1.1 : undefined,
+              width: isDesktop ? undefined : '100%',
+            }}
+          >
+            <SSDSStack gap={14}>
+              <SSDSSectionHeader
+                title={editingContentId ? 'Edit content' : 'Add educational content'}
+                icon={FilePlus2}
+                compact
               />
-            ) : null}
+              <SSDSTextInput
+                label="Title"
+                value={draft.title}
+                onChangeText={(value) => updateDraft('title', value)}
+                placeholder="Content title"
+                leadingIcon={Type}
+              />
+              <SSDSTextInput
+                label="Description"
+                value={draft.description}
+                onChangeText={(value) => updateDraft('description', value)}
+                placeholder="What will students learn?"
+                multiline
+                rows={4}
+              />
 
-            {draft.type === 'test' ? (
-              <View style={{ gap: 12 }}>
-                <Field label="Duration (minutes)" value={draft.durationMin} onChangeText={(value) => updateDraft('durationMin', value)} placeholder="10" keyboardType="numeric" icon="time-outline" />
-                <Field
-                  label="Questions (JSON)"
-                  value={draft.questionsJson}
-                  onChangeText={(value) => updateDraft('questionsJson', value)}
-                  placeholder={'[{"section":"Polity","subject":"Polity","question":"Question text","options":["Option A","Option B"],"answer":0,"explanation":"Why this is correct"}]'}
+              <SSDSStack gap={8}>
+                <SSDSText variant="InputLabel" color="textSecondary">
+                  Content type
+                </SSDSText>
+                <SSDSRow wrap="wrap" gap={8}>
+                  {CONTENT_TYPES.map((item) => (
+                    <SSDSButton
+                      key={item.id}
+                      size="small"
+                      variant={draft.type === item.id ? 'primary' : 'outline'}
+                      onPress={() => {
+                        updateDraft('type', item.id);
+                        setContentError('');
+                      }}
+                    >
+                      {item.label}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
+              </SSDSStack>
+
+              <SSDSStack gap={8}>
+                <SSDSText variant="InputLabel" color="textSecondary">
+                  Exam
+                </SSDSText>
+                <SSDSRow wrap="wrap" gap={8}>
+                  {EXAMS.map((item) => (
+                    <SSDSButton
+                      key={item.id}
+                      size="small"
+                      variant={draft.exam === item.id ? 'primary' : 'outline'}
+                      onPress={() => updateDraft('exam', item.id)}
+                    >
+                      {item.short}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
+              </SSDSStack>
+
+              <View
+                style={{ flexDirection: isMobile ? 'column' : 'row', gap: 10 }}
+              >
+                <View style={{ flex: 1 }}>
+                  <SSDSTextInput
+                    label="Subject"
+                    value={draft.subject}
+                    onChangeText={(value) => updateDraft('subject', value)}
+                    placeholder="e.g. Polity"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <SSDSTextInput
+                    label="Topic"
+                    value={draft.topic}
+                    onChangeText={(value) => updateDraft('topic', value)}
+                    placeholder="e.g. Fundamental Rights"
+                  />
+                </View>
+              </View>
+
+              <SSDSTextInput
+                label="Hosted file or source URL (optional)"
+                value={draft.sourceUrl}
+                onChangeText={(value) => updateDraft('sourceUrl', value)}
+                placeholder="https://…"
+                autoCapitalize="none"
+                leadingIcon={LinkIcon}
+                helperText="Use a durable HTTP(S) source, or select a PDF below for a private upload to Student-content."
+              />
+
+              {draft.type === 'book' ? (
+                <SSDSStack gap={8}>
+                  <SSDSRow wrap="wrap" gap={8}>
+                    <SSDSButton
+                      variant="outline"
+                      leadingIcon={CloudUpload}
+                      loading={contentBusy}
+                      onPress={pickPdf}
+                    >
+                      {selectedPdf ? 'Choose a different PDF' : 'Upload PDF'}
+                    </SSDSButton>
+                    {selectedPdf ? (
+                      <SSDSText variant="Caption">{selectedPdf.name}</SSDSText>
+                    ) : editingContentId &&
+                      !removePdf &&
+                      state.managedContent.find(
+                        (item) => item.id === editingContentId,
+                      )?.fileObjectPath ? (
+                      <SSDSText variant="Caption" color="success">
+                        A private PDF is already uploaded.
+                      </SSDSText>
+                    ) : null}
+                    {editingContentId &&
+                    state.managedContent.find(
+                      (item) => item.id === editingContentId,
+                    )?.fileObjectPath ? (
+                      <SSDSButton
+                        size="small"
+                        variant="ghost"
+                        onPress={() => setRemovePdf((value) => !value)}
+                      >
+                        {removePdf ? 'Keep uploaded PDF' : 'Remove uploaded PDF'}
+                      </SSDSButton>
+                    ) : null}
+                  </SSDSRow>
+                  {removePdf ? (
+                    <SSDSText variant="Caption" color="warning">
+                      The existing PDF will be removed when you save.
+                    </SSDSText>
+                  ) : null}
+                  <SSDSText variant="Caption" color="textTertiary">
+                    PDF only, maximum 50 MB. Student access is granted only after
+                    publication.
+                  </SSDSText>
+                </SSDSStack>
+              ) : null}
+
+              {draft.type === 'note' ||
+              draft.type === 'book' ||
+              draft.type === 'pyq-set' ? (
+                <SSDSTextInput
+                  label={
+                    draft.type === 'book'
+                      ? 'Reading content (optional when a hosted PDF is linked)'
+                      : 'Content'
+                  }
+                  value={draft.body}
+                  onChangeText={(value) => updateDraft('body', value)}
+                  placeholder="Paste the learning content here…"
                   multiline
-                  minHeight={190}
-                  helper="Each question needs a prompt, at least two options, and a zero-based answer index."
+                  rows={6}
                 />
-              </View>
-            ) : null}
+              ) : null}
 
-            {draft.type === 'current-affairs' ? (
-              <View style={{ gap: 12 }}>
-                <Field label="Publication date" value={draft.eventDate} onChangeText={(value) => updateDraft('eventDate', value)} placeholder="YYYY-MM-DD" icon="calendar-outline" />
-                <Field label="Key points (one per line)" value={draft.points} onChangeText={(value) => updateDraft('points', value)} placeholder="Add exam-relevant facts, one per line" multiline minHeight={140} />
-              </View>
-            ) : null}
+              {draft.type === 'test' ? (
+                <SSDSStack gap={12}>
+                  <SSDSTextInput
+                    label="Duration (minutes)"
+                    value={draft.durationMin}
+                    onChangeText={(value) => updateDraft('durationMin', value)}
+                    placeholder="10"
+                    type="numeric"
+                    leadingIcon={Clock}
+                  />
+                  <SSDSTextInput
+                    label="Questions (JSON)"
+                    value={draft.questionsJson}
+                    onChangeText={(value) => updateDraft('questionsJson', value)}
+                    placeholder={
+                      '[{"section":"Polity","subject":"Polity","question":"Question text","options":["Option A","Option B"],"answer":0,"explanation":"Why this is correct"}]'
+                    }
+                    multiline
+                    rows={7}
+                    helperText="Each question needs a prompt, at least two options, and a zero-based answer index."
+                  />
+                </SSDSStack>
+              ) : null}
 
-            <View style={{ gap: 8 }}>
-              <Txt size={12.5} weight="700" color={colors.textMuted}>Publication status</Txt>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Chip label="Draft" active={!draft.published} onPress={() => updateDraft('published', false)} />
-                <Chip label="Published" icon="globe-outline" active={draft.published} onPress={() => updateDraft('published', true)} />
-              </View>
-            </View>
-            {contentError || contentMessage ? (
-              <Card style={{ borderColor: contentError ? colors.danger : colors.success }}>
-                <Txt size={13} color={contentError ? colors.danger : colors.success}>
-                  {contentError || contentMessage}
-                </Txt>
-              </Card>
-            ) : null}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
-              <Button label={editingContentId ? 'Save changes' : 'Save content'} icon="save-outline" loading={contentBusy} onPress={saveContent} />
-              {editingContentId ? <Button label="Cancel edit" variant="outline" onPress={cancelEdit} /> : null}
-            </View>
-          </Card>
+              {draft.type === 'current-affairs' ? (
+                <SSDSStack gap={12}>
+                  <SSDSTextInput
+                    label="Publication date"
+                    value={draft.eventDate}
+                    onChangeText={(value) => updateDraft('eventDate', value)}
+                    placeholder="YYYY-MM-DD"
+                    leadingIcon={Calendar}
+                  />
+                  <SSDSTextInput
+                    label="Key points (one per line)"
+                    value={draft.points}
+                    onChangeText={(value) => updateDraft('points', value)}
+                    placeholder="Add exam-relevant facts, one per line"
+                    multiline
+                    rows={5}
+                  />
+                </SSDSStack>
+              ) : null}
 
-          <View style={{ flex: isDesktop ? 1 : undefined, width: isDesktop ? undefined : '100%', gap: 16 }}>
-            <Card style={{ gap: 12 }}>
-              <SectionHeader title="Managed content" icon="library-outline" action={`${state.managedContent.length} total`} />
-              <Field value={contentSearch} onChangeText={setContentSearch} placeholder="Search title, subject or topic" icon="search-outline" returnKeyType="search" />
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
-                <Chip label="All types" active={contentTypeFilter === 'all'} onPress={() => setContentTypeFilter('all')} />
-                {CONTENT_TYPES.map((item) => <Chip key={item.id} label={item.label} active={contentTypeFilter === item.id} onPress={() => setContentTypeFilter(item.id)} />)}
-              </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
-                <Chip label="All exams" active={contentExamFilter === 'all'} onPress={() => setContentExamFilter('all')} />
-                {EXAMS.map((item) => <Chip key={item.id} label={item.short} tone={item.color} active={contentExamFilter === item.id} onPress={() => setContentExamFilter(item.id)} />)}
-              </View>
-            </Card>
+              <SSDSStack gap={8}>
+                <SSDSText variant="InputLabel" color="textSecondary">
+                  Publication status
+                </SSDSText>
+                <SSDSRow gap={8}>
+                  <SSDSButton
+                    size="small"
+                    variant={!draft.published ? 'primary' : 'outline'}
+                    onPress={() => updateDraft('published', false)}
+                  >
+                    Draft
+                  </SSDSButton>
+                  <SSDSButton
+                    size="small"
+                    leadingIcon={Globe}
+                    variant={draft.published ? 'primary' : 'outline'}
+                    onPress={() => updateDraft('published', true)}
+                  >
+                    Published
+                  </SSDSButton>
+                </SSDSRow>
+              </SSDSStack>
+
+              {contentError || contentMessage ? (
+                <SSDSSurface
+                  variant="outlined"
+                  padding={12}
+                  style={{
+                    borderColor: contentError
+                      ? tokens.colors.danger
+                      : tokens.colors.success,
+                  }}
+                >
+                  <SSDSText
+                    variant="BodySecondary"
+                    color={contentError ? 'danger' : 'success'}
+                  >
+                    {contentError || contentMessage}
+                  </SSDSText>
+                </SSDSSurface>
+              ) : null}
+
+              <SSDSRow wrap="wrap" gap={9}>
+                <SSDSButton
+                  leadingIcon={Save}
+                  loading={contentBusy}
+                  onPress={saveContent}
+                >
+                  {editingContentId ? 'Save changes' : 'Save content'}
+                </SSDSButton>
+                {editingContentId ? (
+                  <SSDSButton variant="outline" onPress={cancelEdit}>
+                    Cancel edit
+                  </SSDSButton>
+                ) : null}
+              </SSDSRow>
+            </SSDSStack>
+          </SSDSSurface>
+
+          <SSDSStack
+            gap={16}
+            style={{
+              flex: isDesktop ? 1 : undefined,
+              width: isDesktop ? undefined : '100%',
+            }}
+          >
+            <SSDSSurface variant="outlined" padding={16}>
+              <SSDSStack gap={12}>
+                <SSDSSectionHeader
+                  title="Managed content"
+                  icon={Layers}
+                  subtitle={`${state.managedContent.length} total`}
+                  compact
+                />
+                <SSDSSearchInput
+                  value={contentSearch}
+                  onChangeText={setContentSearch}
+                  placeholder="Search title, subject or topic"
+                  returnKeyType="search"
+                />
+                <SSDSRow wrap="wrap" gap={7}>
+                  <SSDSButton
+                    size="small"
+                    variant={contentTypeFilter === 'all' ? 'primary' : 'outline'}
+                    onPress={() => setContentTypeFilter('all')}
+                  >
+                    All types
+                  </SSDSButton>
+                  {CONTENT_TYPES.map((item) => (
+                    <SSDSButton
+                      key={item.id}
+                      size="small"
+                      variant={contentTypeFilter === item.id ? 'primary' : 'outline'}
+                      onPress={() => setContentTypeFilter(item.id)}
+                    >
+                      {item.label}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
+                <SSDSRow wrap="wrap" gap={7}>
+                  <SSDSButton
+                    size="small"
+                    variant={contentExamFilter === 'all' ? 'primary' : 'outline'}
+                    onPress={() => setContentExamFilter('all')}
+                  >
+                    All exams
+                  </SSDSButton>
+                  {EXAMS.map((item) => (
+                    <SSDSButton
+                      key={item.id}
+                      size="small"
+                      variant={contentExamFilter === item.id ? 'primary' : 'outline'}
+                      onPress={() => setContentExamFilter(item.id)}
+                    >
+                      {item.short}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
+              </SSDSStack>
+            </SSDSSurface>
 
             {managedContent.map((item) => (
-              <Card key={item.id} style={{ gap: 10 }}>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' }}>
-                  <Tag label={CONTENT_TYPES.find((type) => type.id === item.type)?.label ?? item.type} color={colors.blue} />
-                  <Tag label={EXAMS.find((exam) => exam.id === item.exam)?.short ?? item.exam} color={colors.teal} />
-                  <Tag label={item.published ? 'Published' : 'Draft'} color={item.published ? colors.success : colors.textMuted} />
-                </View>
-                <Txt size={14} weight="800">{item.title}</Txt>
-                <Txt size={12} color={colors.textMuted}>{item.subject} · {item.topic}</Txt>
-                <Txt size={12.5} color={colors.textMuted} numberOfLines={3}>{item.description}</Txt>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  <Button label="Edit" icon="create-outline" size="sm" variant="outline" onPress={() => editContent(item)} />
-                  <Button label={item.published ? 'Unpublish' : 'Publish'} icon={item.published ? 'eye-off-outline' : 'globe-outline'} size="sm" variant="soft" loading={contentBusy} onPress={() => void togglePublication(item)} />
-                  <Button label="Delete" icon="trash-outline" size="sm" variant="danger" onPress={() => setDeleteTarget(item)} />
-                </View>
-              </Card>
+              <SSDSSurface key={item.id} variant="outlined" padding={16}>
+                <SSDSStack gap={10}>
+                  <SSDSRow wrap="wrap" gap={7}>
+                    <SSDSBadge variant="primary" size="sm">
+                      {CONTENT_TYPES.find((type) => type.id === item.type)?.label ??
+                        item.type}
+                    </SSDSBadge>
+                    <SSDSBadge variant="secondary" size="sm">
+                      {EXAMS.find((exam) => exam.id === item.exam)?.short ??
+                        item.exam}
+                    </SSDSBadge>
+                    <SSDSBadge
+                      variant={item.published ? 'success' : 'neutral'}
+                      size="sm"
+                    >
+                      {item.published ? 'Published' : 'Draft'}
+                    </SSDSBadge>
+                  </SSDSRow>
+                  <SSDSText variant="CardTitle">{item.title}</SSDSText>
+                  <SSDSText variant="Caption">
+                    {item.subject} · {item.topic}
+                  </SSDSText>
+                  <SSDSText variant="BodySecondary" maxLines={3}>
+                    {item.description}
+                  </SSDSText>
+                  <SSDSRow wrap="wrap" gap={8}>
+                    <SSDSButton
+                      size="small"
+                      variant="outline"
+                      leadingIcon={PenSquare}
+                      onPress={() => editContent(item)}
+                    >
+                      Edit
+                    </SSDSButton>
+                    <SSDSButton
+                      size="small"
+                      variant="secondary"
+                      leadingIcon={item.published ? EyeOff : Globe}
+                      loading={contentBusy}
+                      onPress={() => void togglePublication(item)}
+                    >
+                      {item.published ? 'Unpublish' : 'Publish'}
+                    </SSDSButton>
+                    <SSDSButton
+                      size="small"
+                      variant="destructive"
+                      leadingIcon={Trash2}
+                      onPress={() => setDeleteTarget(item)}
+                    >
+                      Delete
+                    </SSDSButton>
+                  </SSDSRow>
+                </SSDSStack>
+              </SSDSSurface>
             ))}
-            {!managedContent.length && !state.managedContentError ? <EmptyState icon="document-outline" title="No managed content found" body="Add content or adjust the search and filters." /> : null}
-          </View>
+
+            {!managedContent.length && !state.managedContentError ? (
+              <SSDSEmptyState
+                icon={FileIcon}
+                title="No managed content found"
+                description="Add content or adjust the search and filters."
+              />
+            ) : null}
+          </SSDSStack>
         </View>
       ) : null}
 
       {tab === 'content' ? (
-        <View style={{ gap: 14 }}>
-          <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.blue} />
-            <Txt size={13} color={colors.textMuted} style={{ flex: 1 }}>
-              {state.queue.filter((q) => q.status === 'pending').length} submission(s) awaiting review. Approved content is published to the learner library immediately.
-            </Txt>
-          </Card>
+        <SSDSStack gap={14}>
+          <SSDSSurface variant="outlined" padding={14}>
+            <SSDSRow gap={12}>
+              <SSDSIcon icon={Info} size={20} color="primary" />
+              <SSDSText variant="BodySecondary" style={{ flex: 1 }}>
+                {state.queue.filter((q) => q.status === 'pending').length}{' '}
+                submission(s) awaiting review. Approved content is published to the
+                learner library immediately.
+              </SSDSText>
+            </SSDSRow>
+          </SSDSSurface>
           {state.queue.map((c) => (
-            <Card key={c.id} style={{ gap: 12 }}>
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Tag label={c.type} color={colors.blue} />
-                <Tag label={EXAMS.find((e) => e.id === c.exam)?.short ?? ''} color={colors.teal} />
-                <Tag
-                  label={c.status === 'pending' ? 'Pending' : c.status === 'approved' ? 'Approved' : 'Rejected'}
-                  color={c.status === 'pending' ? colors.warning : c.status === 'approved' ? colors.success : colors.danger}
-                />
-                <Txt size={11.5} color={colors.textFaint} style={{ marginLeft: 'auto' }}>
-                  submitted {c.submitted}
-                </Txt>
-              </View>
-              <Txt size={15} weight="800" display>
-                {c.title}
-              </Txt>
-              <Txt size={12.5} color={colors.textMuted}>
-                by {c.author}
-              </Txt>
-              {c.status === 'pending' ? (
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Button label="Approve" icon="checkmark" size="sm" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'approved' })} />
-                  <Button label="Reject" icon="close" size="sm" variant="outline" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'rejected' })} />
-                </View>
-              ) : (
-                <Button label="Move back to pending" size="sm" variant="ghost" onPress={() => dispatch({ type: 'reviewContent', id: c.id, status: 'pending' })} />
-              )}
-            </Card>
+            <SSDSSurface key={c.id} variant="outlined" padding={16}>
+              <SSDSStack gap={12}>
+                <SSDSRow wrap="wrap" gap={8}>
+                  <SSDSBadge variant="primary" size="sm">
+                    {c.type}
+                  </SSDSBadge>
+                  <SSDSBadge variant="secondary" size="sm">
+                    {EXAMS.find((e) => e.id === c.exam)?.short ?? ''}
+                  </SSDSBadge>
+                  <SSDSBadge
+                    variant={
+                      c.status === 'pending'
+                        ? 'warning'
+                        : c.status === 'approved'
+                          ? 'success'
+                          : 'danger'
+                    }
+                    size="sm"
+                  >
+                    {c.status === 'pending'
+                      ? 'Pending'
+                      : c.status === 'approved'
+                        ? 'Approved'
+                        : 'Rejected'}
+                  </SSDSBadge>
+                  <SSDSText variant="Caption" style={{ marginLeft: 'auto' }}>
+                    submitted {c.submitted}
+                  </SSDSText>
+                </SSDSRow>
+                <SSDSText variant="SectionTitle">{c.title}</SSDSText>
+                <SSDSText variant="BodySecondary">by {c.author}</SSDSText>
+                {c.status === 'pending' ? (
+                  <SSDSRow gap={10}>
+                    <SSDSButton
+                      size="small"
+                      leadingIcon={Check}
+                      onPress={() =>
+                        dispatch({
+                          type: 'reviewContent',
+                          id: c.id,
+                          status: 'approved',
+                        })
+                      }
+                    >
+                      Approve
+                    </SSDSButton>
+                    <SSDSButton
+                      size="small"
+                      variant="outline"
+                      leadingIcon={X}
+                      onPress={() =>
+                        dispatch({
+                          type: 'reviewContent',
+                          id: c.id,
+                          status: 'rejected',
+                        })
+                      }
+                    >
+                      Reject
+                    </SSDSButton>
+                  </SSDSRow>
+                ) : (
+                  <SSDSButton
+                    size="small"
+                    variant="ghost"
+                    onPress={() =>
+                      dispatch({
+                        type: 'reviewContent',
+                        id: c.id,
+                        status: 'pending',
+                      })
+                    }
+                  >
+                    Move back to pending
+                  </SSDSButton>
+                )}
+              </SSDSStack>
+            </SSDSSurface>
           ))}
-        </View>
+        </SSDSStack>
       ) : null}
 
       {tab === 'announce' ? (
         <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 16 }}>
-          <Card style={{ flex: 1, gap: 14 }}>
-            <SectionHeader title="Publish announcement" icon="megaphone-outline" />
-            <Field label="Title" value={title} onChangeText={setTitle} placeholder="E.g. Prelims Countdown Series begins Monday" icon="text-outline" />
-            <Field label="Message" value={body} onChangeText={setBody} placeholder="What should learners know?" multiline minHeight={130} />
-            <View>
-              <Txt size={12.5} weight="700" color={colors.textMuted} style={{ marginBottom: 9 }}>
-                Audience
-              </Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {['All learners', 'UPSC aspirants', 'SSC aspirants', 'Banking aspirants', 'Elite plan'].map((a) => (
-                  <Chip key={a} label={a} active={audience === a} onPress={() => setAudience(a)} />
-                ))}
+          <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+            <SSDSStack gap={14}>
+              <SSDSSectionHeader
+                title="Publish announcement"
+                icon={Megaphone}
+                compact
+              />
+              <SSDSTextInput
+                label="Title"
+                value={title}
+                onChangeText={setTitle}
+                placeholder="E.g. Prelims Countdown Series begins Monday"
+                leadingIcon={Type}
+              />
+              <SSDSTextInput
+                label="Message"
+                value={body}
+                onChangeText={setBody}
+                placeholder="What should learners know?"
+                multiline
+                rows={5}
+              />
+              <View>
+                <SSDSText
+                  variant="InputLabel"
+                  color="textSecondary"
+                  style={{ marginBottom: 9 }}
+                >
+                  Audience
+                </SSDSText>
+                <SSDSRow wrap="wrap" gap={8}>
+                  {[
+                    'All learners',
+                    'UPSC aspirants',
+                    'SSC aspirants',
+                    'Banking aspirants',
+                    'Elite plan',
+                  ].map((a) => (
+                    <SSDSButton
+                      key={a}
+                      size="small"
+                      variant={audience === a ? 'primary' : 'outline'}
+                      onPress={() => setAudience(a)}
+                    >
+                      {a}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
               </View>
-            </View>
-            <Button
-              label={published ? 'Published' : 'Publish announcement'}
-              icon={published ? 'checkmark-done' : 'send-outline'}
-              full
-              onPress={() => {
-                if (!title.trim() || !body.trim()) return;
-                const item = { id: `a-${Date.now()}`, title: title.trim(), body: body.trim(), audience, at: Date.now() };
-                dispatch({ type: 'announce', item });
-                dispatch({
-                  type: 'notify',
-                  notif: { id: `n-${Date.now()}`, title: item.title, body: item.body, at: Date.now(), kind: 'announcement', read: false },
-                });
-                setTitle('');
-                setBody('');
-                setPublished(true);
-                setTimeout(() => setPublished(false), 2200);
-              }}
-            />
-          </Card>
+              <SSDSButton
+                leadingIcon={published ? CheckCheck : Send}
+                fullWidth
+                onPress={() => {
+                  if (!title.trim() || !body.trim()) return;
+                  const item = {
+                    id: `a-${Date.now()}`,
+                    title: title.trim(),
+                    body: body.trim(),
+                    audience,
+                    at: Date.now(),
+                  };
+                  dispatch({ type: 'announce', item });
+                  dispatch({
+                    type: 'notify',
+                    notif: {
+                      id: `n-${Date.now()}`,
+                      title: item.title,
+                      body: item.body,
+                      at: Date.now(),
+                      kind: 'announcement',
+                      read: false,
+                    },
+                  });
+                  setTitle('');
+                  setBody('');
+                  setPublished(true);
+                  setTimeout(() => setPublished(false), 2200);
+                }}
+              >
+                {published ? 'Published' : 'Publish announcement'}
+              </SSDSButton>
+            </SSDSStack>
+          </SSDSSurface>
 
-          <Card style={{ flex: 1 }}>
-            <SectionHeader title="Published" icon="time-outline" action="Inbox" onAction={() => nav.navigate('Notifications')} />
-            <View style={{ gap: 14 }}>
+          <SSDSSurface variant="outlined" padding={16} style={{ flex: 1 }}>
+            <SSDSSectionHeader
+              title="Published"
+              icon={Clock}
+              actionLabel="Inbox"
+              onAction={() => nav.navigate('Notifications')}
+              compact
+            />
+            <SSDSStack gap={14}>
               {state.announcements.map((a) => (
-                <View key={a.id} style={{ padding: 13, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, gap: 6 }}>
-                  <Txt size={14} weight="800">
-                    {a.title}
-                  </Txt>
-                  <Txt size={12.5} color={colors.textMuted}>
-                    {a.body}
-                  </Txt>
-                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                    <Tag label={a.audience} color={colors.teal} />
-                    <Txt size={11.5} color={colors.textFaint}>
+                <View
+                  key={a.id}
+                  style={{
+                    padding: 13,
+                    borderRadius: tokens.radius.md,
+                    borderWidth: 1,
+                    borderColor: tokens.colors.border,
+                    gap: 6,
+                  }}
+                >
+                  <SSDSText variant="CardTitle">{a.title}</SSDSText>
+                  <SSDSText variant="BodySecondary">{a.body}</SSDSText>
+                  <SSDSRow gap={8}>
+                    <SSDSBadge variant="secondary" size="sm">
+                      {a.audience}
+                    </SSDSBadge>
+                    <SSDSText variant="Caption">
                       {new Date(a.at).toLocaleString('en-IN')}
-                    </Txt>
-                  </View>
+                    </SSDSText>
+                  </SSDSRow>
                 </View>
               ))}
-            </View>
-          </Card>
+            </SSDSStack>
+          </SSDSSurface>
         </View>
       ) : null}
 
       {tab === 'feedback' ? (
-        <View style={{ gap: 14 }}>
-          <Card style={{ gap: 12 }}>
-            <SectionHeader
-              title="User Feedback & Issues"
-              icon="chatbox-ellipses-outline"
-              action={feedbackLoading ? 'Loading...' : 'Refresh'}
-              onAction={() => { void loadFeedback(); }}
-            />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {([
-                { id: 'all', label: 'All' },
-                { id: 'report_issue', label: 'Issues' },
-                { id: 'share_idea', label: 'Ideas' },
-                { id: 'appreciate_team', label: 'Appreciation' },
-              ] as const).map((cat) => (
-                <Chip
-                  key={cat.id}
-                  label={cat.label}
-                  active={feedbackCategoryFilter === cat.id}
-                  onPress={() => setFeedbackCategoryFilter(cat.id)}
-                />
-              ))}
-            </View>
-            {feedbackError ? (
-              <Txt size={12.5} color={colors.danger}>{feedbackError}</Txt>
-            ) : null}
-          </Card>
+        <SSDSStack gap={14}>
+          <SSDSSurface variant="outlined" padding={16}>
+            <SSDSStack gap={12}>
+              <SSDSSectionHeader
+                title="User Feedback & Issues"
+                icon={MessageSquare}
+                actionLabel={feedbackLoading ? 'Loading...' : 'Refresh'}
+                onAction={() => {
+                  void loadFeedback();
+                }}
+                compact
+              />
+              <SSDSRow wrap="wrap" gap={8}>
+                {([
+                  { id: 'all', label: 'All' },
+                  { id: 'report_issue', label: 'Issues' },
+                  { id: 'share_idea', label: 'Ideas' },
+                  { id: 'appreciate_team', label: 'Appreciation' },
+                ] as const).map((cat) => (
+                  <SSDSButton
+                    key={cat.id}
+                    size="small"
+                    variant={
+                      feedbackCategoryFilter === cat.id ? 'primary' : 'outline'
+                    }
+                    onPress={() => setFeedbackCategoryFilter(cat.id)}
+                  >
+                    {cat.label}
+                  </SSDSButton>
+                ))}
+              </SSDSRow>
+              {feedbackError ? (
+                <SSDSText variant="ErrorText">{feedbackError}</SSDSText>
+              ) : null}
+            </SSDSStack>
+          </SSDSSurface>
 
           {feedbackItems
-            .filter((item) => feedbackCategoryFilter === 'all' || item.category === feedbackCategoryFilter)
+            .filter(
+              (item) =>
+                feedbackCategoryFilter === 'all' ||
+                item.category === feedbackCategoryFilter,
+            )
             .map((item) => {
               const draftStatus = feedbackStatusDrafts[item.id] ?? item.status;
-              const draftResponse = feedbackResponseDrafts[item.id] ?? (item.admin_response ?? '');
+              const draftResponse =
+                feedbackResponseDrafts[item.id] ?? (item.admin_response ?? '');
               const categoryLabel =
                 item.category === 'report_issue'
                   ? 'Issue'
@@ -912,127 +1552,191 @@ export default function AdminScreen() {
               const logsPreview = item.attachment_metadata?.logsPreview;
 
               return (
-                <Card key={item.id} style={{ gap: 10 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <Tag label={categoryLabel} color={item.category === 'report_issue' ? colors.danger : item.category === 'share_idea' ? colors.blue : colors.success} />
-                      {item.sub_category ? <Tag label={item.sub_category} color={colors.violet} /> : null}
-                      <Tag label={item.status} color={colors.teal} />
-                    </View>
-                    <Txt size={11.5} color={colors.textFaint}>
-                      {new Date(item.created_at).toLocaleString('en-IN')}
-                    </Txt>
-                  </View>
-
-                  <Txt size={14} weight="700" color={colors.text}>{item.message}</Txt>
-                  {item.reproduction_steps ? (
-                    <Txt size={12.5} color={colors.textMuted}>
-                      Steps: {item.reproduction_steps}
-                    </Txt>
-                  ) : null}
-
-                  <Txt size={11.5} color={colors.textFaint}>
-                    Sender: {item.user_id} • v{item.app_version || '1.0.0'} • {item.platform || 'unknown'}
-                  </Txt>
-
-                  {(item.logs_shared || item.screenshot_included) ? (
-                    <View style={{ gap: 6, padding: 10, borderRadius: radii.sm, backgroundColor: colors.surfaceAlt }}>
-                      <Txt size={11.5} weight="700" color={colors.textMuted}>
-                        Attachments: {item.logs_shared ? 'Logs (redacted)' : 'No logs'} • {item.screenshot_included ? 'Screenshot' : 'No screenshot'}
-                      </Txt>
-                      {logsPreview ? (
-                        <Txt size={11} color={colors.textFaint} numberOfLines={4}>
-                          {logsPreview}
-                        </Txt>
-                      ) : null}
-                      {screenshotPath ? (
-                        <Pressable
-                          onPress={async () => {
-                            try {
-                              const url = await createFeedbackScreenshotSignedUrl(screenshotPath);
-                              await Linking.openURL(url);
-                            } catch (err) {
-                              setFeedbackError(err instanceof Error ? err.message : 'Unable to open screenshot.');
-                            }
-                          }}
-                          style={{ alignSelf: 'flex-start', paddingVertical: 4 }}
+                <SSDSSurface key={item.id} variant="outlined" padding={16}>
+                  <SSDSStack gap={10}>
+                    <SSDSRow justify="space-between" wrap="wrap" gap={8}>
+                      <SSDSRow wrap="wrap" gap={6}>
+                        <SSDSBadge
+                          variant={
+                            item.category === 'report_issue'
+                              ? 'danger'
+                              : item.category === 'share_idea'
+                                ? 'primary'
+                                : 'success'
+                          }
+                          size="sm"
                         >
-                          <Txt size={12} weight="700" color={colors.blue}>Open signed screenshot</Txt>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
+                          {categoryLabel}
+                        </SSDSBadge>
+                        {item.sub_category ? (
+                          <SSDSBadge variant="neutral" size="sm">
+                            {item.sub_category}
+                          </SSDSBadge>
+                        ) : null}
+                        <SSDSBadge variant="secondary" size="sm">
+                          {item.status}
+                        </SSDSBadge>
+                      </SSDSRow>
+                      <SSDSText variant="Caption">
+                        {new Date(item.created_at).toLocaleString('en-IN')}
+                      </SSDSText>
+                    </SSDSRow>
 
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                    {FEEDBACK_STATUS_OPTIONS.map((st) => (
-                      <Chip
-                        key={st}
-                        label={st}
-                        active={draftStatus === st}
-                        onPress={() => setFeedbackStatusDrafts((prev) => ({ ...prev, [item.id]: st }))}
-                      />
-                    ))}
-                  </View>
+                    <SSDSText variant="CardTitle">{item.message}</SSDSText>
+                    {item.reproduction_steps ? (
+                      <SSDSText variant="BodySecondary">
+                        Steps: {item.reproduction_steps}
+                      </SSDSText>
+                    ) : null}
 
-                  <Field
-                    label="Internal / Admin Response"
-                    value={draftResponse}
-                    onChangeText={(txt) => setFeedbackResponseDrafts((prev) => ({ ...prev, [item.id]: txt }))}
-                    placeholder="Add resolution notes or response..."
-                    multiline
-                  />
+                    <SSDSText variant="Caption">
+                      Sender: {item.user_id} • v{item.app_version || '1.0.0'} •{' '}
+                      {item.platform || 'unknown'}
+                    </SSDSText>
 
-                  <Button
-                    label={feedbackSavingId === item.id ? 'Saving...' : 'Save update'}
-                    size="sm"
-                    disabled={feedbackSavingId === item.id}
-                    onPress={async () => {
-                      setFeedbackSavingId(item.id);
-                      setFeedbackError('');
-                      try {
-                        const updated = await updateFeedbackSubmissionAdmin(item.id, {
-                          status: draftStatus,
-                          adminResponse: draftResponse,
-                          respondedBy: state.user?.id,
-                        });
-                        setFeedbackItems((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-                      } catch (err) {
-                        setFeedbackError(err instanceof Error ? err.message : 'Unable to save feedback update.');
-                      } finally {
-                        setFeedbackSavingId(null);
+                    {item.logs_shared || item.screenshot_included ? (
+                      <View
+                        style={{
+                          gap: 6,
+                          padding: 10,
+                          borderRadius: tokens.radius.sm,
+                          backgroundColor: tokens.colors.surfaceSecondary,
+                        }}
+                      >
+                        <SSDSText variant="Caption" color="textSecondary">
+                          Attachments:{' '}
+                          {item.logs_shared ? 'Logs (redacted)' : 'No logs'} •{' '}
+                          {item.screenshot_included
+                            ? 'Screenshot'
+                            : 'No screenshot'}
+                        </SSDSText>
+                        {logsPreview ? (
+                          <SSDSText variant="Caption" maxLines={4}>
+                            {logsPreview}
+                          </SSDSText>
+                        ) : null}
+                        {screenshotPath ? (
+                          <Pressable
+                            onPress={async () => {
+                              try {
+                                const url =
+                                  await createFeedbackScreenshotSignedUrl(
+                                    screenshotPath,
+                                  );
+                                await Linking.openURL(url);
+                              } catch (err) {
+                                setFeedbackError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Unable to open screenshot.',
+                                );
+                              }
+                            }}
+                            style={{ alignSelf: 'flex-start', paddingVertical: 4 }}
+                          >
+                            <SSDSText variant="ButtonLabel" color="primary">
+                              Open signed screenshot
+                            </SSDSText>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    <SSDSRow wrap="wrap" gap={6}>
+                      {FEEDBACK_STATUS_OPTIONS.map((st) => (
+                        <SSDSButton
+                          key={st}
+                          size="small"
+                          variant={draftStatus === st ? 'primary' : 'outline'}
+                          onPress={() =>
+                            setFeedbackStatusDrafts((prev) => ({
+                              ...prev,
+                              [item.id]: st,
+                            }))
+                          }
+                        >
+                          {st}
+                        </SSDSButton>
+                      ))}
+                    </SSDSRow>
+
+                    <SSDSTextInput
+                      label="Internal / Admin Response"
+                      value={draftResponse}
+                      onChangeText={(txt) =>
+                        setFeedbackResponseDrafts((prev) => ({
+                          ...prev,
+                          [item.id]: txt,
+                        }))
                       }
-                    }}
-                  />
-                </Card>
+                      placeholder="Add resolution notes or response..."
+                      multiline
+                    />
+
+                    <SSDSButton
+                      size="small"
+                      disabled={feedbackSavingId === item.id}
+                      loading={feedbackSavingId === item.id}
+                      onPress={async () => {
+                        setFeedbackSavingId(item.id);
+                        setFeedbackError('');
+                        try {
+                          const updated = await updateFeedbackSubmissionAdmin(
+                            item.id,
+                            {
+                              status: draftStatus,
+                              adminResponse: draftResponse,
+                              respondedBy: state.user?.id,
+                            },
+                          );
+                          setFeedbackItems((prev) =>
+                            prev.map((row) =>
+                              row.id === updated.id ? updated : row,
+                            ),
+                          );
+                        } catch (err) {
+                          setFeedbackError(
+                            err instanceof Error
+                              ? err.message
+                              : 'Unable to save feedback update.',
+                          );
+                        } finally {
+                          setFeedbackSavingId(null);
+                        }
+                      }}
+                    >
+                      {feedbackSavingId === item.id ? 'Saving...' : 'Save update'}
+                    </SSDSButton>
+                  </SSDSStack>
+                </SSDSSurface>
               );
             })}
 
           {!feedbackLoading && feedbackItems.length === 0 ? (
-            <Card>
-              <EmptyState
-                icon="chatbox-ellipses-outline"
+            <SSDSSurface variant="outlined" padding={16}>
+              <SSDSEmptyState
+                icon={MessageSquare}
                 title="No feedback submissions yet"
-                body="Submitted issues, ideas, and appreciations will appear here once learners submit them."
+                description="Submitted issues, ideas, and appreciations will appear here once learners submit them."
               />
-            </Card>
+            </SSDSSurface>
           ) : null}
-        </View>
+        </SSDSStack>
       ) : null}
 
-      <Modal visible={Boolean(deleteTarget)} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.48)' }}>
-          <Card style={{ width: '100%', maxWidth: 420, alignSelf: 'center', gap: 14 }}>
-            <Txt size={17} weight="800" display>Delete this content?</Txt>
-            <Txt size={13} color={colors.textMuted}>
-              {deleteTarget?.title} will be removed from Supabase and the student-facing catalog.
-            </Txt>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 9 }}>
-              <Button label="Cancel" variant="outline" onPress={() => setDeleteTarget(null)} />
-              <Button label="Delete" icon="trash-outline" variant="danger" onPress={deleteContent} />
-            </View>
-          </Card>
-        </View>
-      </Modal>
+      <SSDSConfirmationPattern
+        open={Boolean(deleteTarget)}
+        title="Delete this content?"
+        description={`${deleteTarget?.title ?? ''} will be removed from Supabase and the student-facing catalog.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={contentBusy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          void deleteContent();
+        }}
+      />
     </Shell>
   );
 }

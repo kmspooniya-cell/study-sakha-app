@@ -37,7 +37,15 @@ export function Switch({
   }, [checked, tokens.motion.durationFast, translateX]);
 
   return (
-    <View style={[styles.row, { opacity: disabled ? 0.55 : 1 }, style]}>
+    <Pressable
+      disabled={disabled}
+      onPress={() => !disabled && onChange?.(!checked)}
+      hitSlop={10}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked, disabled }}
+      style={[styles.row, { opacity: disabled ? 0.55 : 1 }, style]}
+    >
       {(!!label || !!description) && (
         <View style={styles.textBlock}>
           {!!label && (
@@ -49,13 +57,7 @@ export function Switch({
         </View>
       )}
 
-      <Pressable
-        disabled={disabled}
-        onPress={() => !disabled && onChange?.(!checked)}
-        hitSlop={8}
-        accessibilityRole="switch"
-        accessibilityLabel={label}
-        accessibilityState={{ checked, disabled }}
+      <View
         style={[
           styles.track,
           {
@@ -71,8 +73,8 @@ export function Switch({
             { transform: [{ translateX }] },
           ]}
         />
-      </Pressable>
-    </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -82,6 +84,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+    minHeight: 44,
   },
   textBlock: {
     flex: 1,

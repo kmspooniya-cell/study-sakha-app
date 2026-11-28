@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeProvider';
 import { ScreenContainer } from './ScreenContainer';
@@ -33,13 +33,12 @@ export function PageLayout({
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
 
-  return (
-    <View style={[styles.root, { backgroundColor: tokens.colors.background }, style]}>
-      {header}
+  const mainContent = (
+    <>
       <ScreenContainer
         scrollable={scrollable}
         padding={padding}
-        keyboardAvoiding={keyboardAvoiding}
+        keyboardAvoiding={false}
         contentContainerStyle={contentContainerStyle}
       >
         {children}
@@ -58,6 +57,22 @@ export function PageLayout({
         >
           {footer}
         </View>
+      )}
+    </>
+  );
+
+  return (
+    <View style={[styles.root, { backgroundColor: tokens.colors.background }, style]}>
+      {header}
+      {keyboardAvoiding ? (
+        <KeyboardAvoidingView
+          style={styles.root}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          {mainContent}
+        </KeyboardAvoidingView>
+      ) : (
+        mainContent
       )}
     </View>
   );

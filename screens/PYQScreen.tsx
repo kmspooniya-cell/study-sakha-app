@@ -1,20 +1,39 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
+import {
+  Bookmark,
+  CheckCircle2,
+  Eye,
+  Layers,
+  Lightbulb,
+  Sparkles,
+  Timer,
+  XCircle,
+} from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { Shell, useLayout } from '../components/Shell';
-import { Button, Card, Chip, EmptyState, Field, Tag, Txt } from '../components/ui';
-import { EXAMS, PYQS, SUBJECTS } from '../lib/data';
+import {
+  SSDSBadge,
+  SSDSButton,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSearchInput,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
+import { EXAMS, PYQS } from '../lib/data';
 import { useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 import { PYQ } from '../lib/types';
 import type { ExamId } from '../lib/types';
 
 const DIFFICULTY = ['Easy', 'Moderate', 'Hard'] as const;
 
 export default function PYQScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'PYQ'>>();
   const { state, dispatch } = useStore();
@@ -28,10 +47,16 @@ export default function PYQScreen() {
   const [revealed, setRevealed] = useState<Record<string, number>>({});
   const [refreshing, setRefreshing] = useState(false);
 
-  const years = useMemo(() => Array.from(new Set(PYQS.map((p) => p.year))).sort((a, b) => b - a), []);
+  const years = useMemo(
+    () => Array.from(new Set(PYQS.map((p) => p.year))).sort((a, b) => b - a),
+    [],
+  );
   const subjects = useMemo(
-    () => Array.from(new Set(PYQS.filter((p) => exam === 'all' || p.exam === exam).map((p) => p.subject))),
-    [exam]
+    () =>
+      Array.from(
+        new Set(PYQS.filter((p) => exam === 'all' || p.exam === exam).map((p) => p.subject)),
+      ),
+    [exam],
   );
 
   const data = useMemo(() => {
@@ -42,7 +67,11 @@ export default function PYQScreen() {
     if (difficulty !== 'all') list = list.filter((p) => p.difficulty === difficulty);
     if (onlyBookmarks) list = list.filter((p) => state.bookmarks.includes(p.id));
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((p) => `${p.question} ${p.explanation} ${p.subject}`.toLowerCase().includes(q));
+    if (q) {
+      list = list.filter((p) =>
+        `${p.question} ${p.explanation} ${p.subject}`.toLowerCase().includes(q),
+      );
+    }
     return list;
   }, [exam, subject, year, difficulty, onlyBookmarks, query, state.bookmarks]);
 
@@ -57,17 +86,27 @@ export default function PYQScreen() {
     const picked = revealed[p.id];
     const open = picked !== undefined;
     const marked = state.bookmarks.includes(p.id);
-    const diffColor = p.difficulty === 'Easy' ? colors.success : p.difficulty === 'Hard' ? colors.danger : colors.warning;
+    const diffVariant =
+      p.difficulty === 'Easy' ? 'success' : p.difficulty === 'Hard' ? 'danger' : 'warning';
+
     return (
-      <Card style={{ marginBottom: 12 }} key={p.id}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
-          <Tag label={EXAMS.find((e) => e.id === p.exam)?.short ?? ''} color={colors.blue} />
-          <Tag label={`${p.year}`} color={colors.textMuted} />
-          <Tag label={p.subject} color={colors.teal} />
-          <Tag label={p.difficulty} color={diffColor} />
-          <Txt size={11} color={colors.textFaint} style={{ marginLeft: 4 }}>
+      <SSDSSurface variant="outlined" padding={16} style={{ marginBottom: 12 }} key={p.id}>
+        <SSDSRow wrap="wrap" gap={7} style={{ marginBottom: 10 }}>
+          <SSDSBadge variant="primary" size="sm">
+            {EXAMS.find((e) => e.id === p.exam)?.short ?? ''}
+          </SSDSBadge>
+          <SSDSBadge variant="neutral" size="sm">
+            {`${p.year}`}
+          </SSDSBadge>
+          <SSDSBadge variant="secondary" size="sm">
+            {p.subject}
+          </SSDSBadge>
+          <SSDSBadge variant={diffVariant} size="sm">
+            {p.difficulty}
+          </SSDSBadge>
+          <SSDSText variant="Caption" style={{ marginLeft: 4 }}>
             {p.paper}
-          </Txt>
+          </SSDSText>
           <Pressable
             hitSlop={8}
             accessibilityRole="button"
@@ -80,32 +119,44 @@ export default function PYQScreen() {
               borderRadius: 12,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: marked ? colors.tint : colors.surfaceAlt,
+              backgroundColor: marked
+                ? tokens.colors.primaryLight
+                : tokens.colors.surfaceSecondary,
               borderWidth: 1,
-              borderColor: marked ? colors.blue : colors.borderSubtle,
+              borderColor: marked ? tokens.colors.primary : tokens.colors.borderSubtle,
               transform: [{ scale: pressed ? 0.96 : 1 }],
             })}
           >
-            <Ionicons name={marked ? 'bookmark' : 'bookmark-outline'} size={17} color={marked ? colors.blue : colors.textFaint} />
+            <SSDSIcon
+              icon={Bookmark}
+              size={17}
+              color={marked ? 'primary' : 'textTertiary'}
+            />
           </Pressable>
-        </View>
+        </SSDSRow>
 
-        <Txt size={15} weight="700" style={{ marginBottom: 12 }}>
+        <SSDSText variant="CardTitle" style={{ marginBottom: 12 }}>
           {p.question}
-        </Txt>
+        </SSDSText>
 
-        <View style={{ gap: 8 }}>
+        <SSDSStack gap={8}>
           {p.options.map((opt, i) => {
             const isAnswer = i === p.answer;
             const isPicked = picked === i;
             const bg = !open
-              ? colors.surface
+              ? tokens.colors.surface
               : isAnswer
-              ? `${colors.success}18`
-              : isPicked
-              ? `${colors.danger}15`
-              : colors.surface;
-            const bc = !open ? colors.borderSubtle : isAnswer ? colors.success : isPicked ? colors.danger : colors.borderSubtle;
+                ? tokens.colors.successBackground
+                : isPicked
+                  ? tokens.colors.dangerBackground
+                  : tokens.colors.surface;
+            const bc = !open
+              ? tokens.colors.borderSubtle
+              : isAnswer
+                ? tokens.colors.success
+                : isPicked
+                  ? tokens.colors.danger
+                  : tokens.colors.borderSubtle;
             return (
               <Pressable
                 key={i}
@@ -115,10 +166,11 @@ export default function PYQScreen() {
                   alignItems: 'center',
                   gap: 12,
                   padding: 13,
-                  borderRadius: radii.control,
+                  borderRadius: tokens.radius.md,
                   borderWidth: 1.2,
                   borderColor: bc,
-                  backgroundColor: pressed && !open ? colors.surfaceAlt : bg,
+                  backgroundColor:
+                    pressed && !open ? tokens.colors.surfaceSecondary : bg,
                   transform: [{ scale: pressed && !open ? 0.99 : 1 }],
                 })}
               >
@@ -128,135 +180,256 @@ export default function PYQScreen() {
                     height: 26,
                     borderRadius: 13,
                     borderWidth: 1.5,
-                    borderColor: open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.borderSubtle,
-                    backgroundColor: open && isAnswer ? colors.success : open && isPicked ? colors.danger : colors.surfaceAlt,
+                    borderColor:
+                      open && isAnswer
+                        ? tokens.colors.success
+                        : open && isPicked
+                          ? tokens.colors.danger
+                          : tokens.colors.borderSubtle,
+                    backgroundColor:
+                      open && isAnswer
+                        ? tokens.colors.success
+                        : open && isPicked
+                          ? tokens.colors.danger
+                          : tokens.colors.surfaceSecondary,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Txt size={11.5} weight="800" color={open && (isAnswer || isPicked) ? '#FFFFFF' : colors.textMuted}>
+                  <SSDSText
+                    variant="Caption"
+                    color={open && (isAnswer || isPicked) ? '#FFFFFF' : 'textSecondary'}
+                  >
                     {String.fromCharCode(65 + i)}
-                  </Txt>
+                  </SSDSText>
                 </View>
-                <Txt size={13.5} style={{ flex: 1 }}>
+                <SSDSText variant="BodyPrimary" style={{ flex: 1 }}>
                   {opt}
-                </Txt>
-                {open && isAnswer ? <Ionicons name="checkmark-circle" size={19} color={colors.success} /> : null}
-                {open && isPicked && !isAnswer ? <Ionicons name="close-circle" size={19} color={colors.danger} /> : null}
+                </SSDSText>
+                {open && isAnswer ? (
+                  <SSDSIcon icon={CheckCircle2} size={19} color="success" />
+                ) : null}
+                {open && isPicked && !isAnswer ? (
+                  <SSDSIcon icon={XCircle} size={19} color="danger" />
+                ) : null}
               </Pressable>
             );
           })}
-        </View>
+        </SSDSStack>
 
         {open ? (
-          <View style={{ marginTop: 12, padding: 14, borderRadius: 16, backgroundColor: colors.surfaceAlt, gap: 7, borderWidth: 1, borderColor: colors.borderSubtle }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-              <Ionicons name="bulb-outline" size={16} color={colors.teal} />
-              <Txt size={12.5} weight="800" color={colors.teal}>
+          <View
+            style={{
+              marginTop: 12,
+              padding: 14,
+              borderRadius: 16,
+              backgroundColor: tokens.colors.surfaceSecondary,
+              gap: 7,
+              borderWidth: 1,
+              borderColor: tokens.colors.borderSubtle,
+            }}
+          >
+            <SSDSRow gap={7}>
+              <SSDSIcon icon={Lightbulb} size={16} color="secondary" />
+              <SSDSText variant="InputLabel" color="secondary">
                 Explanation
-              </Txt>
-            </View>
-            <Txt size={13} color={colors.textMuted}>
-              {p.explanation}
-            </Txt>
+              </SSDSText>
+            </SSDSRow>
+            <SSDSText variant="BodySecondary">{p.explanation}</SSDSText>
             <Pressable
-              onPress={() => nav.navigate('SakhaAI', { prompt: `Explain in depth: ${p.question}` })}
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, opacity: pressed ? 0.6 : 1 })}
+              onPress={() =>
+                nav.navigate('SakhaAI', { prompt: `Explain in depth: ${p.question}` })
+              }
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 5,
+                marginTop: 4,
+                opacity: pressed ? 0.6 : 1,
+              })}
             >
-              <Ionicons name="sparkles-outline" size={14} color={colors.blue} />
-              <Txt size={12.5} weight="800" color={colors.blue}>
+              <SSDSIcon icon={Sparkles} size={14} color="primary" />
+              <SSDSText variant="ButtonLabel" color="primary">
                 Ask Sakha AI to go deeper
-              </Txt>
+              </SSDSText>
             </Pressable>
           </View>
         ) : (
           <Pressable
             onPress={() => setRevealed((r) => ({ ...r, [p.id]: -1 }))}
-            style={({ pressed }) => ({ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({
+              marginTop: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              opacity: pressed ? 0.6 : 1,
+            })}
           >
-            <Ionicons name="eye-outline" size={15} color={colors.textMuted} />
-            <Txt size={12.5} weight="700" color={colors.textMuted}>
+            <SSDSIcon icon={Eye} size={15} color="textSecondary" />
+            <SSDSText variant="ButtonLabel" color="textSecondary">
               Reveal answer
-            </Txt>
+            </SSDSText>
           </Pressable>
         )}
-      </Card>
+      </SSDSSurface>
     );
   };
 
   const header = (
-    <View style={{ gap: 14, marginBottom: 6 }}>
-      <Field value={query} onChangeText={setQuery} placeholder="Search questions, topics, explanations…" icon="search-outline" returnKeyType="search" />
+    <SSDSStack gap={14} style={{ marginBottom: 6 }}>
+      <SSDSSearchInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search questions, topics, explanations…"
+        returnKeyType="search"
+      />
 
-      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-        <Card style={{ flexGrow: 1, flexBasis: 140, padding: 12 }}>
-          <Txt size={20} weight="800" display>
-            {stats.total}
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
-            questions in view
-          </Txt>
-        </Card>
-        <Card style={{ flexGrow: 1, flexBasis: 140, padding: 12 }}>
-          <Txt size={20} weight="800" display color={colors.teal}>
+      <SSDSRow wrap="wrap" gap={10}>
+        <SSDSSurface
+          variant="outlined"
+          padding={12}
+          style={{ flexGrow: 1, flexBasis: 140 }}
+        >
+          <SSDSText variant="StatisticValue">{stats.total}</SSDSText>
+          <SSDSText variant="StatisticLabel">questions in view</SSDSText>
+        </SSDSSurface>
+        <SSDSSurface
+          variant="outlined"
+          padding={12}
+          style={{ flexGrow: 1, flexBasis: 140 }}
+        >
+          <SSDSText variant="StatisticValue" color="secondary">
             {stats.solved}
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
-            attempted this session
-          </Txt>
-        </Card>
-        <Card style={{ flexGrow: 1, flexBasis: 140, padding: 12 }}>
-          <Txt size={20} weight="800" display color={colors.success}>
+          </SSDSText>
+          <SSDSText variant="StatisticLabel">attempted this session</SSDSText>
+        </SSDSSurface>
+        <SSDSSurface
+          variant="outlined"
+          padding={12}
+          style={{ flexGrow: 1, flexBasis: 140 }}
+        >
+          <SSDSText variant="StatisticValue" color="success">
             {stats.solved ? Math.round((stats.correct / stats.solved) * 100) : 0}%
-          </Txt>
-          <Txt size={11.5} color={colors.textMuted}>
-            session accuracy
-          </Txt>
-        </Card>
-      </View>
+          </SSDSText>
+          <SSDSText variant="StatisticLabel">session accuracy</SSDSText>
+        </SSDSSurface>
+      </SSDSRow>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="All exams" active={exam === 'all'} onPress={() => { setExam('all'); setSubject('all'); }} />
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={exam === 'all' ? 'primary' : 'outline'}
+          onPress={() => {
+            setExam('all');
+            setSubject('all');
+          }}
+        >
+          All exams
+        </SSDSButton>
         {EXAMS.map((e) => (
-          <Chip key={e.id} label={e.short} tone={e.color} active={exam === e.id} onPress={() => { setExam(e.id); setSubject('all'); }} />
+          <SSDSButton
+            key={e.id}
+            size="small"
+            variant={exam === e.id ? 'primary' : 'outline'}
+            onPress={() => {
+              setExam(e.id);
+              setSubject('all');
+            }}
+          >
+            {e.short}
+          </SSDSButton>
         ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="All subjects" active={subject === 'all'} onPress={() => setSubject('all')} />
+      </SSDSRow>
+
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={subject === 'all' ? 'primary' : 'outline'}
+          onPress={() => setSubject('all')}
+        >
+          All subjects
+        </SSDSButton>
         {subjects.map((s) => (
-          <Chip key={s} label={s} tone={SUBJECTS.find((x) => x.name === s)?.color} active={subject === s} onPress={() => setSubject(s)} />
+          <SSDSButton
+            key={s}
+            size="small"
+            variant={subject === s ? 'primary' : 'outline'}
+            onPress={() => setSubject(s)}
+          >
+            {s}
+          </SSDSButton>
         ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="All years" active={year === 'all'} onPress={() => setYear('all')} />
+      </SSDSRow>
+
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={year === 'all' ? 'primary' : 'outline'}
+          onPress={() => setYear('all')}
+        >
+          All years
+        </SSDSButton>
         {years.map((y) => (
-          <Chip key={y} label={`${y}`} active={year === y} onPress={() => setYear(y)} />
+          <SSDSButton
+            key={y}
+            size="small"
+            variant={year === y ? 'primary' : 'outline'}
+            onPress={() => setYear(y)}
+          >
+            {`${y}`}
+          </SSDSButton>
         ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="Any difficulty" active={difficulty === 'all'} onPress={() => setDifficulty('all')} />
+      </SSDSRow>
+
+      <SSDSRow wrap="wrap" gap={8}>
+        <SSDSButton
+          size="small"
+          variant={difficulty === 'all' ? 'primary' : 'outline'}
+          onPress={() => setDifficulty('all')}
+        >
+          Any difficulty
+        </SSDSButton>
         {DIFFICULTY.map((d) => (
-          <Chip
+          <SSDSButton
             key={d}
-            label={d}
-            tone={d === 'Easy' ? colors.success : d === 'Hard' ? colors.danger : colors.warning}
-            active={difficulty === d}
+            size="small"
+            variant={difficulty === d ? 'primary' : 'outline'}
             onPress={() => setDifficulty(d)}
-          />
+          >
+            {d}
+          </SSDSButton>
         ))}
-        <Chip label="Bookmarked" icon="bookmark-outline" active={onlyBookmarks} onPress={() => setOnlyBookmarks((b) => !b)} />
-      </View>
-    </View>
+        <SSDSButton
+          size="small"
+          leadingIcon={Bookmark}
+          variant={onlyBookmarks ? 'primary' : 'outline'}
+          onPress={() => setOnlyBookmarks((b) => !b)}
+        >
+          Bookmarked
+        </SSDSButton>
+      </SSDSRow>
+    </SSDSStack>
   );
 
   return (
-    <Shell active="PYQ" title="PYQ Bank" subtitle="Previous year questions with verified answers and explanations" scroll={false}>
+    <Shell
+      active="PYQ"
+      title="PYQ Bank"
+      subtitle="Previous year questions with verified answers and explanations"
+      scroll={false}
+    >
       <FlatList
         data={data}
         keyExtractor={(p) => p.id}
         ListHeaderComponent={header}
         renderItem={({ item }) => renderItem(item)}
-        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 24, maxWidth: 980, width: '100%', alignSelf: 'center' }}
+        contentContainerStyle={{
+          padding: isMobile ? 16 : 24,
+          paddingBottom: 24,
+          maxWidth: 980,
+          width: '100%',
+          alignSelf: 'center',
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -268,36 +441,41 @@ export default function PYQScreen() {
                 setRefreshing(false);
               }, 600);
             }}
-            tintColor={colors.blue}
-            colors={[colors.blue]}
+            tintColor={tokens.colors.primary}
+            colors={[tokens.colors.primary]}
           />
         }
         ListEmptyComponent={
-          <EmptyState
-            icon="albums-outline"
+          <SSDSEmptyState
+            icon={Layers}
             title="No questions match these filters"
-            body="Widen the year range or clear the subject filter to see more previous year questions."
-            action="Clear filters"
-            onAction={() => {
-              setExam('all');
-              setSubject('all');
-              setYear('all');
-              setDifficulty('all');
-              setOnlyBookmarks(false);
-              setQuery('');
+            description="Widen the year range or clear the subject filter to see more previous year questions."
+            primaryAction={{
+              label: 'Clear filters',
+              onPress: () => {
+                setExam('all');
+                setSubject('all');
+                setYear('all');
+                setDifficulty('all');
+                setOnlyBookmarks(false);
+                setQuery('');
+              },
             }}
           />
         }
         ListFooterComponent={
           data.length ? (
-            <Button
-              label="Practise this set as a timed quiz"
-              icon="timer-outline"
-              variant="soft"
-              full
+            <SSDSButton
+              variant="secondary"
+              leadingIcon={Timer}
+              fullWidth
               style={{ marginTop: 6 }}
-              onPress={() => nav.navigate('Tests', { headerBrand: route.params?.headerBrand })}
-            />
+              onPress={() =>
+                nav.navigate('Tests', { headerBrand: route.params?.headerBrand })
+              }
+            >
+              Practise this set as a timed quiz
+            </SSDSButton>
           ) : null
         }
       />

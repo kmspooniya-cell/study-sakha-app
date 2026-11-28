@@ -34,6 +34,8 @@ export interface SelectProps {
   options: SelectOption[];
   onChange?: (value: string) => void;
   helperText?: string;
+  errorText?: string;
+  required?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 }
@@ -45,6 +47,8 @@ export function Select({
   options,
   onChange,
   helperText,
+  errorText,
+  required = false,
   disabled = false,
   style,
 }: SelectProps) {
@@ -55,7 +59,16 @@ export function Select({
 
   return (
     <View style={[styles.wrapper, style]}>
-      {!!label && <Text variant="InputLabel">{label}</Text>}
+      {!!label && (
+        <View style={styles.labelRow}>
+          <Text variant="InputLabel">{label}</Text>
+          {required && (
+            <Text variant="InputLabel" color="danger">
+              *
+            </Text>
+          )}
+        </View>
+      )}
 
       <Pressable
         disabled={disabled}
@@ -71,7 +84,11 @@ export function Select({
             backgroundColor: disabled
               ? tokens.colors.surfaceDisabled
               : tokens.colors.surface,
-            borderColor: open ? tokens.colors.borderFocused : tokens.colors.border,
+            borderColor: errorText
+              ? tokens.colors.danger
+              : open
+              ? tokens.colors.borderFocused
+              : tokens.colors.border,
           },
         ]}
       >
@@ -92,7 +109,11 @@ export function Select({
         <Icon icon={ChevronDown} size={16} color="textTertiary" />
       </Pressable>
 
-      {!!helperText && <Text variant="HelperText">{helperText}</Text>}
+      {errorText ? (
+        <Text variant="ErrorText">{errorText}</Text>
+      ) : (
+        !!helperText && <Text variant="HelperText">{helperText}</Text>
+      )}
 
       <Modal
         visible={open}
@@ -100,8 +121,13 @@ export function Select({
         animationType={tokens.motion.reducedMotion ? 'none' : 'fade'}
         onRequestClose={() => setOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setOpen(false)}
+          accessible={false}
+        >
           <Pressable
+            accessibilityViewIsModal
             style={[
               styles.sheet,
               tokens.shadows.elevation5,
@@ -127,7 +153,7 @@ export function Select({
             <FlatList
               data={options}
               keyExtractor={(item) => item.value}
-              style={styles.list}
+              contentContainerStyle={styles.list}
               renderItem={({ item }) => {
                 const isSelected = item.value === value;
                 return (
@@ -173,6 +199,11 @@ const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
     gap: 6,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   trigger: {
     flexDirection: 'row',

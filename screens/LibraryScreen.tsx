@@ -1,31 +1,109 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Platform, Pressable, RefreshControl, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Platform,
+  Pressable,
+  RefreshControl,
+  View,
+} from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  CloudDownload,
+  ExternalLink,
+  FileText,
+  Filter,
+  Layers,
+  PlusCircle,
+  RefreshCw,
+  Star,
+  Timer,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { Shell, useLayout } from '../components/Shell';
-import { Button, Chip, EmptyState, Field, ProgressBar, Skeleton, StitchCard, Tag, Txt } from '../components/ui';
 import { Popup } from '../components/Popup';
+import {
+  SSDSBadge,
+  SSDSButton,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSProgressBar,
+  SSDSRow,
+  SSDSSearchInput,
+  SSDSSkeleton,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
 import { EXAMS, getResources, SUBJECTS } from '../lib/data';
-import { downloadResourceFile, getResourceDownloads, removeResourceDownload } from '../lib/resourceDownloads';
+import {
+  downloadResourceFile,
+  getResourceDownloads,
+  removeResourceDownload,
+} from '../lib/resourceDownloads';
 import type { ResourceDownload } from '../lib/resourceDownloads';
 import { createStudentContentSignedUrl } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import type { State } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 import { Resource } from '../lib/types';
 import type { ExamId } from '../lib/types';
 import type { AppNavigation, AppRoute } from '../lib/navigation';
 import { translateLabel } from '../lib/i18n';
 
 const LIBRARY_SECTIONS = [
-  { route: 'LibraryNotes', key: 'note', label: 'Notes', icon: 'document-text-outline', description: 'Your revision notes and study material.' },
-  { route: 'LibraryBooks', key: 'book', label: 'Books & PDFs', icon: 'book-outline', description: 'Browse books and PDF resources.' },
-  { route: 'LibraryPYQSets', key: 'pyq-set', label: 'PYQ Sets', icon: 'albums-outline', description: 'Practice previous-year question sets.' },
-  { route: 'Tests', key: 'tests', label: 'Tests', icon: 'timer-outline', description: 'Practice timed tests and track your results.' },
-  { route: 'LibraryStarred', key: 'starred', label: 'Starred', icon: 'star-outline', description: 'Quick access to resources you starred.' },
-  { route: 'LibraryDownloads', key: 'downloads', label: 'Downloads', icon: 'cloud-download-outline', description: 'Saved offline files on this device.' },
+  {
+    route: 'LibraryNotes',
+    key: 'note',
+    label: 'Notes',
+    icon: FileText,
+    description: 'Your revision notes and study material.',
+  },
+  {
+    route: 'LibraryBooks',
+    key: 'book',
+    label: 'Books & PDFs',
+    icon: BookOpen,
+    description: 'Browse books and PDF resources.',
+  },
+  {
+    route: 'LibraryPYQSets',
+    key: 'pyq-set',
+    label: 'PYQ Sets',
+    icon: Layers,
+    description: 'Practice previous-year question sets.',
+  },
+  {
+    route: 'Tests',
+    key: 'tests',
+    label: 'Tests',
+    icon: Timer,
+    description: 'Practice timed tests and track your results.',
+  },
+  {
+    route: 'LibraryStarred',
+    key: 'starred',
+    label: 'Starred',
+    icon: Star,
+    description: 'Quick access to resources you starred.',
+  },
+  {
+    route: 'LibraryDownloads',
+    key: 'downloads',
+    label: 'Downloads',
+    icon: CloudDownload,
+    description: 'Saved offline files on this device.',
+  },
 ] as const;
 
 type LibrarySection = (typeof LIBRARY_SECTIONS)[number];
@@ -45,7 +123,9 @@ const BOOK_CATEGORIES = [
 
 function getSectionResources(section: LibrarySectionKey, state: State): Resource[] {
   const resources = getResources(state.managedContent);
-  if (section === 'starred') return resources.filter((resource) => state.starred.includes(resource.id));
+  if (section === 'starred') {
+    return resources.filter((resource) => state.starred.includes(resource.id));
+  }
   if (section === 'downloads' || section === 'tests') return [];
   return resources.filter((resource) => resource.type === section);
 }
@@ -54,20 +134,30 @@ function SectionCount({ section, state }: { section: LibrarySection; state: Stat
   const count = getSectionResources(section.key, state).length;
   const language = state.settings.language;
   return (
-    <Txt size={12} weight="700" color={useTheme().colors.textMuted}>
+    <SSDSText variant="Caption" color="textSecondary">
       {section.key === 'downloads'
-        ? (language === 'hi' ? 'सहेजी गई फ़ाइलें प्रबंधित करें' : 'Manage saved files')
+        ? language === 'hi'
+          ? 'सहेजी गई फ़ाइलें प्रबंधित करें'
+          : 'Manage saved files'
         : section.key === 'tests'
-          ? (language === 'hi' ? 'टेस्ट सीरीज़ खोलें' : 'Open test series')
-          : `${count} ${language === 'hi' ? 'संसाधन' : `resource${count === 1 ? '' : 's'}`}`}
-    </Txt>
+          ? language === 'hi'
+            ? 'टेस्ट सीरीज़ खोलें'
+            : 'Open test series'
+          : `${count} ${
+              language === 'hi' ? 'संसाधन' : `resource${count === 1 ? '' : 's'}`
+            }`}
+    </SSDSText>
   );
 }
 
 async function shareDownloadedFile(download: ResourceDownload) {
   const info = await FileSystem.getInfoAsync(download.localUri);
-  if (!info.exists) throw new Error('This downloaded file is no longer available on this device.');
-  if (!(await Sharing.isAvailableAsync())) throw new Error('File sharing is not available on this device.');
+  if (!info.exists) {
+    throw new Error('This downloaded file is no longer available on this device.');
+  }
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error('File sharing is not available on this device.');
+  }
   await Sharing.shareAsync(download.localUri, {
     mimeType: 'application/pdf',
     dialogTitle: `Share ${download.title}`,
@@ -77,27 +167,48 @@ async function shareDownloadedFile(download: ResourceDownload) {
 export default function LibraryScreen() {
   const nav = useNavigation<AppNavigation>();
   const route = useRoute<AppRoute<'Library'>>();
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const { state } = useStore();
   const { isMobile } = useLayout();
   const language = state.settings.language;
 
   return (
-    <Shell active="Library" title={translateLabel('Library', language)} subtitle={language === 'hi' ? 'आपके अध्ययन संसाधन एक ही स्थान पर' : 'Your study resources, organized in one place'} scroll={false}>
+    <Shell
+      active="Library"
+      title={translateLabel('Library', language)}
+      subtitle={
+        language === 'hi'
+          ? 'आपके अध्ययन संसाधन एक ही स्थान पर'
+          : 'Your study resources, organized in one place'
+      }
+      scroll={false}
+    >
       <FlatList
         data={LIBRARY_SECTIONS}
         keyExtractor={(section) => section.route}
         numColumns={2}
         columnWrapperStyle={{ gap: 10 }}
-        contentContainerStyle={{ padding: isMobile ? 16 : 24, paddingBottom: 24, gap: 12, maxWidth: 920, width: '100%', alignSelf: 'center' }}
+        contentContainerStyle={{
+          padding: isMobile ? 16 : 24,
+          paddingBottom: 24,
+          gap: 12,
+          maxWidth: 920,
+          width: '100%',
+          alignSelf: 'center',
+        }}
         renderItem={({ item: section }) => (
-          <StitchCard style={{ flex: 1, padding: 0 }} tone="glass">
+          <SSDSSurface variant="outlined" radius="lg" style={{ flex: 1 }}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${language === 'hi' ? 'खोलें' : 'Open'} ${translateLabel(section.label, language)}`}
               onPress={() => {
                 if (section.route === 'Tests') {
-                  nav.navigate('Tests', route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : undefined);
+                  nav.navigate(
+                    'Tests',
+                    route.params?.headerBrand
+                      ? { headerBrand: route.params.headerBrand }
+                      : undefined,
+                  );
                 } else {
                   nav.navigate(section.route, route.params);
                 }
@@ -109,19 +220,32 @@ export default function LibraryScreen() {
                 opacity: pressed ? 0.75 : 1,
               })}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ width: 42, height: 42, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.tint }}>
-                  <Ionicons name={section.icon} size={21} color={colors.blue} />
+              <SSDSRow justify="space-between">
+                <View
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: tokens.radius.md,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: tokens.colors.primaryLight,
+                  }}
+                >
+                  <SSDSIcon icon={section.icon as LucideIcon} size={21} color="primary" />
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-              </View>
+                <SSDSIcon icon={ChevronRight} size={18} color="textTertiary" />
+              </SSDSRow>
               <View style={{ flex: 1, gap: 3 }}>
-                <Txt size={14} weight="800">{translateLabel(section.label, language)}</Txt>
-                <Txt size={11.5} color={colors.textMuted} numberOfLines={2}>{section.description}</Txt>
+                <SSDSText variant="CardTitle">
+                  {translateLabel(section.label, language)}
+                </SSDSText>
+                <SSDSText variant="Caption" maxLines={2}>
+                  {section.description}
+                </SSDSText>
               </View>
               <SectionCount section={section} state={state} />
             </Pressable>
-          </StitchCard>
+          </SSDSSurface>
         )}
       />
     </Shell>
@@ -129,26 +253,40 @@ export default function LibraryScreen() {
 }
 
 function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey }) {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
-  const route = useRoute<AppRoute<'LibraryNotes' | 'LibraryBooks' | 'LibraryPYQSets' | 'LibraryStarred' | 'LibraryDownloads'>>();
+  const route =
+    useRoute<
+      AppRoute<
+        | 'LibraryNotes'
+        | 'LibraryBooks'
+        | 'LibraryPYQSets'
+        | 'LibraryStarred'
+        | 'LibraryDownloads'
+      >
+    >();
   const { state, dispatch } = useStore();
   const { isMobile, isDesktop, isTablet } = useLayout();
   const section = LIBRARY_SECTIONS.find((item) => item.key === sectionKey)!;
   const bookCategories = useMemo(
-    () => Array.from(new Set([
-      ...BOOK_CATEGORIES,
-      ...getResources(state.managedContent)
-        .filter((resource) => resource.type === 'book')
-        .map((resource) => resource.category)
-        .filter((category): category is string => Boolean(category)),
-    ])),
-    [state.managedContent]
+    () =>
+      Array.from(
+        new Set([
+          ...BOOK_CATEGORIES,
+          ...getResources(state.managedContent)
+            .filter((resource) => resource.type === 'book')
+            .map((resource) => resource.category)
+            .filter((category): category is string => Boolean(category)),
+        ]),
+      ),
+    [state.managedContent],
   );
 
   const [exam, setExam] = useState<ExamId | 'all'>(route.params?.exam ?? 'all');
   const [subject, setSubject] = useState<string>(route.params?.subject ?? 'all');
-  const [bookCategory, setBookCategory] = useState<string>(route.params?.category ?? 'all');
+  const [bookCategory, setBookCategory] = useState<string>(
+    route.params?.category ?? 'all',
+  );
   const [bookCategoryOpen, setBookCategoryOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -178,18 +316,21 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
     setDownloadProgress({});
     setDownloadErrors({});
     downloadProgressRef.current = {};
-    getResourceDownloads(userId).then((saved) => {
-      if (!active) return;
-      setDownloads(saved);
-      setDownloadScope(scope);
-    }).catch((error: unknown) => {
-      if (!active) return;
-      setDownloadErrors((current) => ({
-        ...current,
-        __storage: error instanceof Error ? error.message : 'Saved downloads could not be loaded.',
-      }));
-      setDownloadScope(scope);
-    });
+    getResourceDownloads(userId)
+      .then((saved) => {
+        if (!active) return;
+        setDownloads(saved);
+        setDownloadScope(scope);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setDownloadErrors((current) => ({
+          ...current,
+          __storage:
+            error instanceof Error ? error.message : 'Saved downloads could not be loaded.',
+        }));
+        setDownloadScope(scope);
+      });
     return () => {
       active = false;
     };
@@ -214,13 +355,17 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
         }
       });
       if (!mountedRef.current || userIdRef.current !== userId) return;
-      setDownloads((current) => [saved, ...current.filter((item) => item.resourceId !== saved.resourceId)]);
+      setDownloads((current) => [
+        saved,
+        ...current.filter((item) => item.resourceId !== saved.resourceId),
+      ]);
       setDownloadProgress((current) => ({ ...current, [resource.id]: 1 }));
     } catch (error) {
       if (!mountedRef.current || userIdRef.current !== userId) return;
       setDownloadErrors((current) => ({
         ...current,
-        [resource.id]: error instanceof Error ? error.message : 'The resource could not be downloaded.',
+        [resource.id]:
+          error instanceof Error ? error.message : 'The resource could not be downloaded.',
       }));
       setDownloadProgress((current) => {
         const next = { ...current };
@@ -232,11 +377,13 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
 
   const sectionResources = useMemo(
     () => getSectionResources(sectionKey, state),
-    [sectionKey, state.managedContent, state.starred]
+    [sectionKey, state],
   );
 
   const subjects = useMemo(() => {
-    return exam === 'all' ? SUBJECTS : SUBJECTS.filter((item) => item.exams.includes(exam));
+    return exam === 'all'
+      ? SUBJECTS
+      : SUBJECTS.filter((item) => item.exams.includes(exam));
   }, [exam]);
 
   const data = useMemo(() => {
@@ -251,7 +398,9 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((resource) =>
-        `${resource.title} ${resource.summary} ${resource.tags.join(' ')} ${resource.subject} ${resource.author}`.toLowerCase().includes(q)
+        `${resource.title} ${resource.summary} ${resource.tags.join(' ')} ${resource.subject} ${resource.author}`
+          .toLowerCase()
+          .includes(q),
       );
     }
     return list;
@@ -272,85 +421,161 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
   const columns = isDesktop ? 3 : isTablet ? 2 : 1;
 
   const open = (resource: Resource) => {
-    dispatch({ type: 'progress', id: resource.id, percent: state.progress[resource.id]?.percent ?? 5, title: resource.title });
-    const headerContext = route.params?.headerBrand ? { headerBrand: route.params.headerBrand } : {};
-    if (resource.type === 'book') nav.navigate('BookReader', { resourceId: resource.id, ...headerContext });
-    else nav.navigate('NoteEditor', { resourceId: resource.id, ...headerContext });
+    dispatch({
+      type: 'progress',
+      id: resource.id,
+      percent: state.progress[resource.id]?.percent ?? 5,
+      title: resource.title,
+    });
+    const headerContext = route.params?.headerBrand
+      ? { headerBrand: route.params.headerBrand }
+      : {};
+    if (resource.type === 'book') {
+      nav.navigate('BookReader', { resourceId: resource.id, ...headerContext });
+    } else {
+      nav.navigate('NoteEditor', { resourceId: resource.id, ...headerContext });
+    }
   };
 
   const renderCard = (resource: Resource) => {
     const starred = state.starred.includes(resource.id);
     const hasFile = Boolean(resource.fileObjectPath);
-    const savedDownload = downloadScope === (userId ?? '__local__')
-      ? downloads.find((item) => item.resourceId === resource.id)
-      : undefined;
-    const downloadBusy = downloadProgress[resource.id] !== undefined && downloadProgress[resource.id] < 1;
+    const savedDownload =
+      downloadScope === (userId ?? '__local__')
+        ? downloads.find((item) => item.resourceId === resource.id)
+        : undefined;
+    const downloadBusy =
+      downloadProgress[resource.id] !== undefined && downloadProgress[resource.id] < 1;
     const progress = state.progress[resource.id]?.percent ?? 0;
-    const subjectMeta = SUBJECTS.find((item) => item.name === resource.subject);
+
     return (
-      <StitchCard style={{ flex: 1, margin: 6, padding: 14 }} key={resource.id} tone="raised">
-        <View style={{ gap: 12 }}>
-          <Pressable onPress={() => open(resource)} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, gap: 12 })}>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Image source={{ uri: resource.cover }} style={{ width: 62, height: 82, borderRadius: 12, backgroundColor: colors.surfaceAlt }} />
+      <SSDSSurface
+        variant="elevated"
+        padding={14}
+        style={{ flex: 1, margin: 6 }}
+        key={resource.id}
+      >
+        <SSDSStack gap={12}>
+          <Pressable
+            onPress={() => open(resource)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, gap: 12 })}
+          >
+            <SSDSRow align="flex-start" gap={12}>
+              <Image
+                source={{ uri: resource.cover }}
+                style={{
+                  width: 62,
+                  height: 82,
+                  borderRadius: 12,
+                  backgroundColor: tokens.colors.surfaceSecondary,
+                }}
+              />
               <View style={{ flex: 1, gap: 6 }}>
-                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                  <Tag label={resource.type === 'book' ? 'Book' : resource.type === 'note' ? 'Note' : 'PYQ Set'} color={subjectMeta?.color ?? colors.blue} />
-                  <Tag label={EXAMS.find((item) => item.id === resource.exam)?.short ?? ''} color={colors.textMuted} />
-                </View>
-                <Txt size={14} weight="800" numberOfLines={2}>{resource.title}</Txt>
-                <Txt size={11.5} color={colors.textMuted} numberOfLines={2}>{resource.summary}</Txt>
+                <SSDSRow gap={6}>
+                  <SSDSBadge variant="primary" size="sm">
+                    {resource.type === 'book'
+                      ? 'Book'
+                      : resource.type === 'note'
+                        ? 'Note'
+                        : 'PYQ Set'}
+                  </SSDSBadge>
+                  <SSDSBadge variant="neutral" size="sm">
+                    {EXAMS.find((item) => item.id === resource.exam)?.short ?? ''}
+                  </SSDSBadge>
+                </SSDSRow>
+                <SSDSText variant="CardTitle" maxLines={2}>
+                  {resource.title}
+                </SSDSText>
+                <SSDSText variant="Caption" maxLines={2}>
+                  {resource.summary}
+                </SSDSText>
               </View>
-            </View>
+            </SSDSRow>
 
             {progress > 0 ? (
-              <View style={{ gap: 5 }}>
-                <ProgressBar value={progress} height={5} color={colors.teal} />
-                <Txt size={11} color={colors.textFaint}>{progress}% complete</Txt>
-              </View>
+              <SSDSStack gap={5}>
+                <SSDSProgressBar
+                  value={progress}
+                  height={5}
+                  color="secondary"
+                  showLabel={false}
+                />
+                <SSDSText variant="Caption" color="textTertiary">
+                  {progress}% complete
+                </SSDSText>
+              </SSDSStack>
             ) : null}
           </Pressable>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <SSDSRow gap={12}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open ${resource.title}`}
               onPress={() => open(resource)}
-              style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.65 : 1, flexDirection: 'row', alignItems: 'center', gap: 12 })}
+              style={({ pressed }) => ({
+                flex: 1,
+                opacity: pressed ? 0.65 : 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+              })}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="time-outline" size={13} color={colors.textFaint} />
-                <Txt size={11.5} color={colors.textFaint}>{resource.minutes}m</Txt>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="document-outline" size={13} color={colors.textFaint} />
-                <Txt size={11.5} color={colors.textFaint}>{resource.pages}p</Txt>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="star" size={13} color={colors.warning} />
-                <Txt size={11.5} color={colors.textFaint}>{resource.rating}</Txt>
-              </View>
+              <SSDSRow gap={4}>
+                <SSDSIcon icon={Clock} size={13} color="textTertiary" />
+                <SSDSText variant="Caption">{resource.minutes}m</SSDSText>
+              </SSDSRow>
+              <SSDSRow gap={4}>
+                <SSDSIcon icon={FileText} size={13} color="textTertiary" />
+                <SSDSText variant="Caption">{resource.pages}p</SSDSText>
+              </SSDSRow>
+              <SSDSRow gap={4}>
+                <SSDSIcon icon={Star} size={13} color="warning" />
+                <SSDSText variant="Caption">{resource.rating}</SSDSText>
+              </SSDSRow>
             </Pressable>
             <Pressable
               hitSlop={10}
               accessibilityRole="button"
-              accessibilityLabel={starred ? `Unstar ${resource.title}` : `Star ${resource.title}`}
+              accessibilityLabel={
+                starred ? `Unstar ${resource.title}` : `Star ${resource.title}`
+              }
               onPress={() => dispatch({ type: 'toggleStar', id: resource.id })}
-              style={{ marginLeft: 'auto', width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: starred ? `${colors.warning}1F` : colors.surfaceAlt }}
+              style={{
+                marginLeft: 'auto',
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: starred
+                  ? tokens.colors.warningBackground
+                  : tokens.colors.surfaceSecondary,
+              }}
             >
-              <Ionicons name={starred ? 'star' : 'star-outline'} size={16} color={starred ? colors.warning : colors.textFaint} />
+              <SSDSIcon
+                icon={Star}
+                size={16}
+                color={starred ? 'warning' : 'textTertiary'}
+              />
             </Pressable>
             {hasFile && Platform.OS !== 'web' ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={savedDownload ? `Share downloaded file for ${resource.title}` : `Download ${resource.title} for offline use`}
+                accessibilityLabel={
+                  savedDownload
+                    ? `Share downloaded file for ${resource.title}`
+                    : `Download ${resource.title} for offline use`
+                }
                 disabled={downloadBusy}
                 onPress={() => {
                   if (savedDownload) {
                     void shareDownloadedFile(savedDownload).catch((error: unknown) => {
                       setDownloadErrors((current) => ({
                         ...current,
-                        [resource.id]: error instanceof Error ? error.message : 'The downloaded file could not be opened.',
+                        [resource.id]:
+                          error instanceof Error
+                            ? error.message
+                            : 'The downloaded file could not be opened.',
                       }));
                     });
                     return;
@@ -364,48 +589,78 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
                   borderRadius: 10,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: savedDownload ? `${colors.success}1A` : colors.surfaceAlt,
+                  backgroundColor: savedDownload
+                    ? tokens.colors.successBackground
+                    : tokens.colors.surfaceSecondary,
                   opacity: pressed || downloadBusy ? 0.6 : 1,
                   flexDirection: 'row',
                   gap: 4,
                 })}
               >
                 {downloadBusy ? (
-                  <ActivityIndicator size="small" color={colors.blue} />
+                  <ActivityIndicator size="small" color={tokens.colors.primary} />
                 ) : (
-                  <Ionicons name={savedDownload ? 'checkmark-circle' : 'cloud-download-outline'} size={16} color={savedDownload ? colors.success : colors.blue} />
+                  <SSDSIcon
+                    icon={savedDownload ? CheckCircle2 : CloudDownload}
+                    size={16}
+                    color={savedDownload ? 'success' : 'primary'}
+                  />
                 )}
               </Pressable>
             ) : null}
-          </View>
+          </SSDSRow>
           {downloadErrors[resource.id] ? (
-            <Txt size={11} color={colors.danger}>{downloadErrors[resource.id]}</Txt>
+            <SSDSText variant="ErrorText">{downloadErrors[resource.id]}</SSDSText>
           ) : null}
           {downloadBusy ? (
-            <View style={{ gap: 4 }}>
-              <ProgressBar value={(downloadProgress[resource.id] ?? 0) * 100} height={4} color={colors.blue} />
-              <Txt size={10.5} color={colors.textMuted}>Saving for offline use…</Txt>
-            </View>
+            <SSDSStack gap={4}>
+              <SSDSProgressBar
+                value={(downloadProgress[resource.id] ?? 0) * 100}
+                height={4}
+                color="primary"
+                showLabel={false}
+              />
+              <SSDSText variant="Caption">Saving for offline use…</SSDSText>
+            </SSDSStack>
           ) : null}
-        </View>
-      </StitchCard>
+        </SSDSStack>
+      </SSDSSurface>
     );
   };
 
   const header = (
-    <View style={{ gap: 14, paddingHorizontal: isMobile ? 10 : 6, paddingTop: 6, maxWidth: 1120, width: '100%', alignSelf: 'center' }}>
+    <SSDSStack
+      gap={14}
+      style={{
+        paddingHorizontal: isMobile ? 10 : 6,
+        paddingTop: 6,
+        maxWidth: 1120,
+        width: '100%',
+        alignSelf: 'center',
+      }}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Back to Library categories"
         onPress={() => nav.navigate('Library')}
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: pressed ? 0.65 : 1 })}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 5,
+          opacity: pressed ? 0.65 : 1,
+        })}
       >
-        <Ionicons name="chevron-back" size={17} color={colors.blue} />
-        <Txt size={12.5} weight="800" color={colors.blue}>Library categories</Txt>
+        <SSDSIcon icon={ChevronLeft} size={17} color="primary" />
+        <SSDSText variant="ButtonLabel" color="primary">
+          Library categories
+        </SSDSText>
       </Pressable>
+
       {sectionKey === 'book' ? (
-        <View style={{ gap: 8 }}>
-          <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>CATEGORY</Txt>
+        <SSDSStack gap={8}>
+          <SSDSText variant="Overline" color="textTertiary">
+            CATEGORY
+          </SSDSText>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Select Books and PDFs category"
@@ -414,65 +669,126 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
             style={({ pressed }) => ({
               minHeight: 48,
               paddingHorizontal: 14,
-              borderRadius: radii.md,
+              borderRadius: tokens.radius.md,
               borderWidth: 1,
-              borderColor: colors.borderSubtle,
-              backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+              borderColor: tokens.colors.borderSubtle,
+              backgroundColor: pressed
+                ? tokens.colors.surfaceSecondary
+                : tokens.colors.surface,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
             })}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
-              <Ionicons name="filter-outline" size={17} color={colors.blue} />
-              <Txt size={13.5} weight="800">{bookCategory === 'all' ? 'All categories' : bookCategory}</Txt>
-            </View>
-            <Ionicons name="chevron-down" size={17} color={colors.textMuted} />
+            <SSDSRow gap={9}>
+              <SSDSIcon icon={Filter} size={17} color="primary" />
+              <SSDSText variant="CardTitle">
+                {bookCategory === 'all' ? 'All categories' : bookCategory}
+              </SSDSText>
+            </SSDSRow>
+            <SSDSIcon icon={ChevronDown} size={17} color="textSecondary" />
           </Pressable>
-        </View>
+        </SSDSStack>
       ) : null}
-      <Field value={query} onChangeText={setQuery} placeholder={`Search ${section.label.toLowerCase()}…`} icon="search-outline" returnKeyType="search" />
+
+      <SSDSSearchInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder={`Search ${section.label.toLowerCase()}…`}
+        returnKeyType="search"
+      />
+
       {sectionKey !== 'book' ? (
         <>
-          <View style={{ gap: 8 }}>
-            <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>EXAM</Txt>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              <Chip label="All exams" active={exam === 'all'} onPress={() => applyExam('all')} />
+          <SSDSStack gap={8}>
+            <SSDSText variant="Overline" color="textTertiary">
+              EXAM
+            </SSDSText>
+            <SSDSRow wrap="wrap" gap={8}>
+              <SSDSButton
+                size="small"
+                variant={exam === 'all' ? 'primary' : 'outline'}
+                onPress={() => applyExam('all')}
+              >
+                All exams
+              </SSDSButton>
               {EXAMS.map((item) => (
-                <Chip key={item.id} label={item.short} tone={item.color} active={exam === item.id} onPress={() => applyExam(item.id)} />
+                <SSDSButton
+                  key={item.id}
+                  size="small"
+                  variant={exam === item.id ? 'primary' : 'outline'}
+                  onPress={() => applyExam(item.id)}
+                >
+                  {item.short}
+                </SSDSButton>
               ))}
-            </View>
-          </View>
-          <View style={{ gap: 8 }}>
-            <Txt size={11} weight="800" color={colors.textFaint} style={{ letterSpacing: 1 }}>SUBJECT</Txt>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              <Chip label="All subjects" active={subject === 'all'} onPress={() => setSubject('all')} />
+            </SSDSRow>
+          </SSDSStack>
+          <SSDSStack gap={8}>
+            <SSDSText variant="Overline" color="textTertiary">
+              SUBJECT
+            </SSDSText>
+            <SSDSRow wrap="wrap" gap={8}>
+              <SSDSButton
+                size="small"
+                variant={subject === 'all' ? 'primary' : 'outline'}
+                onPress={() => setSubject('all')}
+              >
+                All subjects
+              </SSDSButton>
               {subjects.map((item) => (
-                <Chip key={item.id} label={item.name} tone={item.color} active={subject === item.name} onPress={() => setSubject(item.name)} />
+                <SSDSButton
+                  key={item.id}
+                  size="small"
+                  variant={subject === item.name ? 'primary' : 'outline'}
+                  onPress={() => setSubject(item.name)}
+                >
+                  {item.name}
+                </SSDSButton>
               ))}
-            </View>
-          </View>
+            </SSDSRow>
+          </SSDSStack>
         </>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
-        <Txt size={12.5} weight="700" color={colors.textMuted}>{data.length} resource{data.length === 1 ? '' : 's'}</Txt>
-        <Pressable onPress={() => nav.navigate('NoteEditor', {})} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, opacity: pressed ? 0.6 : 1 })}>
-          <Ionicons name="add-circle" size={17} color={colors.blue} />
-          <Txt size={12.5} weight="800" color={colors.blue}>New note</Txt>
+
+      <SSDSRow justify="space-between" style={{ marginTop: 2 }}>
+        <SSDSText variant="Caption" color="textSecondary">
+          {data.length} resource{data.length === 1 ? '' : 's'}
+        </SSDSText>
+        <Pressable
+          onPress={() => nav.navigate('NoteEditor', {})}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <SSDSIcon icon={PlusCircle} size={17} color="primary" />
+          <SSDSText variant="ButtonLabel" color="primary">
+            New note
+          </SSDSText>
         </Pressable>
-      </View>
-    </View>
+      </SSDSRow>
+    </SSDSStack>
   );
 
   const hasSavedResources = section.key === 'downloads' || section.key === 'starred';
   const emptySavedSection = hasSavedResources && sectionResources.length === 0;
   return (
-    <Shell active="Library" title={section.label} subtitle={section.description} scroll={false}>
+    <Shell
+      active="Library"
+      title={section.label}
+      subtitle={section.description}
+      scroll={false}
+    >
       {loading ? (
-        <View style={{ padding: 16, gap: 12 }}>
+        <SSDSStack gap={12} style={{ padding: 16 }}>
           {header}
-          {[0, 1, 2].map((index) => <Skeleton key={index} height={120} />)}
-        </View>
+          {[0, 1, 2].map((index) => (
+            <SSDSSkeleton key={index} height={120} />
+          ))}
+        </SSDSStack>
       ) : (
         <FlatList
           key={`cols-${columns}`}
@@ -483,50 +799,95 @@ function LibrarySectionScreen({ sectionKey }: { sectionKey: LibrarySectionKey })
           contentContainerStyle={{ padding: isMobile ? 6 : 14, paddingBottom: 24 }}
           columnWrapperStyle={columns > 1 ? { alignItems: 'stretch' } : undefined}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.blue} colors={[colors.blue]} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor={tokens.colors.primary}
+              colors={[tokens.colors.primary]}
+            />
+          }
           renderItem={({ item }) => renderCard(item)}
           ListEmptyComponent={
-            <EmptyState
-              icon={section.icon}
-              title={emptySavedSection ? (section.key === 'downloads' ? 'No offline files available' : 'No starred resources yet') : 'Nothing matches those filters'}
-              body={emptySavedSection ? (section.key === 'downloads' ? 'Saved offline files will appear here. Downloadable resource files are not configured in this app yet.' : 'Star a resource to keep it easy to find here.') : 'Try a different exam, subject or search term.'}
-              action={emptySavedSection ? 'Browse Library' : 'Reset filters'}
-              onAction={() => {
-                if (emptySavedSection) {
-                  nav.navigate('Library');
-                  return;
-                }
-                setExam('all');
-                setSubject('all');
-                setBookCategory('all');
-                setQuery('');
+            <SSDSEmptyState
+              icon={section.icon as LucideIcon}
+              title={
+                emptySavedSection
+                  ? section.key === 'downloads'
+                    ? 'No offline files available'
+                    : 'No starred resources yet'
+                  : 'Nothing matches those filters'
+              }
+              description={
+                emptySavedSection
+                  ? section.key === 'downloads'
+                    ? 'Saved offline files will appear here. Downloadable resource files are not configured in this app yet.'
+                    : 'Star a resource to keep it easy to find here.'
+                  : 'Try a different exam, subject or search term.'
+              }
+              primaryAction={{
+                label: emptySavedSection ? 'Browse Library' : 'Reset filters',
+                onPress: () => {
+                  if (emptySavedSection) {
+                    nav.navigate('Library');
+                    return;
+                  }
+                  setExam('all');
+                  setSubject('all');
+                  setBookCategory('all');
+                  setQuery('');
+                },
               }}
             />
           }
         />
       )}
       {sectionKey === 'book' ? (
-        <Popup visible={bookCategoryOpen} onClose={() => setBookCategoryOpen(false)} presentation="center" title="Books & PDFs category">
-          <View style={{ gap: 12 }}>
-              {['all', ...bookCategories].map((category) => {
-                const active = bookCategory === category;
-                return (
-                  <Pressable
-                    key={category}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    onPress={() => {
-                      setBookCategory(category);
-                      setBookCategoryOpen(false);
-                    }}
-                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 11, borderRadius: radii.md, backgroundColor: active ? colors.tint : pressed ? colors.surfaceAlt : 'transparent' })}
+        <Popup
+          visible={bookCategoryOpen}
+          onClose={() => setBookCategoryOpen(false)}
+          presentation="center"
+          title="Books & PDFs category"
+        >
+          <SSDSStack gap={12}>
+            {['all', ...bookCategories].map((category) => {
+              const active = bookCategory === category;
+              return (
+                <Pressable
+                  key={category}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => {
+                    setBookCategory(category);
+                    setBookCategoryOpen(false);
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingHorizontal: 12,
+                    paddingVertical: 11,
+                    borderRadius: tokens.radius.md,
+                    backgroundColor: active
+                      ? tokens.colors.primaryLight
+                      : pressed
+                        ? tokens.colors.surfaceSecondary
+                        : 'transparent',
+                  })}
+                >
+                  <SSDSText
+                    variant="CardTitle"
+                    color={active ? 'primary' : 'textPrimary'}
                   >
-                    <Txt size={13.5} weight={active ? '800' : '600'} color={active ? colors.blue : colors.text}>{category === 'all' ? 'All categories' : category}</Txt>
-                    {active ? <Ionicons name="checkmark-circle" size={18} color={colors.blue} /> : null}
-                  </Pressable>
-                );
-              })}
-          </View>
+                    {category === 'all' ? 'All categories' : category}
+                  </SSDSText>
+                  {active ? (
+                    <SSDSIcon icon={CheckCircle2} size={18} color="primary" />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </SSDSStack>
         </Popup>
       ) : null}
     </Shell>
@@ -550,7 +911,7 @@ export function LibraryStarredScreen() {
 }
 
 export function LibraryDownloadsScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const nav = useNavigation<AppNavigation>();
   const { state } = useStore();
   const [downloads, setDownloads] = useState<ResourceDownload[]>([]);
@@ -561,26 +922,38 @@ export function LibraryDownloadsScreen() {
   const userId = state.user?.id;
   const scope = userId ?? '__local__';
   const userIdRef = useRef(userId);
-  userIdRef.current = userId;
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
-    setLoadedScope(null);
-    setDownloads([]);
-    getResourceDownloads(userId).then((saved) => {
-      if (active) {
-        setDownloads(saved);
-        setLoadedScope(scope);
-      }
-    }).catch((loadError: unknown) => {
-      if (active) {
-        setError(loadError instanceof Error ? loadError.message : 'Saved downloads could not be loaded.');
-        setLoadedScope(scope);
-      }
-    }).finally(() => {
-      if (active) setLoading(false);
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setLoading(true);
+      setError(null);
+      setLoadedScope(null);
+      setDownloads([]);
+      getResourceDownloads(userId)
+        .then((saved) => {
+          if (active) {
+            setDownloads(saved);
+            setLoadedScope(scope);
+          }
+        })
+        .catch((loadError: unknown) => {
+          if (active) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : 'Saved downloads could not be loaded.',
+            );
+            setLoadedScope(scope);
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
     });
     return () => {
       active = false;
@@ -592,10 +965,16 @@ export function LibraryDownloadsScreen() {
     try {
       await removeResourceDownload(userId, resourceId);
       if (userIdRef.current !== userId) return;
-      setDownloads((current) => current.filter((item) => item.resourceId !== resourceId));
+      setDownloads((current) =>
+        current.filter((item) => item.resourceId !== resourceId),
+      );
     } catch (removeError) {
       if (userIdRef.current !== userId) return;
-      setError(removeError instanceof Error ? removeError.message : 'The download could not be removed.');
+      setError(
+        removeError instanceof Error
+          ? removeError.message
+          : 'The download could not be removed.',
+      );
     }
   };
 
@@ -605,64 +984,99 @@ export function LibraryDownloadsScreen() {
       await shareDownloadedFile(download);
     } catch (openError) {
       if (userIdRef.current !== userId) return;
-      setError(openError instanceof Error ? openError.message : 'The downloaded file could not be opened.');
+      setError(
+        openError instanceof Error
+          ? openError.message
+          : 'The downloaded file could not be opened.',
+      );
     }
   };
 
   return (
-    <Shell active="Library" title="Downloads" subtitle="Files saved on this device for offline access" scroll={false}>
+    <Shell
+      active="Library"
+      title="Downloads"
+      subtitle="Files saved on this device for offline access"
+      scroll={false}
+    >
       {loading || loadedScope !== scope ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color={colors.blue} />
+          <ActivityIndicator size="large" color={tokens.colors.primary} />
         </View>
       ) : (
         <FlatList
           data={downloads}
           keyExtractor={(item) => item.resourceId}
-          contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 12, flexGrow: 1 }}
+          contentContainerStyle={{
+            padding: 16,
+            paddingBottom: 24,
+            gap: 12,
+            flexGrow: 1,
+          }}
           ListHeaderComponent={
-            <View style={{ gap: 10, marginBottom: 8 }}>
+            <SSDSStack gap={10} style={{ marginBottom: 8 }}>
               {error ? (
-                <View style={{ gap: 8 }}>
-                  <Txt size={12.5} color={colors.danger}>{error}</Txt>
-                  <Button label="Retry" icon="refresh-outline" variant="outline" onPress={() => setRetry((value) => value + 1)} />
-                </View>
+                <SSDSStack gap={8}>
+                  <SSDSText variant="ErrorText">{error}</SSDSText>
+                  <SSDSButton
+                    variant="outline"
+                    leadingIcon={RefreshCw}
+                    onPress={() => setRetry((value) => value + 1)}
+                  >
+                    Retry
+                  </SSDSButton>
+                </SSDSStack>
               ) : null}
               {Platform.OS === 'web' ? (
-                <Txt size={12.5} color={colors.textMuted}>Offline file downloads are available in the Android and iOS apps.</Txt>
+                <SSDSText variant="BodySecondary">
+                  Offline file downloads are available in the Android and iOS apps.
+                </SSDSText>
               ) : null}
-              <Txt size={12} color={colors.textMuted}>
+              <SSDSText variant="Caption">
                 {downloads.length} file{downloads.length === 1 ? '' : 's'} saved locally
-              </Txt>
-            </View>
+              </SSDSText>
+            </SSDSStack>
           }
           renderItem={({ item }) => (
-            <StitchCard style={{ padding: 16 }} tone="raised">
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Ionicons name="document-text-outline" size={20} color={colors.blue} />
+            <SSDSSurface variant="elevated" padding={16}>
+              <SSDSStack gap={12}>
+                <SSDSRow gap={10}>
+                  <SSDSIcon icon={FileText} size={20} color="primary" />
                   <View style={{ flex: 1, gap: 3 }}>
-                    <Txt size={14} weight="800">{item.title}</Txt>
-                    <Txt size={11} color={colors.textMuted}>
+                    <SSDSText variant="CardTitle">{item.title}</SSDSText>
+                    <SSDSText variant="Caption">
                       Saved {new Date(item.savedAt).toLocaleDateString()}
-                    </Txt>
+                    </SSDSText>
                   </View>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  <Button label="Open / share file" icon="open-outline" onPress={() => void open(item)} />
-                  <Button label="Remove download" icon="trash-outline" variant="outline" onPress={() => void remove(item.resourceId)} />
-                </View>
-              </View>
-            </StitchCard>
+                </SSDSRow>
+                <SSDSRow wrap="wrap" gap={8}>
+                  <SSDSButton
+                    leadingIcon={ExternalLink}
+                    onPress={() => void open(item)}
+                  >
+                    Open / share file
+                  </SSDSButton>
+                  <SSDSButton
+                    variant="outline"
+                    leadingIcon={Trash2}
+                    onPress={() => void remove(item.resourceId)}
+                  >
+                    Remove download
+                  </SSDSButton>
+                </SSDSRow>
+              </SSDSStack>
+            </SSDSSurface>
           )}
           ListEmptyComponent={
             error ? null : (
-              <EmptyState
-                icon="cloud-download-outline"
+              <SSDSEmptyState
+                icon={CloudDownload}
                 title="No offline files yet"
-                body="Download a resource with an attached PDF from the Library to keep a local copy on this device."
-                action="Browse Library"
-                onAction={() => nav.navigate('Library')}
+                description="Download a resource with an attached PDF from the Library to keep a local copy on this device."
+                primaryAction={{
+                  label: 'Browse Library',
+                  onPress: () => nav.navigate('Library'),
+                }}
               />
             )
           }

@@ -29,7 +29,7 @@ export function Radio({
     <Pressable
       disabled={disabled}
       onPress={() => !disabled && onPress?.()}
-      hitSlop={6}
+      hitSlop={12}
       accessibilityRole="radio"
       accessibilityLabel={label}
       accessibilityState={{ selected: checked, disabled }}
@@ -62,6 +62,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    minHeight: 44,
   },
   outer: {
     width: 20,

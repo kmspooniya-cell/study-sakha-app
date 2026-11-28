@@ -78,7 +78,7 @@ export function Badge({
         variant="Caption"
         color={palette.color}
         style={{
-          fontSize: size === 'sm' ? 11 : 12,
+          fontSize: Math.round((size === 'sm' ? 11 : 12) * tokens.typography.scale * 10) / 10,
           fontWeight: '600',
         }}
       >

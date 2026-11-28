@@ -23,8 +23,8 @@ export function BarChart({
       <Svg width="100%" height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none">
         <Defs>
           <LinearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={color ?? colors.blue} />
-            <Stop offset="1" stopColor={color ?? colors.blue} stopOpacity={0.45} />
+            <Stop offset="0" stopColor={color ?? colors.chartPrimary} />
+            <Stop offset="1" stopColor={color ?? colors.chartPrimary} stopOpacity={0.45} />
           </LinearGradient>
         </Defs>
         {goal ? (
@@ -33,7 +33,7 @@ export function BarChart({
             y1={height - (goal / max) * (height - 24) - 12}
             x2="100"
             y2={height - (goal / max) * (height - 24) - 12}
-            stroke={colors.teal}
+            stroke={colors.chartSecondary}
             strokeWidth={0.6}
             strokeDasharray="2 2"
           />
@@ -80,7 +80,7 @@ export function LineChart({ data, height = 150, color }: { data: { label: string
   });
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const area = `${path} L${w},${height - 20} L0,${height - 20} Z`;
-  const stroke = color ?? colors.teal;
+  const stroke = color ?? colors.chartSecondary;
   return (
     <View>
       <Svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`}>
@@ -179,10 +179,10 @@ export function HeatMap({ days, weeks = 18 }: { days: Record<string, number>; we
   }, [days, weeks]);
   const tone = (v: number) => {
     if (v <= 0) return colors.surfaceAlt;
-    if (v < 40) return `${colors.teal}40`;
-    if (v < 80) return `${colors.teal}7A`;
-    if (v < 120) return `${colors.teal}B8`;
-    return colors.teal;
+    if (v < 40) return `${colors.chartSecondary}40`;
+    if (v < 80) return `${colors.chartSecondary}7A`;
+    if (v < 120) return `${colors.chartSecondary}B8`;
+    return colors.chartSecondary;
   };
   return (
     <View>

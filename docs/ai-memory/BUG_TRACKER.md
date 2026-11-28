@@ -1,5 +1,7 @@
 # Bug Tracker — Study Sakha
 
+| **BUG-025** | Web preview crashed with `Cannot read properties of null (reading 'includes')` | High | AsyncStorage hydration spread persisted `starred: null`/other invalid collections into StoreProvider state; `LibraryScreen.tsx:127` called `state.starred.includes(...)`. | Normalize persisted collections in the shared `hydrate` reducer while preserving omitted fields and existing auth/settings/navigation workflows. | **Partially verified**: regression Jest and Expo web export pass; browser console/render not verified because Chromium is unavailable in Codespace. |
+
 ## 2026-11-28 — Alarm Engine Outside-App & "Tomorrow" Display Fixes
 | ID | Summary | Severity | Root Cause | Fix | Verification Status |
 |---|---|---|---|---|---|

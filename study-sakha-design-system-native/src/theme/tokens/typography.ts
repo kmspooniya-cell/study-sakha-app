@@ -73,30 +73,65 @@ export interface TypographyTokens {
   styles: Record<TypographyVariant, TypographySpec>;
 }
 
-export function resolveFontFamilies(fontStyle: FontStylePreference): {
+export interface FontFamilyOverrides {
+  primary?: string;
+  hindi?: string;
+  mono?: string;
+}
+
+/**
+ * Resolves platform-supported font families.
+ *
+ * Note: @expo-google-fonts/noto-sans-devanagari is not bundled in this
+ * standalone package. Android falls back to 'sans-serif' (which supports
+ * regular/medium/semibold/bold weights and Devanagari glyph fallback) and iOS
+ * uses 'Devanagari Sangam MN' unless explicit overrides are supplied after
+ * loading custom fonts in the consuming app.
+ */
+export function resolveFontFamilies(
+  fontStyle: FontStylePreference,
+  overrides?: FontFamilyOverrides
+): {
   fontFamilyPrimary: string;
   fontFamilyHindi: string;
   fontFamilyMono: string;
 } {
-  const defaultSans = Platform.select({ ios: 'System', android: 'Roboto', default: 'System' })!;
-  const defaultSerif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' })!;
-  const defaultMono = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' })!;
+  const defaultSans = Platform.select({
+    ios: 'System',
+    android: 'sans-serif',
+    default: 'System',
+  })!;
+  const defaultSerif = Platform.select({
+    ios: 'Georgia',
+    android: 'serif',
+    default: 'serif',
+  })!;
+  const defaultMono = Platform.select({
+    ios: 'Menlo',
+    android: 'monospace',
+    default: 'monospace',
+  })!;
+
+  const fallbackHindi = Platform.select({
+    android: 'sans-serif',
+    ios: 'Devanagari Sangam MN',
+    default: defaultSans,
+  })!;
+
+  const resolvedHindi = overrides?.hindi ?? fallbackHindi;
 
   const fontFamilyPrimary =
-    fontStyle === 'devanagari'
-      ? 'NotoSansDevanagari_400Regular'
+    overrides?.primary ??
+    (fontStyle === 'devanagari'
+      ? resolvedHindi
       : fontStyle === 'editorial'
       ? defaultSerif
-      : defaultSans;
+      : defaultSans);
 
   return {
     fontFamilyPrimary,
-    fontFamilyHindi: Platform.select({
-      android: 'NotoSansDevanagari_400Regular',
-      ios: 'Devanagari Sangam MN',
-      default: defaultSans,
-    })!,
-    fontFamilyMono: defaultMono,
+    fontFamilyHindi: resolvedHindi,
+    fontFamilyMono: overrides?.mono ?? defaultMono,
   };
 }
 

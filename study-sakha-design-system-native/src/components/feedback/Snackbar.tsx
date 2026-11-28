@@ -25,6 +25,9 @@ export function Snackbar({
 }: SnackbarProps) {
   const { tokens } = useTheme();
 
+  const messageColor = tokens.isDark ? tokens.colors.textPrimary : tokens.colors.textInverse;
+  const actionColor = tokens.isDark ? tokens.colors.textLink : '#7AA8EE';
+
   return (
     <View
       accessibilityRole="alert"
@@ -39,17 +42,38 @@ export function Snackbar({
         style,
       ]}
     >
-      <RNText style={styles.message} numberOfLines={2}>
+      <RNText
+        style={[
+          styles.message,
+          {
+            color: messageColor,
+            fontFamily: tokens.typography.fontFamilyPrimary,
+            fontSize: Math.round(13.5 * tokens.typography.scale * 10) / 10,
+          },
+        ]}
+        numberOfLines={2}
+      >
         {message}
       </RNText>
       {!!actionLabel && (
-        <Pressable onPress={onAction} hitSlop={8} style={styles.actionBtn}>
-          <RNText style={styles.actionLabel}>{actionLabel}</RNText>
+        <Pressable onPress={onAction} hitSlop={10} style={styles.actionBtn}>
+          <RNText
+            style={[
+              styles.actionLabel,
+              {
+                color: actionColor,
+                fontFamily: tokens.typography.fontFamilyPrimary,
+                fontSize: Math.round(13 * tokens.typography.scale * 10) / 10,
+              },
+            ]}
+          >
+            {actionLabel}
+          </RNText>
         </Pressable>
       )}
       {onDismiss && (
-        <Pressable onPress={onDismiss} hitSlop={8} accessibilityLabel="Dismiss">
-          <X size={16} color="#94A3B8" />
+        <Pressable onPress={onDismiss} hitSlop={14} accessibilityLabel="Dismiss notification">
+          <X size={16} color={tokens.colors.textTertiary} />
         </Pressable>
       )}
     </View>

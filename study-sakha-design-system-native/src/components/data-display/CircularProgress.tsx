@@ -30,10 +30,11 @@ export function CircularProgress({
 }: CircularProgressProps) {
   const { tokens } = useTheme();
   const clamped = Math.max(0, Math.min(100, value));
-  const r = (size - strokeWidth) / 2;
+  const r = Math.max(1, (size - strokeWidth) / 2);
   const circumference = 2 * Math.PI * r;
   const strokeDashoffset = circumference - (clamped / 100) * circumference;
   const strokeColor = tokens.colors[color as ColorTokenKey] ?? color;
+  const baseFontSize = size > 100 ? 22 : size > 70 ? 15 : 12;
 
   return (
     <View
@@ -41,11 +42,7 @@ export function CircularProgress({
       accessibilityValue={{ min: 0, max: 100, now: clamped }}
       style={[styles.wrapper, { width: size, height: size }, style]}
     >
-      <Svg
-        width={size}
-        height={size}
-        style={{ transform: [{ rotate: '-90deg' }] }}
-      >
+      <Svg width={size} height={size}>
         <Circle
           cx={size / 2}
           cy={size / 2}
@@ -53,6 +50,8 @@ export function CircularProgress({
           fill="none"
           stroke={tokens.colors.surfaceTertiary}
           strokeWidth={strokeWidth}
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
         />
         <Circle
           cx={size / 2}
@@ -64,6 +63,8 @@ export function CircularProgress({
           strokeDasharray={`${circumference} ${circumference}`}
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
         />
       </Svg>
 
@@ -73,7 +74,7 @@ export function CircularProgress({
           color="textPrimary"
           style={{
             fontWeight: '700',
-            fontSize: size > 100 ? 22 : size > 70 ? 15 : 12,
+            fontSize: Math.round(baseFontSize * tokens.typography.scale * 10) / 10,
           }}
         >
           {label ?? `${clamped}%`}

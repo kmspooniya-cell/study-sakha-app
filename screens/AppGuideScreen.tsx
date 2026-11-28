@@ -1,39 +1,55 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { AppNavigation, AppNavigationRouteName } from '../lib/navigation';
 import React from 'react';
 import { Pressable, View } from 'react-native';
+import {
+  BookOpen,
+  ChevronRight,
+  Home,
+  Layers,
+  Settings,
+  Sparkles,
+} from 'lucide-react-native';
 import { Shell } from '../components/Shell';
-import { Button, Card, Txt } from '../components/ui';
-import { radii, useTheme } from '../lib/theme';
+import {
+  SSDSButton,
+  SSDSColumn,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSectionHeader,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
 
 const GUIDE_SECTIONS = [
   {
-    icon: 'home-outline',
+    icon: Home,
     title: 'Home',
     body: 'Start here for your study plan, progress, and recent resources.',
     route: 'Dashboard',
   },
   {
-    icon: 'library-outline',
+    icon: BookOpen,
     title: 'Library',
     body: 'Browse Notes, Books & PDFs, PYQ Sets, Starred resources, and Downloads.',
     route: 'Library',
   },
   {
-    icon: 'albums-outline',
+    icon: Layers,
     title: 'Practice',
     body: 'Use PYQ Bank for questions and Tests for timed practice and results.',
     route: 'Tests',
   },
   {
-    icon: 'sparkles-outline',
+    icon: Sparkles,
     title: 'Sakha AI',
     body: 'Ask Sakha AI a study question or request help with a topic.',
     route: 'SakhaAI',
   },
   {
-    icon: 'settings-outline',
+    icon: Settings,
     title: 'Settings',
     body: 'Adjust your theme, language, reading comfort, and daily study goal.',
     route: 'Settings',
@@ -43,36 +59,49 @@ const GUIDE_SECTIONS = [
 type GuideRouteName = Extract<AppNavigationRouteName, 'Dashboard' | 'Library' | 'Tests' | 'SakhaAI' | 'Settings'>;
 
 export function AppGuideContent({ onOpen }: { onOpen: (route: GuideRouteName) => void }) {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
 
   return (
-    <View style={{ gap: 12 }}>
+    <SSDSStack gap={12}>
+      <SSDSSectionHeader
+        title="App Sections"
+        subtitle="Tap any section below to jump straight to it"
+        compact
+      />
       {GUIDE_SECTIONS.map((section) => (
-        <Card key={section.title} style={{ padding: 0 }}>
+        <SSDSSurface key={section.title} variant="outlined" radius="lg">
           <Pressable
             onPress={() => onOpen(section.route)}
             accessibilityRole="button"
             accessibilityLabel={`Open ${section.title}`}
             style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 14,
               padding: 16,
               opacity: pressed ? 0.75 : 1,
             })}
           >
-            <View style={{ width: 44, height: 44, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.tint }}>
-              <Ionicons name={section.icon} size={21} color={colors.blue} />
-            </View>
-            <View style={{ flex: 1, gap: 3 }}>
-              <Txt size={14} weight="800">{section.title}</Txt>
-              <Txt size={12.5} color={colors.textMuted}>{section.body}</Txt>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+            <SSDSRow gap={14}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: tokens.radius.md,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: tokens.colors.primaryLight,
+                }}
+              >
+                <SSDSIcon icon={section.icon} size={21} color="primary" />
+              </View>
+              <SSDSColumn gap={3} style={{ flex: 1 }}>
+                <SSDSText variant="CardTitle">{section.title}</SSDSText>
+                <SSDSText variant="BodySecondary">{section.body}</SSDSText>
+              </SSDSColumn>
+              <SSDSIcon icon={ChevronRight} size={18} color="textTertiary" />
+            </SSDSRow>
           </Pressable>
-        </Card>
+        </SSDSSurface>
       ))}
-    </View>
+    </SSDSStack>
   );
 }
 
@@ -81,10 +110,16 @@ export default function AppGuideScreen() {
 
   return (
     <Shell active="AppGuide" title="How to Use the App" subtitle="A quick guide to the main Study Sakha sections">
-      <View style={{ gap: 12 }}>
+      <SSDSStack gap={12}>
         <AppGuideContent onOpen={(route) => nav.dispatch(CommonActions.navigate(route))} />
-        <Button label="Back to Settings" icon="settings-outline" variant="outline" onPress={() => nav.navigate('Settings')} />
-      </View>
+        <SSDSButton
+          variant="outline"
+          leadingIcon={Settings}
+          onPress={() => nav.navigate('Settings')}
+        >
+          Back to Settings
+        </SSDSButton>
+      </SSDSStack>
     </Shell>
   );
 }

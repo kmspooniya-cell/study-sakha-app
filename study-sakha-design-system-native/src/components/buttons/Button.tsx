@@ -40,6 +40,7 @@ export interface ButtonProps {
   onPress?: () => void;
   children?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  containerStyle?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   accessibilityLabel?: string;
   testID?: string;
@@ -56,6 +57,7 @@ export function Button({
   onPress,
   children,
   style,
+  containerStyle,
   textStyle,
   accessibilityLabel,
   testID,
@@ -135,7 +137,7 @@ export function Button({
         };
       case 'destructive':
         return {
-          bg: pressed ? '#A82929' : tokens.colors.danger,
+          bg: pressed ? '#A82929' : tokens.isDark ? '#C63636' : tokens.colors.danger,
           color: '#FFFFFF',
           border: 'transparent',
           px: sizeCfg.px,
@@ -171,11 +173,16 @@ export function Button({
         }
       : undefined;
 
+  const flatStyle = style ? StyleSheet.flatten(style) : undefined;
+
   return (
     <Animated.View
       style={[
         { transform: [{ scale: scaleAnim }] },
         fullWidth ? styles.fullWidth : styles.autoWidth,
+        flatStyle?.flex !== undefined ? { flex: flatStyle.flex } : undefined,
+        flatStyle?.alignSelf !== undefined ? { alignSelf: flatStyle.alignSelf } : undefined,
+        containerStyle,
       ]}
     >
       <Pressable
@@ -230,6 +237,7 @@ export function Button({
                       fontSize: Math.round(sizeCfg.fontSize * tokens.typography.scale * 10) / 10,
                       fontWeight: '600',
                       includeFontPadding: false,
+                      flexShrink: 1,
                     },
                     textStyle,
                   ]}

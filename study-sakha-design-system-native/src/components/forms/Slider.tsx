@@ -8,6 +8,7 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityActionEvent,
   LayoutChangeEvent,
   PanResponder,
   StyleProp,
@@ -82,6 +83,24 @@ export function Slider({
 
   const ratio = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
   const thumbLeft = Math.max(0, ratio * trackWidth - 10);
+  const clampedValue = Math.max(min, Math.min(max, value));
+
+  const handleAccessibilityAction = (event: AccessibilityActionEvent) => {
+    if (disabled) return;
+    const safeStep = step > 0 ? step : 1;
+    let next = clampedValue;
+    if (event.nativeEvent.actionName === 'increment') {
+      next = clampedValue + safeStep;
+    } else if (event.nativeEvent.actionName === 'decrement') {
+      next = clampedValue - safeStep;
+    } else {
+      return;
+    }
+    const snapped = Math.max(min, Math.min(max, Math.round(next * 1000) / 1000));
+    if (snapped !== clampedValue) {
+      onChange?.(snapped);
+    }
+  };
 
   return (
     <View style={[styles.wrapper, { opacity: disabled ? 0.5 : 1 }, style]}>
@@ -97,9 +116,20 @@ export function Slider({
 
       <View
         onLayout={handleLayout}
+        accessible
         accessibilityRole="adjustable"
         accessibilityLabel={label}
-        accessibilityValue={{ min, max, now: value }}
+        accessibilityState={{ disabled }}
+        accessibilityValue={{ min, max, now: clampedValue }}
+        accessibilityActions={
+          disabled
+            ? undefined
+            : [
+                { name: 'increment', label: 'Increase value' },
+                { name: 'decrement', label: 'Decrease value' },
+              ]
+        }
+        onAccessibilityAction={handleAccessibilityAction}
         style={styles.touchArea}
         {...panResponder.panHandlers}
       >
@@ -150,7 +180,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   touchArea: {
-    height: 36,
+    height: 44,
     justifyContent: 'center',
   },
   track: {

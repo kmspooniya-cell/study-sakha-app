@@ -11,6 +11,7 @@ import {
   StyleSheet,
   TextInput as RNTextInput,
   TextInputProps as RNTextInputProps,
+  TextStyle,
   View,
   ViewStyle,
 } from 'react-native';
@@ -40,6 +41,7 @@ export interface TextInputProps
   leadingIcon?: LucideIcon;
   trailingIcon?: LucideIcon;
   style?: StyleProp<ViewStyle>;
+  inputStyle?: StyleProp<TextStyle>;
 }
 
 export function TextInput({
@@ -59,6 +61,7 @@ export function TextInput({
   leadingIcon,
   trailingIcon,
   style,
+  inputStyle,
   ...rest
 }: TextInputProps) {
   const { tokens } = useTheme();
@@ -101,7 +104,7 @@ export function TextInput({
           styles.inputBox,
           {
             minHeight: multiline
-              ? rows * 22 + 20
+              ? Math.round((rows * 22 + 20) * tokens.typography.scale)
               : tokens.dimensions.inputHeight,
             alignItems: multiline ? 'flex-start' : 'center',
             paddingVertical: multiline ? 10 : 0,
@@ -126,6 +129,7 @@ export function TextInput({
         )}
 
         <RNTextInput
+          {...rest}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -137,6 +141,7 @@ export function TextInput({
           keyboardType={keyboardType}
           autoCapitalize={type === 'email' || isPassword ? 'none' : 'sentences'}
           textAlignVertical={multiline ? 'top' : 'center'}
+          accessibilityLabel={rest.accessibilityLabel ?? label}
           onFocus={(e) => {
             setFocused(true);
             rest.onFocus?.(e);
@@ -154,14 +159,14 @@ export function TextInput({
               fontFamily: tokens.typography.fontFamilyPrimary,
               fontSize: Math.round(14 * tokens.typography.scale * 10) / 10,
             },
+            inputStyle,
           ]}
-          {...rest}
         />
 
         {isPassword ? (
           <Pressable
             onPress={() => setShowPassword((p) => !p)}
-            hitSlop={8}
+            hitSlop={14}
             accessibilityRole="button"
             accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
           >

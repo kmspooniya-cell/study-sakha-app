@@ -3,7 +3,7 @@
  * File: src/components/media/Avatar.tsx
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, ImageSourcePropType, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Text } from '../foundation/Text';
@@ -29,6 +29,21 @@ export function Avatar({
   style,
 }: AvatarProps) {
   const { tokens } = useTheme();
+  const [imgError, setImgError] = useState(false);
+
+  const sourceKey =
+    typeof source === 'number'
+      ? source
+      : source && !Array.isArray(source) && 'uri' in source
+      ? source.uri
+      : Array.isArray(source)
+      ? source.map((s) => s.uri ?? '').join('|')
+      : null;
+
+  useEffect(() => {
+    setImgError((prev) => (prev ? false : prev));
+  }, [sourceKey]);
+
   const initials = name
     .trim()
     .split(/\s+/)
@@ -55,9 +70,11 @@ export function Avatar({
 
   return (
     <View style={[{ width: size, height: size, flexShrink: 0 }, style]}>
-      {source ? (
+      {source && !imgError ? (
         <Image
           source={source}
+          accessibilityLabel={name}
+          onError={() => setImgError(true)}
           style={{
             width: size,
             height: size,
@@ -82,7 +99,10 @@ export function Avatar({
           <Text
             variant="CardTitle"
             color={fg}
-            style={{ fontWeight: '700', fontSize: Math.round(size * 0.36) }}
+            style={{
+              fontWeight: '700',
+              fontSize: Math.round(size * 0.36 * tokens.typography.scale),
+            }}
           >
             {initials}
           </Text>

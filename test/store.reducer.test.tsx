@@ -23,6 +23,27 @@ const baseState = {
 } as unknown as State;
 
 describe('store reducer learning data', () => {
+  it('normalizes null persisted collections before screens call includes', () => {
+    const hydrated = reducer(baseState, {
+      type: 'hydrate',
+      payload: {
+        starred: null,
+        bookmarks: null,
+        planDone: null,
+        plannerDeletedDefaults: null,
+        recordedFocusSessionIds: null,
+      } as unknown as Partial<State>,
+    });
+
+    expect(() => hydrated.starred.includes('resource-1')).not.toThrow();
+    expect(() => hydrated.bookmarks.includes('question-1')).not.toThrow();
+    expect(hydrated.starred).toEqual([]);
+    expect(hydrated.bookmarks).toEqual([]);
+    expect(hydrated.planDone).toEqual({});
+    expect(hydrated.plannerDeletedDefaults).toEqual([]);
+    expect(hydrated.recordedFocusSessionIds).toEqual([]);
+  });
+
   it('uses the same local calendar date as statistics for focus crediting', () => {
     const date = new Date(2026, 10, 24, 0, 30);
 

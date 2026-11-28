@@ -76,7 +76,7 @@ export function SegmentedControl<T extends string | number = string>({
               variant="Caption"
               color={active ? 'textPrimary' : 'textSecondary'}
               style={{
-                fontSize: 13,
+                fontSize: Math.round(13 * tokens.typography.scale * 10) / 10,
                 fontWeight: active ? '600' : '500',
               }}
               truncate
@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 7,
     paddingHorizontal: 12,
-    minHeight: 34,
+    minHeight: 44,
     gap: 6,
   },
   flexItem: {

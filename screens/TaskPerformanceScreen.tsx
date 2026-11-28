@@ -1,11 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRoute } from '@react-navigation/native';
+import { AlertTriangle, ChevronRight, List, Timer, XCircle } from 'lucide-react-native';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Shell, useLayout } from '../components/Shell';
-import { Button, Card, Chip, EmptyState, SectionHeader, Txt } from '../components/ui';
+import {
+  SSDSButton,
+  SSDSEmptyState,
+  SSDSIcon,
+  SSDSRow,
+  SSDSSectionHeader,
+  SSDSStack,
+  SSDSSurface,
+  SSDSText,
+  useSSDSTheme,
+} from '../lib/ssds';
 import {
   deriveStatistics,
   localDateKey,
@@ -14,7 +24,6 @@ import {
   StatisticsDateRange,
 } from '../lib/statistics';
 import { getUserScopedStorageKey, useStore } from '../lib/store';
-import { radii, useTheme } from '../lib/theme';
 import type { AppRoute } from '../lib/navigation';
 
 const HISTORY_KEY = 'study-sakha-focus-history-v1';
@@ -37,7 +46,7 @@ function rangeEndingToday(now: Date, days: number): StatisticsDateRange {
 }
 
 export default function TaskPerformanceScreen() {
-  const { colors } = useTheme();
+  const { tokens } = useSSDSTheme();
   const route = useRoute<AppRoute<'TaskPerformance'>>();
   const { state } = useStore();
   const historyKey = getUserScopedStorageKey(HISTORY_KEY, state.user?.id);
@@ -57,32 +66,34 @@ export default function TaskPerformanceScreen() {
       : rangeEndingToday(new Date(), 7);
   }, [route.params?.endDate, route.params?.startDate]);
 
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    setLoaded(false);
-    setLoadError(null);
-    AsyncStorage.getItem(historyKey)
-      .then((raw) => {
-        if (!active) return;
-        try {
-          setSessions(normalizeFocusSessions(raw ? JSON.parse(raw) : []));
-        } catch {
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoaded(false);
+      setLoadError(null);
+      AsyncStorage.getItem(historyKey)
+        .then((raw) => {
+          if (!active) return;
+          try {
+            setSessions(normalizeFocusSessions(raw ? JSON.parse(raw) : []));
+          } catch {
+            setSessions([]);
+            setLoadError('Focus history could not be read.');
+          }
+        })
+        .catch(() => {
+          if (!active) return;
           setSessions([]);
-          setLoadError('Focus history could not be read.');
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        setSessions([]);
-        setLoadError('Focus history could not be loaded.');
-      })
-      .finally(() => {
-        if (active) setLoaded(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [historyKey]));
+          setLoadError('Focus history could not be loaded.');
+        })
+        .finally(() => {
+          if (active) setLoaded(true);
+        });
+      return () => {
+        active = false;
+      };
+    }, [historyKey]),
+  );
 
   const statistics = useMemo(
     () => deriveStatistics(state, sessions, dateRange),
@@ -92,52 +103,111 @@ export default function TaskPerformanceScreen() {
     () => Array.from(new Set(statistics.tasks.map((task) => task.category))).sort(),
     [statistics.tasks],
   );
-  const visibleTasks = useMemo(() => statistics.tasks.filter((task) => {
-    if (filter === 'completed' && task.completed !== true) return false;
-    if (filter === 'pending' && task.completed !== false) return false;
-    if (subjectFilter !== 'All subjects' && task.category !== subjectFilter) return false;
-    return true;
-  }), [filter, statistics.tasks, subjectFilter]);
+  const visibleTasks = useMemo(
+    () =>
+      statistics.tasks.filter((task) => {
+        if (filter === 'completed' && task.completed !== true) return false;
+        if (filter === 'pending' && task.completed !== false) return false;
+        if (subjectFilter !== 'All subjects' && task.category !== subjectFilter) return false;
+        return true;
+      }),
+    [filter, statistics.tasks, subjectFilter],
+  );
   const selectedTask = statistics.tasks.find(
-    (task) => `${task.historical ? 'historical-' : ''}${task.taskId}-${task.scheduledDate}` === selectedTaskKey,
+    (task) =>
+      `${task.historical ? 'historical-' : ''}${task.taskId}-${task.scheduledDate}` ===
+      selectedTaskKey,
   );
   const selectedSessions = selectedTask
-    ? statistics.sessions.filter((session) => session.taskId === selectedTask.taskId && session.dateKey === selectedTask.scheduledDate)
+    ? statistics.sessions.filter(
+        (session) =>
+          session.taskId === selectedTask.taskId &&
+          session.dateKey === selectedTask.scheduledDate,
+      )
     : [];
   const selectedRangeLabel = `${statistics.dateRange.startDate} – ${statistics.dateRange.endDate}`;
 
   return (
-    <Shell active="Statistics" title="Task Performance" subtitle={`Planner and Focus details · ${selectedRangeLabel}`}>
-      <View style={{ gap: 16, paddingBottom: 24 }}>
+    <Shell
+      active="Statistics"
+      title="Task Performance"
+      subtitle={`Planner and Focus details · ${selectedRangeLabel}`}
+    >
+      <SSDSStack gap={16} style={{ paddingBottom: 24 }}>
         {!loaded ? (
-          <Card><Txt size={14} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 24 }}>Loading task performance…</Txt></Card>
+          <SSDSSurface variant="outlined" padding={16}>
+            <SSDSText
+              variant="BodySecondary"
+              align="center"
+              style={{ paddingVertical: 24 }}
+            >
+              Loading task performance…
+            </SSDSText>
+          </SSDSSurface>
         ) : loadError ? (
-          <EmptyState icon="warning-outline" title="Task performance unavailable" body={loadError} />
+          <SSDSEmptyState
+            icon={AlertTriangle}
+            title="Task performance unavailable"
+            description={loadError}
+          />
         ) : (
           <>
-            <Card>
-              <SectionHeader title="Task Performance" icon="list-outline" />
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <SSDSSurface variant="outlined" padding={16}>
+              <SSDSSectionHeader title="Task Performance" icon={List} compact />
+              <SSDSRow wrap="wrap" gap={8}>
                 {(['all', 'completed', 'pending'] as TaskFilter[]).map((item) => (
-                  <Chip key={item} label={item === 'all' ? 'All' : item === 'completed' ? 'Completed' : 'Pending'} active={filter === item} onPress={() => setFilter(item)} />
+                  <SSDSButton
+                    key={item}
+                    size="small"
+                    variant={filter === item ? 'primary' : 'outline'}
+                    onPress={() => setFilter(item)}
+                  >
+                    {item === 'all' ? 'All' : item === 'completed' ? 'Completed' : 'Pending'}
+                  </SSDSButton>
                 ))}
-              </View>
+              </SSDSRow>
               {subjects.length > 0 ? (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                  <Chip label="All subjects" active={subjectFilter === 'All subjects'} onPress={() => setSubjectFilter('All subjects')} />
-                  {subjects.map((subject) => <Chip key={subject} label={subject} active={subjectFilter === subject} onPress={() => setSubjectFilter(subject)} />)}
-                </View>
+                <SSDSRow wrap="wrap" gap={8} style={{ marginTop: 10 }}>
+                  <SSDSButton
+                    size="small"
+                    variant={subjectFilter === 'All subjects' ? 'primary' : 'outline'}
+                    onPress={() => setSubjectFilter('All subjects')}
+                  >
+                    All subjects
+                  </SSDSButton>
+                  {subjects.map((subject) => (
+                    <SSDSButton
+                      key={subject}
+                      size="small"
+                      variant={subjectFilter === subject ? 'primary' : 'outline'}
+                      onPress={() => setSubjectFilter(subject)}
+                    >
+                      {subject}
+                    </SSDSButton>
+                  ))}
+                </SSDSRow>
               ) : null}
-              <Txt size={11.5} color={colors.textFaint} style={{ marginTop: 10 }}>Selected period: {selectedRangeLabel}</Txt>
-            </Card>
+              <SSDSText
+                variant="Caption"
+                color="textTertiary"
+                style={{ marginTop: 10 }}
+              >
+                Selected period: {selectedRangeLabel}
+              </SSDSText>
+            </SSDSSurface>
 
-            <Card>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <SSDSSurface variant="outlined" padding={16}>
+              <SSDSRow wrap="wrap" gap={10}>
                 {[
                   ['Total tasks', statistics.tasks.filter((task) => !task.historical).length],
                   ['Completed', statistics.overall.completedTaskCount],
                   ['Pending', statistics.overall.pendingTaskCount],
-                  ['Completion', statistics.overall.taskCompletionPercentage === null ? '—' : `${Math.round(statistics.overall.taskCompletionPercentage)}%`],
+                  [
+                    'Completion',
+                    statistics.overall.taskCompletionPercentage === null
+                      ? '—'
+                      : `${Math.round(statistics.overall.taskCompletionPercentage)}%`,
+                  ],
                 ].map(([label, value]) => (
                   <View
                     key={String(label)}
@@ -147,76 +217,183 @@ export default function TaskPerformanceScreen() {
                       padding: 14,
                       borderRadius: 16,
                       borderWidth: 1,
-                      borderColor: colors.borderSubtle,
-                      backgroundColor: colors.surfaceAlt,
+                      borderColor: tokens.colors.borderSubtle,
+                      backgroundColor: tokens.colors.surfaceSecondary,
                     }}
                   >
-                    <Txt size={11.5} color={colors.textMuted}>{String(label)}</Txt>
-                    <Txt size={21} weight="800" display style={{ marginTop: 3 }}>{String(value)}</Txt>
+                    <SSDSText variant="StatisticLabel">{String(label)}</SSDSText>
+                    <SSDSText variant="StatisticValue" style={{ marginTop: 3 }}>
+                      {String(value)}
+                    </SSDSText>
                   </View>
                 ))}
-              </View>
-            </Card>
+              </SSDSRow>
+            </SSDSSurface>
 
-            {visibleTasks.length ? visibleTasks.map((task) => {
-              const key = `${task.historical ? 'historical-' : ''}${task.taskId}-${task.scheduledDate}`;
-              const status = task.completed === null ? 'Historical' : task.completed ? 'Completed' : 'Pending';
-              return (
-                <Pressable key={key} onPress={() => setSelectedTaskKey(key)} accessibilityRole="button" accessibilityLabel={`View details for ${task.title}`}>
-                  <Card style={{ padding: 14 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                      <View style={{ flex: 1, gap: 3 }}>
-                        <Txt size={14} weight="800" numberOfLines={2}>{task.title}</Txt>
-                        <Txt size={12} color={colors.textMuted}>{task.category}{task.historical ? ' · historical' : ''}</Txt>
-                      </View>
-                      <Txt size={11.5} weight="800" color={task.completed === true ? colors.success : colors.textMuted}>{status}</Txt>
-                      <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
-                    </View>
-                    <Txt size={12} color={colors.textMuted} style={{ marginTop: 9 }}>
-                      {formatDuration(task.plannedMinutes)} planned · {formatDuration(task.actualMinutes)} actual · {formatDuration(task.remainingMinutes)} remaining · {task.focusSessionCount} session{task.focusSessionCount === 1 ? '' : 's'}
-                    </Txt>
-                    {task.completed === true && task.completionDate ? <Txt size={11} color={colors.textFaint} style={{ marginTop: 5 }}>Completed on {task.completionDate}</Txt> : null}
-                  </Card>
-                </Pressable>
-              );
-            }) : <Card><Txt size={13} color={colors.textMuted} style={{ textAlign: 'center', paddingVertical: 18 }}>No tasks match the selected filters.</Txt></Card>}
+            {visibleTasks.length ? (
+              visibleTasks.map((task) => {
+                const key = `${task.historical ? 'historical-' : ''}${task.taskId}-${task.scheduledDate}`;
+                const status =
+                  task.completed === null
+                    ? 'Historical'
+                    : task.completed
+                      ? 'Completed'
+                      : 'Pending';
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => setSelectedTaskKey(key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View details for ${task.title}`}
+                  >
+                    <SSDSSurface variant="outlined" padding={14}>
+                      <SSDSRow align="flex-start" gap={10}>
+                        <View style={{ flex: 1, gap: 3 }}>
+                          <SSDSText variant="CardTitle" maxLines={2}>
+                            {task.title}
+                          </SSDSText>
+                          <SSDSText variant="Caption">
+                            {task.category}
+                            {task.historical ? ' · historical' : ''}
+                          </SSDSText>
+                        </View>
+                        <SSDSText
+                          variant="Caption"
+                          color={task.completed === true ? 'success' : 'textSecondary'}
+                        >
+                          {status}
+                        </SSDSText>
+                        <SSDSIcon icon={ChevronRight} size={17} color="textTertiary" />
+                      </SSDSRow>
+                      <SSDSText variant="Caption" style={{ marginTop: 9 }}>
+                        {formatDuration(task.plannedMinutes)} planned ·{' '}
+                        {formatDuration(task.actualMinutes)} actual ·{' '}
+                        {formatDuration(task.remainingMinutes)} remaining ·{' '}
+                        {task.focusSessionCount} session
+                        {task.focusSessionCount === 1 ? '' : 's'}
+                      </SSDSText>
+                      {task.completed === true && task.completionDate ? (
+                        <SSDSText
+                          variant="Caption"
+                          color="textTertiary"
+                          style={{ marginTop: 5 }}
+                        >
+                          Completed on {task.completionDate}
+                        </SSDSText>
+                      ) : null}
+                    </SSDSSurface>
+                  </Pressable>
+                );
+              })
+            ) : (
+              <SSDSSurface variant="outlined" padding={16}>
+                <SSDSText
+                  variant="BodySecondary"
+                  align="center"
+                  style={{ paddingVertical: 18 }}
+                >
+                  No tasks match the selected filters.
+                </SSDSText>
+              </SSDSSurface>
+            )}
           </>
         )}
-      </View>
+      </SSDSStack>
 
-      <Modal visible={Boolean(selectedTask)} transparent animationType="slide" onRequestClose={() => setSelectedTaskKey(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.overlay }}>
-          <ScrollView style={{ maxHeight: '82%' }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}>
-            <Card style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, gap: 14 }}>
-              {selectedTask ? <>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Txt size={18} weight="800" display>{selectedTask.title}</Txt>
-                  <Txt size={12.5} color={colors.textMuted} style={{ marginTop: 3 }}>{selectedTask.category} · {selectedTask.scheduledDate}</Txt>
-                </View>
-                <Pressable onPress={() => setSelectedTaskKey(null)} accessibilityRole="button" accessibilityLabel="Close task details">
-                  <Ionicons name="close-circle-outline" size={26} color={colors.textMuted} />
-                </Pressable>
-              </View>
-              <View style={{ gap: 7 }}>
-                <Txt size={13} color={colors.textMuted}>Planned: {formatDuration(selectedTask.plannedMinutes)}</Txt>
-                <Txt size={13} color={colors.textMuted}>Actual: {formatDuration(selectedTask.actualMinutes)}</Txt>
-                <Txt size={13} color={colors.textMuted}>Remaining: {formatDuration(selectedTask.remainingMinutes)}</Txt>
-                <Txt size={13} color={colors.textMuted}>Focus sessions: {selectedTask.focusSessionCount}</Txt>
-              </View>
-              <SectionHeader title="Related Focus Sessions" icon="timer-outline" />
-              {selectedSessions.length ? selectedSessions.map((session) => (
-                <View key={session.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <View style={{ flex: 1 }}>
-                    <Txt size={12.5} weight="700" numberOfLines={1}>{session.topic || 'Focus session'}</Txt>
-                    <Txt size={11} color={colors.textMuted}>{session.dateKey} · {session.id}</Txt>
-                  </View>
-                  <Txt size={12} weight="800" color={colors.teal}>{formatDuration(session.actualSeconds / 60)}</Txt>
-                </View>
-              )) : <Txt size={13} color={colors.textMuted}>No related Focus sessions in this period.</Txt>}
-              <Button label="Close" variant="outline" full onPress={() => setSelectedTaskKey(null)} />
-              </> : null}
-            </Card>
+      <Modal
+        visible={Boolean(selectedTask)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedTaskKey(null)}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'flex-end',
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+          }}
+        >
+          <ScrollView
+            style={{ maxHeight: '82%' }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}
+          >
+            <SSDSSurface
+              variant="elevated"
+              padding={20}
+              style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
+            >
+              {selectedTask ? (
+                <SSDSStack gap={14}>
+                  <SSDSRow align="flex-start" gap={10}>
+                    <View style={{ flex: 1 }}>
+                      <SSDSText variant="SectionTitle">{selectedTask.title}</SSDSText>
+                      <SSDSText variant="Caption" style={{ marginTop: 3 }}>
+                        {selectedTask.category} · {selectedTask.scheduledDate}
+                      </SSDSText>
+                    </View>
+                    <Pressable
+                      onPress={() => setSelectedTaskKey(null)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close task details"
+                    >
+                      <SSDSIcon icon={XCircle} size={26} color="textSecondary" />
+                    </Pressable>
+                  </SSDSRow>
+                  <SSDSStack gap={7}>
+                    <SSDSText variant="BodySecondary">
+                      Planned: {formatDuration(selectedTask.plannedMinutes)}
+                    </SSDSText>
+                    <SSDSText variant="BodySecondary">
+                      Actual: {formatDuration(selectedTask.actualMinutes)}
+                    </SSDSText>
+                    <SSDSText variant="BodySecondary">
+                      Remaining: {formatDuration(selectedTask.remainingMinutes)}
+                    </SSDSText>
+                    <SSDSText variant="BodySecondary">
+                      Focus sessions: {selectedTask.focusSessionCount}
+                    </SSDSText>
+                  </SSDSStack>
+                  <SSDSSectionHeader title="Related Focus Sessions" icon={Timer} compact />
+                  {selectedSessions.length ? (
+                    selectedSessions.map((session) => (
+                      <SSDSRow
+                        key={session.id}
+                        justify="space-between"
+                        gap={10}
+                        style={{
+                          paddingVertical: 8,
+                          borderBottomWidth: 1,
+                          borderBottomColor: tokens.colors.border,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <SSDSText variant="CardTitle" truncate>
+                            {session.topic || 'Focus session'}
+                          </SSDSText>
+                          <SSDSText variant="Caption">
+                            {session.dateKey} · {session.id}
+                          </SSDSText>
+                        </View>
+                        <SSDSText variant="ButtonLabel" color="secondary">
+                          {formatDuration(session.actualSeconds / 60)}
+                        </SSDSText>
+                      </SSDSRow>
+                    ))
+                  ) : (
+                    <SSDSText variant="BodySecondary">
+                      No related Focus sessions in this period.
+                    </SSDSText>
+                  )}
+                  <SSDSButton
+                    variant="outline"
+                    fullWidth
+                    onPress={() => setSelectedTaskKey(null)}
+                  >
+                    Close
+                  </SSDSButton>
+                </SSDSStack>
+              ) : null}
+            </SSDSSurface>
           </ScrollView>
         </View>
       </Modal>

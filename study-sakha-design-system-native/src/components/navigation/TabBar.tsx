@@ -54,6 +54,7 @@ export function TabBar({
     >
       <ScrollView
         horizontal
+        accessibilityRole="tablist"
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={[
           styles.row,
@@ -99,6 +100,7 @@ export function TabBar({
               <Text
                 variant="BodySecondary"
                 color={active ? 'primary' : 'textSecondary'}
+                truncate
                 style={{ fontWeight: active ? '600' : '500' }}
               >
                 {tab.label}
@@ -125,6 +127,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    minHeight: 40,
+    minHeight: 44,
   },
 });

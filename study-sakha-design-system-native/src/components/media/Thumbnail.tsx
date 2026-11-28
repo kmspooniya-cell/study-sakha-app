@@ -3,7 +3,7 @@
  * File: src/components/media/Thumbnail.tsx
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   ImageSourcePropType,
@@ -43,6 +43,19 @@ export function Thumbnail({
   const { tokens } = useTheme();
   const [imgError, setImgError] = useState(false);
 
+  const sourceKey =
+    typeof source === 'number'
+      ? source
+      : source && !Array.isArray(source) && 'uri' in source
+      ? source.uri
+      : Array.isArray(source)
+      ? source.map((s) => s.uri ?? '').join('|')
+      : null;
+
+  useEffect(() => {
+    setImgError((prev) => (prev ? false : prev));
+  }, [sourceKey]);
+
   if (loading) {
     return <Skeleton height={110} radius="md" style={style} />;
   }
@@ -51,9 +64,7 @@ export function Thumbnail({
 
   if (source && !isBroken) {
     return (
-      <Image
-        source={source}
-        onError={() => setImgError(true)}
+      <View
         style={[
           {
             width: '100%',
@@ -61,11 +72,18 @@ export function Thumbnail({
             borderRadius: tokens.radius.md,
             borderWidth: 1,
             borderColor: tokens.colors.border,
+            overflow: 'hidden',
           },
-          style as never,
+          style,
         ]}
-        resizeMode="cover"
-      />
+      >
+        <Image
+          source={source}
+          onError={() => setImgError(true)}
+          style={styles.imageFill}
+          resizeMode="cover"
+        />
+      </View>
     );
   }
 
@@ -107,6 +125,10 @@ export function Thumbnail({
 }
 
 const styles = StyleSheet.create({
+  imageFill: {
+    width: '100%',
+    height: '100%',
+  },
   placeholder: {
     width: '100%',
     borderWidth: 1,

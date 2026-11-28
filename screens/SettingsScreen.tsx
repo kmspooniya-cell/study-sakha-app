@@ -64,7 +64,7 @@ interface ColorPalette {
 }
 
 const ACCENT_PALETTES: Record<string, ColorPalette> = {
-  indigo:  { name: 'Scholar Indigo', hi: 'इंडिगो',  50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+  indigo:  { name: 'Study Sakha Blue', hi: 'सखा नीला', 50: '#EBF1FA', 100: '#D6E3F5', 500: '#3D649E', 600: '#2B4C7E', 700: '#1E375C' },
   emerald: { name: 'Forest Sage',    hi: 'एमरल्ड',  50: '#ecfdf5', 100: '#d1fae5', 500: '#10b981', 600: '#059669', 700: '#047857' },
   amber:   { name: 'Saffron Gold',   hi: 'केसरिया', 50: '#fffbeb', 100: '#fef3c7', 500: '#f59e0b', 600: '#d97706', 700: '#b45309' },
   rose:    { name: 'Crimson Ink',    hi: 'रोज़',    50: '#fff1f2', 100: '#ffe4e6', 500: '#f43f5e', 600: '#e11d48', 700: '#be123c' },
@@ -240,7 +240,7 @@ function getDefaultSettings(user?: User | null) {
     appearance: {
       theme: 'system' as 'light' | 'dark' | 'system',
       accentColor: 'indigo',
-      customBrandHex: '#4f46e5',
+      customBrandHex: '#2B4C7E',
       useCustomHex: false,
       tintedSurfaces: true,
       backgroundId: 'none',
@@ -531,7 +531,7 @@ export function SettingsScreen() {
   // Local Form States for Level 3 Screens & Modals
   const [profileForm, setProfileForm] = useState({ name: '', email: '', state: '', attemptYear: '', bio: '' });
   const [pwForm, setPwForm] = useState({ cur: '', nw: '' });
-  const [hexDraft, setHexDraft] = useState('#4f46e5');
+  const [hexDraft, setHexDraft] = useState('#2B4C7E');
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
   const [feedbackModal, setFeedbackModal] = useState<{ visible: boolean; kind: 'feedback' | 'bug'; text: string }>({
     visible: false,
@@ -574,7 +574,7 @@ export function SettingsScreen() {
           const parsed = JSON.parse(stored);
           const merged = normalizeSettingsState(deepMerge(getDefaultSettings(state.user), parsed));
           setSettings(merged);
-          setHexDraft(merged.appearance.customBrandHex || '#4f46e5');
+          setHexDraft(merged.appearance.customBrandHex || '#2B4C7E');
         }
       } catch (e) {
         console.warn('Could not load settings from AsyncStorage:', e);
@@ -2153,7 +2153,7 @@ export function SettingsScreen() {
                   <TextInput
                     value={hexDraft}
                     onChangeText={setHexDraft}
-                    placeholder="#4f46e5"
+                    placeholder="#2B4C7E"
                     placeholderTextColor={colors.textMuted}
                     autoCapitalize="none"
                     style={[styles.inlineInput, { color: colors.text, backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
@@ -2161,7 +2161,7 @@ export function SettingsScreen() {
                   <TouchableOpacity
                     onPress={() => {
                       if (!/^#[0-9A-Fa-f]{6}$/.test(hexDraft)) {
-                        showToast(t('Enter a valid 6-digit hex color (e.g. #4f46e5)', 'मान्य हेक्स रंग दर्ज करें'), 'error');
+                        showToast(t('Enter a valid 6-digit hex color (e.g. #2B4C7E)', 'मान्य हेक्स रंग दर्ज करें'), 'error');
                         return;
                       }
                       mutateSettings(

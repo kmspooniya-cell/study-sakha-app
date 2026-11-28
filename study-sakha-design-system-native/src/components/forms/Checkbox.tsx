@@ -32,7 +32,7 @@ export function Checkbox({
     <Pressable
       disabled={disabled}
       onPress={() => !disabled && onChange?.(!checked)}
-      hitSlop={6}
+      hitSlop={12}
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled }}
@@ -72,6 +72,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
+    minHeight: 44,
+    paddingVertical: 4,
   },
   box: {
     width: 20,

@@ -1,5 +1,9 @@
 # Architectural Decisions — Study Sakha
 
+## DEC-018 — 2026-11-28 — Authoritative Blue–Teal–Amber Brand Palette (`#2B4C7E` / `#2E6F6B` / `#B87314`)
+- `study-sakha-design-system-native/src/theme/tokens/colors.ts` (`classic` / `BASE_LIGHT_COLORS` / `BASE_DARK_COLORS`) is the single source of truth for the default Study Sakha brand palette (`#2B4C7E` light primary, `#6B9CE8` dark primary, `#2E6F6B` / `#4FB0A8` secondary, `#B87314` / `#E09F3E` accent, `#F7F8FA` / `#0D1117` background, `#FFFFFF` / `#161C26` surface, `#111827` / `#F1F5F9` textPrimary, `#E2E7EF` / `#263040` border).
+- Legacy `lib/theme.tsx`, `lib/ssdsThemeBridge.tsx`, `screens/DashboardScreen.tsx`, `screens/SettingsScreen.tsx`, and `components/Charts.tsx` align to these tokens while preserving `info` (`#1F639B` / `#5AA4E8`) independently of accent overrides and preserving user-selected `accentColor` and `customAccentHex`.
+
 ## DEC-017 — 2026-11-27 — Unified Notification Centre with additive Supabase tables & preserved Alarm Engine
 - Extend the existing `StoreProvider` (`lib/store.tsx`) and `lib/notifications/` with a centralized `NotificationRegistry`, `NotificationRouter`, `NotificationPreferences`, and `NotificationSync` offline queue rather than introducing a separate state library or Expo Router.
 - Add `public.notifications`, `public.notification_preferences`, and `public.push_tokens` in `202611270002_notification_centre_backend.sql` with strict `auth.uid()` RLS, keeping `public.announcements` (with additive columns) and leaving `public.alarm_notifications` and `study-sakha-alarm-engine` untouched.
@@ -61,3 +65,7 @@ Constraints: never execute arbitrary AI code; invalid actions degrade to normal 
 Supabase session verification, profile reads, and admin-role enrichment are separated into authoritative logout events versus retryable failures. A persisted session user keeps the StoreProvider authenticated during network/profile failures; only explicit `SIGNED_OUT` or classified invalid/expired/revoked token failures clear the user. Root navigation remains gated by the single StoreProvider state.
 
 Constraints: do not create a parallel auth provider, do not bypass RLS or Supabase verification, keep local manual logout immediate, and verify token-revocation behavior against the live Supabase project before final release sign-off.
+
+## DEC-016 — 2026-11-28 — Validate persisted collections at StoreProvider hydration
+
+Persisted AsyncStorage snapshots are untrusted input. The shared `hydrate` reducer normalizes explicit null/invalid collection fields to empty validated collections, while omitted fields retain current state for recovery paths. Screen-level optional chaining is not used as a substitute for state-shape validation.

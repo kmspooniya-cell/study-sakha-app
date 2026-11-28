@@ -89,10 +89,38 @@ describe('Study Planner status filters', () => {
     expect(view.queryByRole('button', { name: 'Upcoming' })).toBeNull();
   });
 
+  it('renders List view Month Navigation Card in exact order without Add Plan and preserves date-level + Add', () => {
+    const view = render(<StudyPlannerScreen />);
+    fireEvent.press(view.getByText('List'));
+
+    expect(view.queryByText('Add Plan')).toBeNull();
+    expect(view.getAllByText('+ Add').length).toBeGreaterThan(0);
+
+    const prevBtn = view.getByLabelText('Previous month');
+    const nextBtn = view.getByLabelText('Next month');
+    const countText = view.getByText(/\d+ plans?/);
+    expect(prevBtn).toBeTruthy();
+    expect(nextBtn).toBeTruthy();
+    expect(countText).toBeTruthy();
+
+    const treeJson = JSON.stringify(view.toJSON());
+    const monthMatch = treeJson.match(/"(January|February|March|April|May|June|July|August|September|October|November|December)"/);
+    expect(monthMatch).not.toBeNull();
+    const monthIdx = treeJson.indexOf(monthMatch![0]);
+    const prevIdx = treeJson.indexOf('"Previous month"');
+    const nextIdx = treeJson.indexOf('"Next month"');
+    const countMatch = treeJson.match(/"plans?"/);
+    expect(countMatch).not.toBeNull();
+    const countIdx = treeJson.indexOf(countMatch![0]);
+    expect(monthIdx).toBeLessThan(prevIdx);
+    expect(prevIdx).toBeLessThan(nextIdx);
+    expect(nextIdx).toBeLessThan(countIdx);
+  });
+
   it('does not render a planned-focus duration control in Task, Class, or Activity forms', () => {
     const view = render(<StudyPlannerScreen />);
     fireEvent.press(view.getByText('List'));
-    fireEvent.press(view.getByText('Add Plan'));
+    fireEvent.press(view.getAllByText('+ Add')[0]);
 
     expect(view.getByText('New Task')).toBeTruthy();
     expect(view.queryByText('PLANNED FOCUS DURATION')).toBeNull();

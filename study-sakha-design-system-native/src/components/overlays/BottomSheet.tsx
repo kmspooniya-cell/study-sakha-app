@@ -34,9 +34,14 @@ export function BottomSheet({
       animationType={tokens.motion.reducedMotion ? 'none' : 'slide'}
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable
+        style={styles.backdrop}
+        onPress={onClose}
+        accessible={false}
+      >
         <Pressable
           onPress={() => undefined}
+          accessibilityViewIsModal
           style={[
             styles.sheet,
             tokens.shadows.elevation5,

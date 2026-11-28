@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react-native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Text } from '../foundation/Text';
@@ -50,9 +50,14 @@ export function Dialog({
       animationType={tokens.motion.reducedMotion ? 'none' : 'fade'}
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable
+        style={styles.backdrop}
+        onPress={onClose}
+        accessible={false}
+      >
         <Pressable
           onPress={() => undefined}
+          accessibilityViewIsModal
           style={[
             styles.card,
             tokens.shadows.elevation5,
@@ -85,13 +90,21 @@ export function Dialog({
             />
           </View>
 
-          {!!description && (
-            <Text variant="BodySecondary" style={styles.description}>
-              {description}
-            </Text>
-          )}
+          {(!!description || !!children) && (
+            <ScrollView
+              style={styles.scrollBody}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {!!description && (
+                <Text variant="BodySecondary" style={styles.description}>
+                  {description}
+                </Text>
+              )}
 
-          {!!children && <View style={styles.body}>{children}</View>}
+              {!!children && <View style={styles.body}>{children}</View>}
+            </ScrollView>
+          )}
 
           {(primaryAction || secondaryAction) && (
             <View style={styles.footer}>
@@ -132,8 +145,12 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
+    maxHeight: '85%',
     borderWidth: 1,
     padding: 20,
+  },
+  scrollBody: {
+    flexShrink: 1,
   },
   headerRow: {
     flexDirection: 'row',
@@ -158,6 +175,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     gap: 8,
     marginTop: 20,
